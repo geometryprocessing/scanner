@@ -1,0 +1,10 @@
+data
+
+__pycache__
+
+tmp*
+.env
+
+
+# MacOS
+.DS_Store

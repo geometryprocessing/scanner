@@ -1,0 +1,6 @@
+matplotlib==3.8.4
+numpy==1.26.4
+opencv_contrib_python==4.5.5.64
+
+## structured light codebase for generating and decoding patterns
+git+https://github.com/elerac/structuredlight

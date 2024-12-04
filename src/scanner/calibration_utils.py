@@ -4,6 +4,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+def get_open_cv_calibration_flags(model):
+    """
+    TODO: implement function to return specific OpenCV
+    calibration flags depending on camera/projector model.
+    Example: projector with no tangent distortion should set
+    flag cv2.CALIB_FIX_TANGENT_DIST
+    """
+    flags = 0
+
+
+
+    return flags
+
+
 CHARUCO_DICTIONARY_ENUM = {
     "4X4_50"   : cv2.aruco.DICT_4X4_50,
     "4X4_100"  : cv2.aruco.DICT_4X4_100,
@@ -58,7 +72,16 @@ class CheckerBoard:
         self.m=m
         self.n=n
         self.checker_size=checker_size
+
+        self.object_points = self.create_object_points()
+            
+        self.ids = np.arange(self.n*self.m)
         
+    def create_object_points(self):
+        obj_points = np.zeros((self.n * self.m, 3), np.float32)
+        obj_points[:, :2] = np.mgrid[0:self.n, 0:self.m].T.reshape(-1, 2) * self.checker_size
+        return obj_points
+    
     def detect_markers(self, image):
         """
         Detect checkerboard markers on grayscale image.
@@ -92,25 +115,30 @@ class CheckerBoard:
 
         if corners is not None:
             img_points = corners.reshape((self.m, self.n, 2))
-            obj_points = np.zeros((self.n * self.m, 3), np.float32)
-            obj_points[:, :2] = np.mgrid[0:self.n, 0:self.m].T.reshape(-1, 2) * self.checker_size
-            ids = np.arange(self.n*self.m)
+            obj_points = self.object_points
+            ids = self.ids
         else:
-            img_points, obj_points, ids = None, None, None
+            img_points, obj_points, ids = [], [], []
 
         return img_points, obj_points, ids
 
 
 class Charuco:
-    def __init__(self, m=None, n=None, checker_size=None, dictionary=None, board_config=None):
+    def __init__(self,
+                 num_horz=None,
+                 num_verz=None,
+                 checker_size=None,
+                 marker_size=None,
+                 dictionary=None,
+                 board_config=None):
         """
         Initialize ChArUco object for marker detection.
 
         Parameters
         ----------
-        m : int, optional
+        num_horz : int, optional
             Number of markers horizontally.
-        n : int, optional
+        num_vert : int, optional
             Number of markers vertically.
         checker_size : int, optional
             Size (in millimeters) of marker.
@@ -120,19 +148,21 @@ class Charuco:
             Dictionary containing m, n, checker_size, and dictionary.
         """
         if board_config:
-            m = board_config["m"]
-            n = board_config["n"]
+            num_horz = board_config["num_horz"]
+            num_vez = board_config["num_verz"]
             checker_size = board_config["checker_size"]
+            marker_size = board_config["marker_size"]
             dictionary = board_config["dictionary"]
 
-        self.m=m
-        self.n=n
+        self.m=num_horz
+        self.n=num_verz
         self.checker_size=checker_size
+        self.marker_size=marker_size
         
         self.aruco_dict = cv2.aruco.Dictionary_get(CHARUCO_DICTIONARY_ENUM[dictionary])
         self.charuco_board = cv2.aruco.CharucoBoard_create(self.n, self.m,
                                               self.checker_size,
-                                              self.checker_size * 12 / 15,
+                                              self.marker_size,
                                               self.aruco_dict)
         
     def detect_markers(self, image):
@@ -164,26 +194,117 @@ class Charuco:
         if len(m_pos) > 0:
             count, c_pos, c_ids = cv2.aruco.interpolateCornersCharuco(m_pos, m_ids, image, self.charuco_board)
         else:
-            count, c_pos, c_ids = 0, None, None
+            count, c_pos, c_ids = 0, [], []
 
         if count:
             img_points = np.array(c_pos).reshape((-1, 2))
             obj_points  = self.charuco_board.chessboardCorners[c_ids].reshape((-1, 3))
             ids = c_ids.ravel()
         else:
-            img_points, obj_points, ids = None, None, None
+            img_points, obj_points, ids = [], [], []
 
         return img_points, obj_points, ids
 
 class Calibration:
     # TODO: implement function calls for OpenCV fisheye
+
     @staticmethod
     def calibrate_intrinsic(object_points: list,
                             image_points: list,
-                            image_shape: tuple,
-                            K=None,
-                            dist_coeffs=None
+                            image_shape: tuple
                             ) -> dict:
+        """
+        TODO: explain function
+
+        Parameters
+        ----------
+        object_points : array_like
+            Array of 3D world coordinates.
+        image_points : array_like
+            Array of 2D image coordinates.
+        image_shape : tuple
+            (width, height) of images
+
+        Returns
+        -------
+        dict
+            Dictionary containing
+            {
+                'K': 3x3 intrinsic matrix,
+                'dist_coeffs': distortion coefficients,
+                'rvecs': , 
+                'tvecs': 
+            }
+        """
+
+        retval, cameraMatrix, distCoeffs, = \
+            cv2.initCameraMatrix2D(object_points, image_points, image_shape)
+        
+        if not retval:
+            raise RuntimeError("Intrinsic calibration failed")
+
+        return {
+            'K': cameraMatrix,
+            'dist_coeffs': distCoeffs,
+        }
+
+
+    @staticmethod
+    def calibrate(object_points: list,
+                  image_points: list,
+                  image_shape: tuple,
+                  K=None,
+                  dist_coeffs=None
+                  ) -> dict:
+        """
+        TODO: explain function
+
+        Parameters
+        ----------
+        object_points : array_like
+            Array of 3D world coordinates.
+        image_points : array_like
+            Array of 2D image coordinates.
+        image_shape : tuple
+            (width, height) of images
+        K : array_like, optional
+            3x3 intrinsic matrix. Default is None, i.e. 
+            call to OpenCV will not use any initial guess.
+        dist_coeffs : array_like, optional
+            Distortion coefficients. Default is None, i.e. 
+            call to OpenCV will not use any initial guess.
+
+        Returns
+        -------
+        dict
+            Dictionary containing
+            {
+                'K': 3x3 intrinsic matrix,
+                'dist_coeffs': distortion coefficients,
+                'rvecs': , 
+                'tvecs': 
+            }
+        """
+        retval, cameraMatrix, distCoeffs, rvecs, tvecs = \
+            cv2.calibrateCamera(object_points, image_points, image_shape, K, dist_coeffs)
+        
+        if not retval:
+            raise RuntimeError("Calibration failed")
+
+        return {
+            'K': cameraMatrix,
+            'dist_coeffs': distCoeffs,
+            'rvecs': rvecs,
+            'tvecs': tvecs,
+        }
+    
+    @staticmethod
+    def calibrate_extended(object_points: list,
+                           image_points: list,
+                           image_shape: tuple,
+                           K=None,
+                           dist_coeffs=None
+                           ) -> dict:
         """
         TODO: explain function
 
@@ -217,14 +338,14 @@ class Calibration:
             cv2.calibrateCameraExtended(object_points, image_points, image_shape, K, dist_coeffs)
         
         if not retval:
-            raise RuntimeError("Intrinsic calibration failed")
+            raise RuntimeError("Extended calibration failed")
 
         return {
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
             'rvecs': rvecs,
             'tvecs': tvecs,
-            'errors': perViewErrors
+            'perViewErrors': perViewErrors
         }
         
     @staticmethod
@@ -270,8 +391,8 @@ class Calibration:
     @staticmethod
     def reprojection_error(object_points: list,
                            image_points: list,
-                           rvecs: np.ndarray,
-                           tvecs: np.ndarray,
+                           rvec: np.ndarray,
+                           tvec: np.ndarray,
                            K: np.ndarray, 
                            dist_coeffs: np.ndarray
                            ) -> np.ndarray:
@@ -303,7 +424,7 @@ class Calibration:
         assert len(object_points)==len(image_points), \
             "Number of 3D world coordinates must equal number of 2D image coordinates"
         reprojected_points, _ = \
-            cv2.projectPoints(object_points, rvecs, tvecs, K, dist_coeffs)
+            cv2.projectPoints(object_points, rvec, tvec, K, dist_coeffs)
         
         reprojected_points = reprojected_points.reshape((object_points.shape[0], 2))
         errors = np.linalg.norm(image_points - reprojected_points, axis=1)
@@ -414,7 +535,7 @@ class Calibration:
         """
         retval, _, _, _, _, R, T, E, F = \
             cv2.stereoCalibrate(object_points, image_points_1, image_points_2,
-                                K_1, dist_coeffs_1, K_2, dist_coeffs_2, None)
+                                K_1, dist_coeffs_1, K_2, dist_coeffs_2)
 
         if not retval:
             raise RuntimeError("Stereo calibration failed")

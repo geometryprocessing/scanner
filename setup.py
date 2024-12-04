@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 from pathlib import Path
 
 setup(
-    name="scanner",
+    name="3d-scanner",
     version="0.0.1",
     authors="Giancarlo Pereira and Yidan Gao",
     author_email="giancarlo.pereira@nyu.edu",
@@ -10,7 +10,10 @@ setup(
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     keywords=[
-        "scanner"
+        "scanner",
+        "3d scanner",
+        "3d reconstruction",
+        "3d scanning"
     ],
     url="https://github.com/geometryprocessing/scanner",
     packages=find_packages(),

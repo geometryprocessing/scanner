@@ -4,19 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-def get_open_cv_calibration_flags(model):
-    """
-    TODO: implement function to return specific OpenCV
-    calibration flags depending on camera/projector model.
-    Example: projector with no tangent distortion should set
-    flag cv2.CALIB_FIX_TANGENT_DIST
-    """
-    flags = 0
-
-
-
-    return flags
-
 
 CHARUCO_DICTIONARY_ENUM = {
     "4X4_50"   : cv2.aruco.DICT_4X4_50,
@@ -49,38 +36,41 @@ CHARUCO_DICTIONARY_ENUM = {
 
 
 class CheckerBoard:
-    def __init__(self, m=None, n=None, checker_size=None, board_config=None):
+    def __init__(self, rows=None, columns=None, checker_size=None, board_config=None):
         """
         Initialize checkerboard object for corner detection.
 
         Parameters
         ----------
-        m : int, optional
-            Number of squares horizontally.
-        n : int, optional
-            Number of squares vertically.
+        rows : int, optional
+            Number of rows of board.
+        columns : int, optional
+            Number of columns of board.
         checker_size : int, optional
             Size (in millimeters) of square.
         board_config : dict, optional
             Dictionary containing m, n, checker_size.
         """
         if board_config:
-            m = board_config["m"]
-            n = board_config["n"]
+            rows = board_config["rows"]
+            columns = board_config["columns"]
             checker_size = board_config["checker_size"]
 
-        self.m=m
-        self.n=n
+        self.rows=rows
+        self.columns=columns
         self.checker_size=checker_size
 
         self.object_points = self.create_object_points()
             
-        self.ids = np.arange(self.n*self.m)
+        self.ids = np.arange(self.rows*self.columns)
         
     def create_object_points(self):
-        obj_points = np.zeros((self.n * self.m, 3), np.float32)
-        obj_points[:, :2] = np.mgrid[0:self.n, 0:self.m].T.reshape(-1, 2) * self.checker_size
+        obj_points = np.zeros((self.rows * self.columns, 3), np.float32)
+        obj_points[:, :2] = np.mgrid[0:self.rows, 0:self.columns].T.reshape(-1, 2) * self.checker_size
         return obj_points
+
+    def create_image(self, resolution: tuple):
+        pass
     
     def detect_markers(self, image):
         """
@@ -105,16 +95,16 @@ class CheckerBoard:
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        ret, corners = cv2.findChessboardCorners(image, (self.n, self.m))
+        ret, corners = cv2.findChessboardCorners(image, (self.rows, self.columns))
 
         if ret:
             criteria = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 0.001)
-            corners = cv2.cornerSubPix(image, corners, (self.n, self.m), (-1, -1), criteria)
+            corners = cv2.cornerSubPix(image, corners, (self.rows, self.columns), (-1, -1), criteria)
         else:
             corners = None
 
         if corners is not None:
-            img_points = corners.reshape((self.m, self.n, 2))
+            img_points = corners.reshape((self.columns, self.rows, 2))
             obj_points = self.object_points
             ids = self.ids
         else:
@@ -125,21 +115,21 @@ class CheckerBoard:
 
 class Charuco:
     def __init__(self,
-                 num_horz=None,
-                 num_verz=None,
-                 checker_size=None,
-                 marker_size=None,
-                 dictionary=None,
-                 board_config=None):
+                rows=None,
+                columns=None,
+                checker_size=None,
+                marker_size=None,
+                dictionary=None,
+                board_config=None):
         """
         Initialize ChArUco object for marker detection.
 
         Parameters
         ----------
-        num_horz : int, optional
-            Number of markers horizontally.
-        num_vert : int, optional
-            Number of markers vertically.
+        rows : int, optional
+            Number of rows of board.
+        columns : int, optional
+            Number of columns of board.
         checker_size : int, optional
             Size (in millimeters) of marker.
         dictionary : str, optional
@@ -148,22 +138,32 @@ class Charuco:
             Dictionary containing m, n, checker_size, and dictionary.
         """
         if board_config:
-            num_horz = board_config["num_horz"]
-            num_vez = board_config["num_verz"]
+            rows = board_config["rows"]
+            columns = board_config["columns"]
             checker_size = board_config["checker_size"]
             marker_size = board_config["marker_size"]
             dictionary = board_config["dictionary"]
 
-        self.m=num_horz
-        self.n=num_verz
+        self.rows=rows
+        self.columns=columns
         self.checker_size=checker_size
         self.marker_size=marker_size
         
         self.aruco_dict = cv2.aruco.Dictionary_get(CHARUCO_DICTIONARY_ENUM[dictionary])
-        self.charuco_board = cv2.aruco.CharucoBoard_create(self.n, self.m,
-                                              self.checker_size,
-                                              self.marker_size,
-                                              self.aruco_dict)
+        self.charuco_board = cv2.aruco.CharucoBoard_create(self.columns,
+                                                           self.rows,
+                                                           self.checker_size,
+                                                           self.marker_size,
+                                                           self.aruco_dict)
+    
+    def create_image(self, resolution: tuple):
+        return self.charuco_board.draw(resolution)
+    
+    def get_image_points(self, resolution: tuple, ids: list):
+        image = self.create_image(resolution)
+        img_points, _, _ = self.detect_markers(image)
+
+        return img_points[ids]
         
     def detect_markers(self, image):
         """
@@ -244,6 +244,7 @@ class Calibration:
             raise RuntimeError("Intrinsic calibration failed")
 
         return {
+            'retval': retval,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
         }
@@ -292,6 +293,7 @@ class Calibration:
             raise RuntimeError("Calibration failed")
 
         return {
+            'retval': retval,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
             'rvecs': rvecs,
@@ -336,11 +338,12 @@ class Calibration:
         """
         retval, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
             cv2.calibrateCameraExtended(object_points, image_points, image_shape, K, dist_coeffs)
-        
+
         if not retval:
             raise RuntimeError("Extended calibration failed")
 
         return {
+            'retval': retval,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
             'rvecs': rvecs,
@@ -478,6 +481,7 @@ class Calibration:
         T = np.matmul(R.T, -tvec)
         
         return {
+            'retval': retval,
             'rvec': rvec,
             'R': R,
             'tvec': tvec,
@@ -541,6 +545,7 @@ class Calibration:
             raise RuntimeError("Stereo calibration failed")
 
         return {
+            'retval': retval,
             'R': np.matmul(R_1,R),
             'T': np.matmul(R_1,T) + T_1
         }

@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from utils.file_io import save_json, load_json
 from scanner.calibration_utils import Calibration, Charuco, CheckerBoard
 
 class CameraModel(Enum):
@@ -27,6 +28,44 @@ class CameraModel(Enum):
         ThinPrismFisheyeCameraModel    = 11 # fx,fy,cx,cy, dist=k1,k2,p1,p2,k3,k4,sx1,sy1
         RadTanThinPrismFisheyeModel    = 12 # fx,fy,cx,cy, dist=k1, k2,k3,k4,k5,k6,p0,p1,s0,s1,s2,s3
 
+def get_open_cv_calibration_flags(model):
+    """
+    TODO: implement function to return specific OpenCV
+    calibration flags depending on camera/projector model.
+    Example: projector with no tangent distortion should set
+    flag cv2.CALIB_FIX_TANGENT_DIST
+    """
+    flags = 0
+    match model:
+        case CameraModel('SimplePinholeCameraModel'):
+            flags = 0
+        case CameraModel('PinholeCameraModel'):
+            flags = 0
+        case CameraModel('SimpleRadialCameraModel'):
+            flags = 0
+        case CameraModel('SimpleRadialFisheyeCameraModel'):
+            flags = 0
+        case CameraModel('RadialCameraModel'):
+            flags = cv2.CALIB_ZERO_TANGENT_DIST         
+        case CameraModel('RadialFisheyeCameraModel'):
+            flags = 0
+        case CameraModel('OpenCVCameraModel'):
+            flags = 0
+        case CameraModel('OpenCVFisheyeCameraModel'):
+            flags = 0
+        case CameraModel('FullOpenCVCameraModel'):
+            flags = cv2.CALIB_RATIONAL_MODEL
+        case CameraModel('FOVCameraModel'):
+            flags = 0
+        case CameraModel('ThinPrismFisheyeCameraModel'):
+            flags = 0
+        case CameraModel('RadTanThinPrismFisheyeModel'):
+            flags = 0
+        case _:
+            print("Unrecognized camera model, settings flags to zero")
+
+    return flags
+    
 class Camera:
     def __init__(self):
         self.model = "to-be-implemented" # this will be the CameraModel ENUM
@@ -54,8 +93,7 @@ class Camera:
         self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
         # calibration utils
         self.errors = []
-        self.charuco = None
-        self.checkerboard = None
+        self.calibration_pattern = None
         self.error_thr = 0
         self.min_points = 4
 
@@ -107,26 +145,23 @@ class Camera:
         if r.shape==(3,1) or r.shape==(1,3):
             r, _ = cv2.Rodrigues(r)
         self.R = r
-    def set_charuco(self, charuco: dict | Charuco):
+    def set_calibration_pattern(self, pattern: dict | Charuco | CheckerBoard):
         """
         Parameters
         ----------
-        charuco : dictionary | Charuco object
-            ChArUco board used for all camera calibration procedures.
+        pattern : dictionary | Charuco object | CheckerBoard object
+            Calibration pattern used for all camera calibration procedures.
+            Function only aceppts ChArUco and Checkerboard/Chessboard.
         """
-        if type(charuco) is dict:
-            charuco = Charuco(board_config=charuco)
-        self.charuco = charuco
-    def set_checkerboard(self, checker: dict | CheckerBoard):
-        """
-        Parameters
-        ----------
-        checker : dictionary | CheckerBoard object
-            Checker board used for camera calibration procedures.
-        """
-        if type(checker) is dict:
-            checker = CheckerBoard(board_config=checker)
-        self.checkerboard = checker
+        if type(pattern) is dict:
+            try: 
+                if pattern["type"] == "charuco":
+                    pattern = Charuco(board_config=pattern)
+                elif pattern["type"] == "checkerboard":
+                    pattern = CheckerBoard(board_config=pattern)
+            except:
+                pattern = Charuco(board_config=pattern)
+        self.calibration_pattern = pattern
     def set_intrinsic_image_paths(self, image_paths: list | str):
         """
         Parameters
@@ -255,8 +290,8 @@ class Camera:
         return self.T
     def get_rotation(self):
         return self.R
-    def get_charuco(self):
-        return self.charuco
+    def get_calibration_pattern(self):
+        return self.calibration_pattern
     def get_intrinsic_image_paths(self):
         return self.intrinsic_images
     def get_extrinsic_image_paths(self):
@@ -264,9 +299,9 @@ class Camera:
     def get_errors(self):
         return self.errors
     def get_per_view_error(self):
-        return np.mean(self.errors, axis=1)
+        return [float(np.mean(errors)) for errors in self.errors]
     def get_mean_error(self):
-        return float(np.mean(self.errors))
+        return float(np.mean(np.concatenate(self.errors)))
     def get_error_threshold(self):
         return self.error_thr
     def get_min_points(self):
@@ -279,7 +314,7 @@ class Camera:
         """
         Add markers (2D image coordinates and 3D world coordinates) for intrinsic calibration.
         """
-        assert self.charuco is not None, "No ChArUco Board defined"
+        assert self.calibration_pattern is not None, "No Calibration Pattern defined"
         assert len(self.intrinsic_images) > 0, "No intrinsic images defined"
 
         # Empty the list of image and object points before going through list 
@@ -287,7 +322,7 @@ class Camera:
         self.intrinsic_object_points = []
 
         for image_path in self.intrinsic_images:
-            img_points, obj_points, _ = self.charuco.detect_markers(image_path)
+            img_points, obj_points, _ = self.calibration_pattern.detect_markers(image_path)
 
             if len(img_points) < self.min_points:
                 self.discarded_images.add(image_path)
@@ -302,10 +337,10 @@ class Camera:
         """
         Add markers (2D image coordinates and 3D world coordinates) for extrinsic calibration.
         """
-        assert self.charuco is not None, "No ChArUco Board defined"
+        assert self.calibration_pattern is not None, "No Calibration Pattern defined"
         assert self.extrinsic_image is not None, "No extrinsic image defined"
 
-        img_points, obj_points, _ = self.charuco.detect_markers(self.extrinsic_image)
+        img_points, obj_points, _ = self.calibration_pattern.detect_markers(self.extrinsic_image)
 
         assert len(img_points) > self.min_points, "Not enough points for extrinsic calibration"
 
@@ -437,38 +472,28 @@ class Camera:
         """
         pass
         
-    def serialize(self):
-        """
-        TODO: allow user to save calibration without newK and roi.
-
-        Serialize calibration to write it into JSON dictionary format.
-        """
-        assert self.K is not None, "Camera has not been calibrated yet"
-        assert len(self.errors) > 0, "Camera has not been calibrated yet"
-        return {
-            "K": self.K.tolist(),
-            "dist_coeffs": self.dist_coeffs.tolist(),
-            "newK": self.newK.tolist(),
-            "roi": self.roi,
-            "R": self.R.tolist(),
-            "T": self.T.tolist(),
-            "height": self.height,
-            "width": self.width,
-            "error": self.get_mean_error(),
-            "error_threshold": self.error_thr
-        }
-
     def save_calibration(self, filename):
         """
         Save calibration into a JSON file.
         """
-        with open(filename, "w") as f:
-            json.dump(self.serialize(), f, indent=4)
+        assert self.K is not None, "Camera has not been calibrated yet"
+        assert len(self.errors) > 0, "Camera has not been calibrated yet"
+        save_json({
+            "K": self.K,
+            "dist_coeffs": self.dist_coeffs,
+            "newK": self.newK,
+            "roi": self.roi,
+            "R": self.R,
+            "T": self.T,
+            "height": self.height,
+            "width": self.width,
+            "error": self.get_mean_error(),
+            "error_threshold": self.error_thr
+        }, filename)
 
     def load_calibration(self, calibration: str | dict):
         if type(calibration) is str:
-            with open(calibration, "r") as f:
-                calibration = json.load(f)
+            calibration = load_json(calibration)
         
         self.set_height(calibration['height'])
         self.set_width(calibration['width'])
@@ -490,7 +515,7 @@ class Camera:
         self.set_width(config['width'])
 
         # calibration utils
-        self.set_charuco(config['aruco_dict'])
+        self.set_calibration_pattern(config['charuco'])
         self.set_error_threshold(config['error_thr'])
         self.set_min_points(config['min_points'])
 

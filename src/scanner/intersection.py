@@ -1,21 +1,24 @@
 import cv2
 import numpy as np
 
+def normalize(vector):
+    return np.asarray(vector) / np.linalg.norm(vector)
+
 class Plane:
     def __init__( self, point, direction ):
         assert len(point), "Not a 3D point"
         assert len(direction), "Not a 3D direction"
 
         self.q = point
-        self.n = direction
+        self.n = normalize(direction)
 
 class Line:
     def __init__( self, point, direction ):
         assert len(point), "Not a 3D point"
         assert len(direction), "Not a 3D direction"
 
-        self.q = point
-        self.v = direction
+        self.q = np.asarray(point)
+        self.v = normalize(direction)
 
 def plane_line_intersection( plane: Plane, line: Line ):
     """
@@ -78,6 +81,9 @@ def intersect_lines( lines: list[Line] ) -> np.ndarray:
     B = np.sum(np.stack(Bs, axis=1), axis=1)
 
     return np.linalg.inv(A) @ B
+
+def point_line_distance(p: np.ndarray, line: Line):
+    return np.linalg.norm(np.cross(line.v, p - line.q)) / line.v
 
 def fit_line( points: list ) -> Line:
     """

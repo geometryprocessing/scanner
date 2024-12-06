@@ -1,8 +1,5 @@
 import cv2
-import json
-import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 
 CHARUCO_DICTIONARY_ENUM = {

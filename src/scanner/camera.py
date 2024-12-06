@@ -560,6 +560,37 @@ class Camera:
         plt.grid(visible=True)
         plt.show()
 
+    def plot_detected_markers(self):
+        """
+        Plot (with matplotlib) an image displaying the position
+        of detected intrinsic markers used for calibration.
+        """
+        assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
+
+        plt.figure(figsize=(16, 12))
+        plt.title('Intrinsic Markers')
+
+        # center of image resolution
+        plt.scatter(x=self.width/2, y=self.height/2,
+                    s=min(self.width,self.height)/20, c='royalblue', marker='+')
+
+        # central point found after calibration
+        plt.scatter(x=self.K[0,2], y=self.K[1,2],
+                    s=min(self.width,self.height)/20, c='royalblue', marker='o')
+        
+        # scatter intrinsic image points on the image
+        points = np.concatenate(self.intrinsic_image_points)
+        plt.scatter(x=points[:,0], y=points[:,1],
+                    s=min(self.width,self.height)/10, c='tab:green', alpha=0.5, edgecolors='k')
+        
+        # labels
+        plt.xlabel('x (pixels)')
+        plt.xlim([0, self.width])
+        plt.ylabel('y (pixels)')
+        plt.ylim([self.height, 0])
+        plt.grid(visible=True)
+        plt.show()
+        return 
 
     def plot_errors(self):
         """

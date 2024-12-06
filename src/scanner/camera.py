@@ -1,12 +1,14 @@
 import cv2
 from enum import Enum
 import json
+import matplotlib as mlp
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 
 from utils.file_io import save_json, load_json
-from scanner.calibration_utils import Calibration, Charuco, CheckerBoard
+from scanner.calibration import Calibration, Charuco, CheckerBoard
+from scanner.intersection import undistort_camera_points
 
 class CameraModel(Enum):
         """
@@ -185,10 +187,13 @@ class Camera:
         self.extrinsic_image = image_path
     def set_error_threshold(self, error_thr: float):
         """
+        Set the reprojection error threshold (in pixels, L2 norm).
+        This needs to be set in order to call refine(), since it uses this threshold
+        to discard markers.
         Parameters
         ----------
         error_thr : float
-            Threshold of reprojection error of identified markers to consider for calibration.
+            Threshold of reprojection error (in pixels) of identified markers to consider for calibration.
             This number has to be nonnegative.
         """
         self.error_thr = error_thr
@@ -222,7 +227,7 @@ class Camera:
         """
         assert width > 0, "Incorrect value for width, has to be nonnegative"
         self.width = int(width)
-    def set_image_shape(self, shape: tuple):
+    def set_image_shape(self, shape: tuple[int, int]):
         """
         Set image resolution in pixels.
         Both numbers have to be integers and nonnegative.
@@ -274,39 +279,78 @@ class Camera:
         self.extrinsic_object_points = object_points
 
     # getters
-    def get_intrinsic_matrix(self):
+    def get_intrinsic_matrix(self) -> np.ndarray:
+        """
+        Returns camera intrinsic matrix (shape 3x3) K.
+        """
         return self.K
-    def get_distortion(self):
+    def get_distortion(self) -> np.ndarray:
+        """
+        Returns camera distortion coefficients.
+        """
         return self.dist_coeffs
-    def get_scaling_factor(self):
+    def get_scaling_factor(self) -> float:
+        """
+        Returns scaling factor used for new optimal intrinsic matrix.
+        """
         return self.scaling_factor
-    def get_new_intrinsic_matrix(self):
+    def get_new_intrinsic_matrix(self) -> np.ndarray:
+        """
+        Returns new optimal intrinsic matrix (shape 3x3) newK.
+        """
         return self.newK
-    def get_rvecs(self):
+    def get_rvecs(self) -> list[np.ndarray]:
+        """
+        Returns the list of camera translation rotation vectors (shape 1x3) found during calibration.
+        """
         return self.rvecs
-    def get_tvecs(self):
+    def get_tvecs(self) -> list[np.ndarray]:
+        """
+        Returns the list of camera translation translation vectors (shape 1x3) found during calibration.
+        """
         return self.tvecs
-    def get_translation(self):
+    def get_translation(self) -> np.ndarray:
+        """
+        Returns the camera translation vector (shape 1x3) T.
+        """
         return self.T
-    def get_rotation(self):
+    def get_rotation(self) -> np.ndarray:
+        """
+        Returns the camera rotation matrix (shape 3x3) R.
+        """
         return self.R
-    def get_calibration_pattern(self):
+    def get_calibration_pattern(self) -> Charuco | CheckerBoard:
         return self.calibration_pattern
-    def get_intrinsic_image_paths(self):
+    def get_intrinsic_image_paths(self) -> list[str]:
         return self.intrinsic_images
-    def get_extrinsic_image_paths(self):
+    def get_extrinsic_image_paths(self) -> str:
         return self.extrinsic_image
-    def get_errors(self):
+    def get_errors(self) -> list[np.ndarray]:
+        """
+        Returns a list of the reprojection errors of every marker of every view.
+        """
         return self.errors
-    def get_per_view_error(self):
+    def get_per_view_error(self) -> list[float]:        
+        """
+        Returns a list of the reprojection errors for every view.
+        """
         return [float(np.mean(errors)) for errors in self.errors]
-    def get_mean_error(self):
+    def get_mean_error(self) -> float:
         return float(np.mean(np.concatenate(self.errors)))
-    def get_error_threshold(self):
+    def get_error_threshold(self) -> float:
+        """
+        Returns the reprojection error threshold (in pixels).
+        """
         return self.error_thr
-    def get_min_points(self):
+    def get_min_points(self) -> int:
+        """
+        Returns number of minimum identified markers to consider for calibration.
+        """
         return self.min_points
-    def get_image_shape(self):
+    def get_image_shape(self) -> tuple[int, int]:
+        """
+        Returns image resolution in pixels as (height, width).
+        """
         return (self.height, self.width)
     
     # functions
@@ -466,6 +510,57 @@ class Camera:
         self.R = result['R']
         self.T = result['T']
 
+    # plotter
+    def plot_distortion(self):
+        """
+        Plot (with matplotlib) an image displaying lens distortion.
+        """
+        assert self.K is not None, "Camera has not been calibrated yet"
+
+        # Create a grid of points (pixel coordinates)
+        x = np.linspace(0, self.width, 25)
+        y = np.linspace(0, self.height, 25)
+        xx, yy = np.meshgrid(x, y)
+        points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
+
+        # undistort points
+        undistorted_points = undistort_camera_points(points,
+                                                     self.K, 
+                                                     self.dist_coeffs,
+                                                     P=self.K)
+        # find displacement vectors from distortion
+        vectors = undistorted_points - points
+
+        plt.figure(figsize=(16, 12))
+        plt.title('Lens Distortion')
+
+        # center of image resolution
+        plt.scatter(x=self.width/2, y=self.height/2,
+                    s=min(self.width,self.height)/20, c='royalblue', marker='x')
+
+        # central point found after calibration
+        plt.scatter(x=self.K[0,2], y=self.K[1,2],
+                    s=min(self.width,self.height)/20, c='royalblue', marker='o')
+        
+        # arrows displaying distortion magnitude in pixels
+        plt.quiver(points[:,0], points[:,1], vectors[:,0], vectors[:,1],
+                   angles='xy', scale_units='xy', scale=1, color='blue')
+
+        # isolines of distortion magnitude in pixels
+        contour = plt.tricontour(points[:,0], points[:,1], np.linalg.norm(vectors, axis=1),
+                                 levels=[1.,2.,3.,4.,5.,6.,8.,10.,12.,16.,20.],
+                                 colors='k')
+        plt.clabel(contour, contour.levels, inline=True, fontsize=max(self.width,self.height)/100)
+
+        # labels
+        plt.xlabel('x (pixels)')
+        plt.xlim([0, self.width])
+        plt.ylabel('y (pixels)')
+        plt.ylim([self.height, 0])
+        plt.grid(visible=True)
+        plt.show()
+
+
     def plot_errors(self):
         """
         TODO: implement with matplotlib
@@ -477,10 +572,11 @@ class Camera:
         Save calibration into a JSON file.
         """
         assert self.K is not None, "Camera has not been calibrated yet"
-        assert len(self.errors) > 0, "Camera has not been calibrated yet"
+        assert len(self.errors) > 0, "Reprojection error has not been calculated yet"
         save_json({
             "K": self.K,
             "dist_coeffs": self.dist_coeffs,
+            "scaling_factor": self.scaling_factor,
             "newK": self.newK,
             "roi": self.roi,
             "R": self.R,

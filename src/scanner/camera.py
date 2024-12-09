@@ -92,7 +92,7 @@ class Camera:
         self.extrinsic_object_points =[]
         self.extrinsic_image_points = []
         self.R = np.identity(3)        # camera is initialized at origin
-        self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
+        self.T = np.zeros(shape=(1,3)) # camera is initialized at origin
         # calibration utils
         self.errors = []
         self.calibration_pattern = None
@@ -107,7 +107,7 @@ class Camera:
         K : array_like
             3x3 Intrinsic Matrix of Camera.
         """
-        self.K = np.asarray(K)
+        self.K = np.array(K, dtype=np.float32).reshape((3,3))
     def set_distortion(self, dist_coeffs):
         """
         Parameters
@@ -117,7 +117,7 @@ class Camera:
             (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
             of 4, 5, 8, 12 or 14 elements.
         """
-        self.dist_coeffs = np.asarray(dist_coeffs)
+        self.dist_coeffs = np.array(dist_coeffs, dtype=np.float32)
     def set_scaling_factor(self, alpha: float):
         """
         Parameters
@@ -125,15 +125,16 @@ class Camera:
         alpha : float
             Scaling factor for cv2.getOptimalNewCameraMatrix
         """
-        self.scaling_factor = alpha
+        assert alpha > 0, "Incorrect value for alpha, has to be nonnegative"
+        self.scaling_factor = float(alpha)
     def set_translation(self, T):
         """
         Parameters
         ----------
         T : array_like
-            3x1 translation vector of Camera.
+            1x3 translation vector of Camera.
         """
-        self.T = np.asarray(T)
+        self.T = np.array(T, dtype=np.float32).reshape((1,3))
     def set_rotation(self, r):
         """
         Parameters
@@ -143,7 +144,7 @@ class Camera:
             3x3 rotation matrix of Camera.
             It saves it as 3x3 rotation matrix.
         """
-        r = np.asarray(r)
+        r = np.array(r, dtype=np.float32)
         if r.shape==(3,1) or r.shape==(1,3):
             r, _ = cv2.Rodrigues(r)
         self.R = r
@@ -190,13 +191,15 @@ class Camera:
         Set the reprojection error threshold (in pixels, L2 norm).
         This needs to be set in order to call refine(), since it uses this threshold
         to discard markers.
+
         Parameters
         ----------
         error_thr : float
             Threshold of reprojection error (in pixels) of identified markers to consider for calibration.
             This number has to be nonnegative.
         """
-        self.error_thr = error_thr
+        assert error_thr > 0, "Incorrect value for threshold, has to be nonnegative"
+        self.error_thr = float(error_thr)
     def set_min_points(self, min_points: int):
         """
         Parameters
@@ -205,21 +208,23 @@ class Camera:
             Number of minimum identified markers to consider for calibration.
             This number cannot be less than 4, otherwise it fails assertions in OpenCV.
         """
-        self.min_points = max(4,min_points)
+        self.min_points = int(max(4,min_points))
 
     def set_height(self, height: int):
         """
         Set image resolution height in pixels.
+
         Parameters
         ----------
         height : int
             Image resolution height in pixels.
         """
         assert height > 0, "Incorrect value for height, has to be nonnegative"
-        self.height = height
+        self.height = int(height)
     def set_width(self, width: int):
         """
         Set image resolution width in pixels.
+
         Parameters
         ----------
         width : int
@@ -231,6 +236,7 @@ class Camera:
         """
         Set image resolution in pixels.
         Both numbers have to be integers and nonnegative.
+
         Parameters
         ----------
         shape : tuple
@@ -238,12 +244,12 @@ class Camera:
         """
         self.set_height(shape[0])
         self.set_width (shape[1])
-
     def discard_intrinsic_images(self):
         self.intrinsic_images = [image for image in self.intrinsic_images if image not in self.discarded_images]
     def add_intrinsic_image_points(self, image_points: np.ndarray):
         """
         Appends more image points to the list intrinsic_image_points of Camera.
+
         Parameters
         ----------
         image_points : array_like
@@ -253,6 +259,7 @@ class Camera:
     def add_intrinsic_object_points(self, object_points: np.ndarray):
         """
         Appends more object points to the list intrinsic_object_points of Camera.
+
         Parameters
         ----------
         object_points : array_like
@@ -262,6 +269,7 @@ class Camera:
     def set_extrinsic_image_points(self, image_points: np.ndarray):
         """
         Appends more image points to the list extrinsic_image_points of Camera.
+
         Parameters
         ----------
         image_points : array_like
@@ -271,6 +279,7 @@ class Camera:
     def set_extrinsic_object_points(self, object_points: np.ndarray):
         """
         Appends more object points to the list extrinsic_object_points of Camera.
+
         Parameters
         ----------
         object_points : array_like
@@ -361,7 +370,7 @@ class Camera:
         assert self.calibration_pattern is not None, "No Calibration Pattern defined"
         assert len(self.intrinsic_images) > 0, "No intrinsic images defined"
 
-        # Empty the list of image and object points before going through list 
+        # Empty the list of image and object points before going through list of images
         self.intrinsic_image_points = []
         self.intrinsic_object_points = []
 
@@ -393,7 +402,7 @@ class Camera:
 
     def calibrate_intrinsics(self):
         """
-        Perform intrinsic camera calibration and calculate reprojection errors.
+        Perform intrinsic camera calibration.
         """
         assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
         assert len(self.intrinsic_object_points) > 0, "There are not 3D object points"
@@ -536,7 +545,7 @@ class Camera:
 
         # center of image resolution
         plt.scatter(x=self.width/2, y=self.height/2,
-                    s=min(self.width,self.height)/20, c='royalblue', marker='x')
+                    s=min(self.width,self.height)/20, c='royalblue', marker='+')
 
         # central point found after calibration
         plt.scatter(x=self.K[0,2], y=self.K[1,2],
@@ -598,9 +607,14 @@ class Camera:
         """
         pass
         
-    def save_calibration(self, filename):
+    def save_calibration(self, filename: str):
         """
         Save calibration into a JSON file.
+
+        Parameters
+        ----------
+        filename : str
+            path to JSON file where calibration will be saved.  
         """
         assert self.K is not None, "Camera has not been calibrated yet"
         assert len(self.errors) > 0, "Reprojection error has not been calculated yet"

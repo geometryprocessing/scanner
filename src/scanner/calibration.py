@@ -153,10 +153,37 @@ class Charuco:
                                                            self.marker_size,
                                                            self.aruco_dict)
     
-    def create_image(self, resolution: tuple):
+    def create_image(self, resolution: tuple[int, int]):
+        """
+        Parameters
+        ----------
+        resolution : tuple
+            Resolution to generate image. Resolution must be passed
+            as (width, height).
+
+        Returns
+        -------
+        image 
+            ChArUco board image at the desired resolution.
+        """
         return self.charuco_board.draw(resolution)
     
-    def get_image_points(self, resolution: tuple, ids: list):
+    def get_image_points(self, resolution: tuple[int, int], ids: list[int]):
+        """
+        TODO: discard
+        
+        Parameters
+        ----------
+        resolution : tuple
+            Resolution to generate image. Resolution must be passed
+            as (width, height).
+        ids : list
+            List of ids that were detected on the image.
+
+        Returns
+        -------
+        - list of detected image coordinates
+        """
         image = self.create_image(resolution)
         img_points, _, _ = self.detect_markers(image)
 

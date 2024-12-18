@@ -55,7 +55,7 @@ def plane_line_intersection( plane: Plane, line: Line ):
     linePoint = line.q
     lineDirection = line.v
 
-    if np.dot(lineDirection, planeNormal) < 1e-8:
+    if abs(np.dot(lineDirection, planeNormal)) < 1e-8:
         raise RuntimeError("Line and Plane do not intersect")
 
     return linePoint + lineDirection * np.dot(planeNormal, (planePoint - linePoint)) / np.dot(planeNormal, lineDirection)

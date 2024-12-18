@@ -21,19 +21,13 @@ def normalize(vector) -> np.ndarray:
 
 class Plane:
     def __init__( self, point, direction ):
-        assert len(point), "Not a 3D point"
-        assert len(direction), "Not a 3D direction"
-
-        self.q = point
-        self.n = normalize(direction)
+        self.q = np.array(point).reshape((1,-1))
+        self.n = normalize(direction).reshape((1,-1))
 
 class Line:
     def __init__( self, point, direction ):
-        assert len(point), "Not a 3D point"
-        assert len(direction), "Not a 3D direction"
-
-        self.q = np.array(point)
-        self.v = normalize(direction)
+        self.q = np.array(point).reshape((1,-1))
+        self.v = normalize(direction).reshape((1,-1))
 
 def plane_line_intersection( plane: Plane, line: Line ):
     """
@@ -52,13 +46,14 @@ def plane_line_intersection( plane: Plane, line: Line ):
     """
     planePoint = plane.q
     planeNormal = plane.n
+    planeNormalTranspose = planeNormal.T
     linePoint = line.q
     lineDirection = line.v
 
-    if abs(np.dot(lineDirection, planeNormal)) < 1e-8:
+    if abs(np.dot(lineDirection, planeNormalTranspose)) < 1e-8:
         raise RuntimeError("Line and Plane do not intersect")
 
-    return linePoint + lineDirection * np.dot(planeNormal, (planePoint - linePoint)) / np.dot(planeNormal, lineDirection)
+    return linePoint + lineDirection * np.dot(planeNormalTranspose, (planePoint - linePoint)) / np.dot(planeNormalTranspose, lineDirection)
 
 def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndarray:
     """
@@ -103,7 +98,8 @@ def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     return np.linalg.inv(A) @ B
 
 def point_line_distance(p: np.ndarray, line: Line):
-    return np.linalg.norm(np.cross(line.v, p - line.q)) / line.v
+    p = np.array(p).reshape((1,-1))
+    return np.linalg.norm(np.cross(line.v, p - line.q)) / np.linalg.norm(line.v)
 
 def fit_line( points: list ) -> Line:
     """

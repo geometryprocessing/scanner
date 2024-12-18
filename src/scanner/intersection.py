@@ -232,7 +232,7 @@ def camera_to_ray_world(
         camera rotation in world coordinate system. If sent as a 3x1 or 1x3 vector,
         function uses Rodrigues to obtain 3x3 matrix.s
     T : array_like
-        3x1 camera translation vector in world coordinate system
+        3x1 or 1x3 camera translation vector in world coordinate system
     K : array_like
         3x3 camera intrinsic matrix
     dist_coeffs : array_like 
@@ -244,6 +244,7 @@ def camera_to_ray_world(
         List of N lines in world coordinate system
     """
     R = np.array(R)
+    T = np.array(T).reshape((3,1))
     if R.shape!=(3,3):
         R, _ = cv2.Rodrigues(R)
     xy = undistort_camera_points(points2D, K, dist_coeffs)

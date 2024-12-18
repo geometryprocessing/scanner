@@ -110,12 +110,12 @@ def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     """
     assert len(lines) > 1, "Need at least 2 lines to triangulate"
     As = [np.outer(line.v, line.v) - np.eye(3) for line in lines]
-    Bs = [np.matmul(A, line.q).ravel() for A, line in zip(As, lines)]
+    Bs = [np.matmul(A, line.q.T).ravel() for A, line in zip(As, lines)]
 
     A = np.sum(np.stack(As, axis=2), axis=2)
     B = np.sum(np.stack(Bs, axis=1), axis=1)
 
-    return np.linalg.inv(A) @ B
+    return (np.linalg.inv(A) @ B).reshape((1,3))
 
 def point_line_distance(p: np.ndarray, line: Line):
     """

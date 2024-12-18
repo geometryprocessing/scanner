@@ -21,11 +21,31 @@ def normalize(vector) -> np.ndarray:
 
 class Plane:
     def __init__( self, point, direction ):
+        """
+        Plane class
+
+        Parameters
+        ----------
+        point : array_like
+            point present on plane. Class saves it as numpy array and with shape 1xN.
+        direction : array_like
+            normal direction of plane. Class saves it as a normalized numpy array and with shape 1xN.
+        """
         self.q = np.array(point).reshape((1,-1))
         self.n = normalize(direction).reshape((1,-1))
 
 class Line:
     def __init__( self, point, direction ):
+        """
+        Line class
+
+        Parameters
+        ----------
+        point : array_like
+            point present on plane. Class saves it as numpy array and with shape 1xN.
+        direction : array_like
+            direction of line. Class saves it as a normalized numpy array and with shape 1xN.
+        """
         self.q = np.array(point).reshape((1,-1))
         self.v = normalize(direction).reshape((1,-1))
 
@@ -36,13 +56,13 @@ def plane_line_intersection( plane: Plane, line: Line ):
     Parameters
     ----------
     plane : Plane
-        plane containing a point and a normal vector.
+        plane class containing a point and a normal vector.
     line : Line
-        line containing a point and a direction vector.
+        line class containing a point and a direction vector.
 
     Returns 
     ----------
-    3D coordinate of point intersecting a line and a plane.
+    numpy array of shape 1xN of point where line and plane intersect.
     """
     planePoint = plane.q
     planeNormal = plane.n
@@ -63,13 +83,13 @@ def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndar
     Parameters
     ----------
     plane : Plane
-        plane containing a point and a normal vector.
+        plane class containing a point and a normal vector.
     lines : array_like
-        list of N > 1 lines .
+        list of N > 1 line classes, each containing a point and a direction vector.
 
     Returns 
     ----------
-    3D coordinate of closes point of multiple lines intersecting on a plane.
+    numpy array of closest point of multiple lines intersecting on a plane.
     """
     return np.average(np.array([plane_line_intersection(plane, line) for line in lines]), axis=0)
 
@@ -82,11 +102,11 @@ def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     Parameters
     ----------
     lines : array_like
-        list of N > 1 lines 
+        list of N > 1 lines, each containing a point and a direction vector.
         
     Returns 
     ----------
-    3D coordinate of closest point to all lines.
+    closest point of intersection of all lines.
     """
     assert len(lines) > 1, "Need at least 2 lines to triangulate"
     As = [np.outer(line.v, line.v) - np.eye(3) for line in lines]
@@ -98,6 +118,20 @@ def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     return np.linalg.inv(A) @ B
 
 def point_line_distance(p: np.ndarray, line: Line):
+    """
+    Finds distance between a point and a line.
+
+    Parameters
+    ----------
+    p : array_like
+        point of shape 1xN or Nx1. Function converts it to numpy array and to shape 1xN.
+    line : Line
+        line class containing a point and a direction vector.
+        
+    Returns 
+    ----------
+    float distance between point and line.
+    """
     p = np.array(p).reshape((1,-1))
     return np.linalg.norm(np.cross(line.v, p - line.q)) / np.linalg.norm(line.v)
 
@@ -114,7 +148,7 @@ def fit_line( points: list ) -> Line:
     Returns
     ----------
     Line
-        line containing a point and the direction
+        line containing a point and the direction that best fit the list points
     """
     points = np.array(points)
     C = np.mean(points, axis=0)
@@ -135,7 +169,7 @@ def fit_plane( points: list ) -> Plane:
     Returns
     ----------
     Plane
-        plane containing a point and the normal
+        plane containing a point and the normal that best fit the list of points
     """
     # Find the average of points (centroid) along the columns
     C = np.average(points, axis=0)
@@ -181,8 +215,8 @@ def homogeneous_coordinates(
 
 def camera_to_ray_world(
         points2D: np.ndarray,
-        r: np.ndarray,
-        t: np.ndarray,
+        R: np.ndarray,
+        T: np.ndarray,
         K: np.ndarray,
         dist_coeffs: np.ndarray) -> np.ndarray[Line]:
     """
@@ -194,9 +228,10 @@ def camera_to_ray_world(
     ----------
     points2D : array_like
         list of N 2D pixel coordinates
-    r : array_like
-        3x1 camera orientation vector in world coordinate system
-    t : array_like
+    R : array_like
+        camera rotation in world coordinate system. If sent as a 3x1 or 1x3 vector,
+        function uses Rodrigues to obtain 3x3 matrix.s
+    T : array_like
         3x1 camera translation vector in world coordinate system
     K : array_like
         3x3 camera intrinsic matrix
@@ -208,12 +243,12 @@ def camera_to_ray_world(
     lines
         List of N lines in world coordinate system
     """
-    r = np.array(r)
-    if r.shape==(3,1) or r.shape==(1,3):
-        r, _ = cv2.Rodrigues(r)
+    R = np.array(R)
+    if R.shape!=(3,3):
+        R, _ = cv2.Rodrigues(R)
     xy = undistort_camera_points(points2D, K, dist_coeffs)
     directions = homogeneous_coordinates(xy)
-    lines = [Line(t, np.matmul(r,direction)) for direction in directions]
+    lines = [Line(np.matmul(-R.T, T), np.matmul(R.T, direction)) for direction in directions]
     return lines
 
 def camera_to_ray(
@@ -226,7 +261,7 @@ def camera_to_ray(
 
     Converts camera pixel coordinates in x,y to rays into the world.
     It does not perform rotation or translation, therefore it keeps the rays
-    in camera coordinates where camera is origin.
+    in camera coordinates where camera is origin and looking at [0,0,-1].
 
     Parameters
     ----------
@@ -254,11 +289,11 @@ def combine_transformations(R1: np.ndarray,
     R1 : array_like
         First rotation matrix (3x3)
     T1 : array_like
-        First translation vector (1x3 or 3x1)
+        First translation vector (1x3 or 3x1).
     R2 : array_like
         Second rotation matrix (3x3)
     T2 : array_like
-        Second translation vector (1x3 or 3x1)
+        Second translation vector (1x3 or 3x1).
 
     Returns
     ----------

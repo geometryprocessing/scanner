@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+from scanner.intersection import combine_transformations
 
 CHARUCO_DICTIONARY_ENUM = {
     "4X4_50"   : cv2.aruco.DICT_4X4_50,
@@ -500,16 +501,11 @@ class Calibration:
 
         if not retval:
             raise RuntimeError("Extrinsic calibration failed")
-
-        R, _ = cv2.Rodrigues(rvec)
-        T = np.matmul(R.T, -tvec)
         
         return {
             'retval': retval,
             'rvec': rvec,
-            'R': R,
             'tvec': tvec,
-            'T': T
         }
     
     @staticmethod
@@ -521,7 +517,7 @@ class Calibration:
                          K_2: np.ndarray,
                          dist_coeffs_2: np.ndarray,
                          R_1: np.ndarray=np.identity(3),
-                         T_1: np.ndarray=np.zeros((3,1))
+                         T_1: np.ndarray=np.zeros((1,3))
                          ) -> dict:
         """
         TODO: function explanation
@@ -567,10 +563,12 @@ class Calibration:
 
         if not retval:
             raise RuntimeError("Stereo calibration failed")
+        
+        R_combined, T_combined = combine_transformations(R_1, T_1, R, T)
 
         return {
             'retval': retval,
-            'R': np.matmul(R_1,R),
-            'T': np.matmul(R_1,T) + T_1
+            'R': R_combined,
+            'T': T_combined
         }
         

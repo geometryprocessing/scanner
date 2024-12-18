@@ -145,7 +145,7 @@ class Camera:
             It saves it as 3x3 rotation matrix.
         """
         r = np.array(r, dtype=np.float32)
-        if r.shape==(3,1) or r.shape==(1,3):
+        if r.shape!=(3,3):
             r, _ = cv2.Rodrigues(r)
         self.R = r
     def set_calibration_pattern(self, pattern: dict | Charuco | CheckerBoard):
@@ -506,6 +506,12 @@ class Camera:
     def calibrate_extrinsics(self):
         """
         Perform extrinsic camera calibration.
+
+        This function saves R and T, where T is the origin of the camera in 
+        the world coordinate system and R is the rotation matrix.
+
+        p_w = T + lambda * R @ u, where p_w is point in world coordinate and
+        u is normalized image coordinate (u_1, u_2, 1)
         """
         assert len(self.extrinsic_image_points) > 0, "There are no 2D image points"
         assert len(self.extrinsic_object_points) > 0, "There are not 3D object points"
@@ -516,8 +522,14 @@ class Camera:
                                                  self.K,
                                                  self.dist_coeffs)
         
-        self.R = result['R']
-        self.T = result['T']
+        rvec = result['rvec']
+        tvec = result['tvec']
+        
+        R, _ = cv2.Rodrigues(rvec)
+        T = tvec.ravel().reshape((1,3))
+        
+        self.R = R
+        self.T = T
 
     # plotter
     def plot_distortion(self):

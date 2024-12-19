@@ -1,0 +1,136 @@
+import matplotlib.pyplot as plt
+import numpy as np
+
+from scanner.intersection import undistort_camera_points
+
+class Plotter:
+    @staticmethod
+    def plot_distortion(image_shape: tuple,
+                        K: np.ndarray,
+                        dist_coeffs: np.ndarray,
+                        figsize: tuple = (16,12),
+                        filename: str = None):
+        """
+        Plot (with matplotlib) an image displaying lens distortion.
+        
+        Parameters
+        ----------
+        image_shape : tuple
+            tuple containing (height, width) of image resolution.
+        K : np.ndarray
+            Intrinsic matrix of camera/projector.
+        dist_coeffs : np.ndarray
+            Distortion coefficients of camera/projector.
+        figsize : tuple
+            tuple containing (width, height) of figure to plot.
+            The default is (16,12).
+        filename : str
+            if passed, path to file where figure will be saved.  
+        """
+        height, width = image_shape
+        # Create a grid of points (pixel coordinates)
+        x = np.linspace(0, width, 25)
+        y = np.linspace(0, height, 25)
+        xx, yy = np.meshgrid(x, y)
+        points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
+
+        # undistort points
+        undistorted_points = undistort_camera_points(points,
+                                                     K, 
+                                                     dist_coeffs,
+                                                     P=K)
+        # find displacement vectors from distortion
+        vectors = undistorted_points - points
+
+        plt.figure(figsize=figsize)
+        plt.title('Lens Distortion')
+
+        # center of image resolution
+        plt.scatter(x=width/2, y=height/2,
+                    s=min(width,height)/20, c='royalblue', marker='+')
+
+        # central point found after calibration
+        plt.scatter(x=K[0,2], y=K[1,2],
+                    s=min(width,height)/20, c='royalblue', marker='o')
+        
+        # arrows displaying distortion magnitude in pixels
+        plt.quiver(points[:,0], points[:,1], vectors[:,0], vectors[:,1],
+                   angles='xy', scale_units='xy', scale=1, color='blue')
+
+        # isolines of distortion magnitude in pixels
+        contour = plt.tricontour(points[:,0], points[:,1], np.linalg.norm(vectors, axis=1),
+                                 levels=[1.,2.,3.,4.,5.,6.,8.,10.,12.,16.,20.],
+                                 colors='k')
+        plt.clabel(contour, contour.levels, inline=True, fontsize=max(width,height)/100)
+
+        # labels
+        plt.xlabel('x (pixels)')
+        plt.xlim([0, width])
+        plt.ylabel('y (pixels)')
+        plt.ylim([height, 0])
+        plt.grid(visible=True)
+        plt.show()
+
+    @staticmethod
+    def plot_markers(markers: np.ndarray,
+                    image_shape: tuple,
+                    K: np.ndarray,
+                    figsize: tuple = (16,12),
+                    filename: str = None):
+        """
+        Plot (with matplotlib) an image scattering the position
+        of detected intrinsic markers used for calibration.
+
+        Parameters
+        ----------
+        markers : array_like
+            list of 2D markers in pixel coordinates.
+        image_shape : tuple
+            tuple containing (height, width) of image resolution.
+        K : np.ndarray
+            Intrinsic matrix of camera/projector.
+        figsize : tuple
+            tuple containing (width, height) of figure to plot.
+            The default is (16,12).
+        filename : str
+            if passed, path to file where figure will be saved.  
+        """
+        height, width = image_shape
+
+        plt.figure(figsize=figsize)
+        plt.title('Intrinsic Markers')
+
+        # center of image resolution
+        plt.scatter(x=width/2, y=height/2,
+                    s=min(width,height)/20, c='royalblue', marker='+')
+
+        # central point found after calibration
+        plt.scatter(x=K[0,2], y=K[1,2],
+                    s=min(width,height)/20, c='royalblue', marker='o')
+        
+        # scatter intrinsic image points on the image
+        points = np.concatenate(markers)
+        plt.scatter(x=points[:,0], y=points[:,1],
+                    s=min(width,height)/10, c='tab:green', alpha=0.5, edgecolors='k')
+        
+        # labels
+        plt.xlabel('x (pixels)')
+        plt.xlim([0, width])
+        plt.ylabel('y (pixels)')
+        plt.ylim([height, 0])
+        plt.grid(visible=True)
+        plt.show()
+    
+    @staticmethod
+    def plot_errors():
+        pass
+
+    @staticmethod
+    def plot_extrinsics(objects: list):
+        """
+        Plot (with matplotlib axes 3D) 3D position and orientation
+        of a list of camera/projector objects.
+        The objects need to be already calibrated, otherwise all
+        of them will be plotted at the origin.
+        """
+        pass

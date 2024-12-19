@@ -7,6 +7,7 @@ import numpy as np
 import os
 
 from utils.file_io import save_json, load_json
+from utils.plotter import Plotter
 from scanner.calibration import Calibration, Charuco, CheckerBoard
 from scanner.intersection import undistort_camera_points
 
@@ -526,7 +527,7 @@ class Camera:
         tvec = result['tvec']
         
         R, _ = cv2.Rodrigues(rvec)
-        T = tvec.ravel().reshape((1,3))
+        T = tvec.reshape((1,3))
         
         self.R = R
         self.T = T
@@ -538,48 +539,7 @@ class Camera:
         """
         assert self.K is not None, "Camera has not been calibrated yet"
 
-        # Create a grid of points (pixel coordinates)
-        x = np.linspace(0, self.width, 25)
-        y = np.linspace(0, self.height, 25)
-        xx, yy = np.meshgrid(x, y)
-        points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
-
-        # undistort points
-        undistorted_points = undistort_camera_points(points,
-                                                     self.K, 
-                                                     self.dist_coeffs,
-                                                     P=self.K)
-        # find displacement vectors from distortion
-        vectors = undistorted_points - points
-
-        plt.figure(figsize=(16, 12))
-        plt.title('Lens Distortion')
-
-        # center of image resolution
-        plt.scatter(x=self.width/2, y=self.height/2,
-                    s=min(self.width,self.height)/20, c='royalblue', marker='+')
-
-        # central point found after calibration
-        plt.scatter(x=self.K[0,2], y=self.K[1,2],
-                    s=min(self.width,self.height)/20, c='royalblue', marker='o')
-        
-        # arrows displaying distortion magnitude in pixels
-        plt.quiver(points[:,0], points[:,1], vectors[:,0], vectors[:,1],
-                   angles='xy', scale_units='xy', scale=1, color='blue')
-
-        # isolines of distortion magnitude in pixels
-        contour = plt.tricontour(points[:,0], points[:,1], np.linalg.norm(vectors, axis=1),
-                                 levels=[1.,2.,3.,4.,5.,6.,8.,10.,12.,16.,20.],
-                                 colors='k')
-        plt.clabel(contour, contour.levels, inline=True, fontsize=max(self.width,self.height)/100)
-
-        # labels
-        plt.xlabel('x (pixels)')
-        plt.xlim([0, self.width])
-        plt.ylabel('y (pixels)')
-        plt.ylim([self.height, 0])
-        plt.grid(visible=True)
-        plt.show()
+        Plotter.plot_distortion(self.get_image_shape(), self.K, self.dist_coeffs)
 
     def plot_detected_markers(self):
         """
@@ -587,31 +547,9 @@ class Camera:
         of detected intrinsic markers used for calibration.
         """
         assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
+        assert self.K is not None, "Camera has not been calibrated yet"
 
-        plt.figure(figsize=(16, 12))
-        plt.title('Intrinsic Markers')
-
-        # center of image resolution
-        plt.scatter(x=self.width/2, y=self.height/2,
-                    s=min(self.width,self.height)/20, c='royalblue', marker='+')
-
-        # central point found after calibration
-        plt.scatter(x=self.K[0,2], y=self.K[1,2],
-                    s=min(self.width,self.height)/20, c='royalblue', marker='o')
-        
-        # scatter intrinsic image points on the image
-        points = np.concatenate(self.intrinsic_image_points)
-        plt.scatter(x=points[:,0], y=points[:,1],
-                    s=min(self.width,self.height)/10, c='tab:green', alpha=0.5, edgecolors='k')
-        
-        # labels
-        plt.xlabel('x (pixels)')
-        plt.xlim([0, self.width])
-        plt.ylabel('y (pixels)')
-        plt.ylim([self.height, 0])
-        plt.grid(visible=True)
-        plt.show()
-        return 
+        Plotter.plot_markers(self.intrinsic_image_points, self.get_image_shape(), self.K)
 
     def plot_errors(self):
         """

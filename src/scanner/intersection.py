@@ -17,7 +17,7 @@ def normalize(vector) -> np.ndarray:
     norm = np.linalg.norm(vector)
     if norm < 1e-8:
         return vector
-    return np.array(vector) / np.linalg.norm(vector)
+    return np.array(vector, dtype=np.float32) / np.linalg.norm(vector)
 
 class Plane:
     def __init__( self, point, direction ):
@@ -31,7 +31,7 @@ class Plane:
         direction : array_like
             normal direction of plane. Class saves it as a normalized numpy array and with shape 1xN.
         """
-        self.q = np.array(point).reshape((1,-1))
+        self.q = np.array(point, dtype=np.float32).reshape((1,-1))
         self.n = normalize(direction).reshape((1,-1))
 
 class Line:
@@ -46,7 +46,7 @@ class Line:
         direction : array_like
             direction of line. Class saves it as a normalized numpy array and with shape 1xN.
         """
-        self.q = np.array(point).reshape((1,-1))
+        self.q = np.array(point, dtype=np.float32).reshape((1,-1))
         self.v = normalize(direction).reshape((1,-1))
 
 def plane_line_intersection( plane: Plane, line: Line ):
@@ -65,15 +65,14 @@ def plane_line_intersection( plane: Plane, line: Line ):
     numpy array of shape 1xN of point where line and plane intersect.
     """
     planePoint = plane.q
-    planeNormal = plane.n
-    planeNormalTranspose = planeNormal.T
+    planeNormalTranspose = plane.n.T
     linePoint = line.q
     lineDirection = line.v
 
     if abs(np.dot(lineDirection, planeNormalTranspose)) < 1e-8:
         raise RuntimeError("Line and Plane do not intersect")
 
-    return linePoint + lineDirection * np.dot(planeNormalTranspose, (planePoint - linePoint)) / np.dot(planeNormalTranspose, lineDirection)
+    return linePoint + lineDirection * np.dot((planePoint - linePoint), planeNormalTranspose) / np.dot(lineDirection, planeNormalTranspose)
 
 def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndarray:
     """
@@ -91,7 +90,7 @@ def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndar
     ----------
     numpy array of closest point of multiple lines intersecting on a plane.
     """
-    return np.average(np.array([plane_line_intersection(plane, line) for line in lines]), axis=0)
+    return np.average(np.array([plane_line_intersection(plane, line) for line in lines], dtype=np.float32), axis=0)
 
 def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     """
@@ -132,7 +131,7 @@ def point_line_distance(p: np.ndarray, line: Line):
     ----------
     float distance between point and line.
     """
-    p = np.array(p).reshape((1,-1))
+    p = np.array(p, dtype=np.float32).reshape((1,-1))
     return np.linalg.norm(np.cross(line.v, p - line.q)) / np.linalg.norm(line.v)
 
 def fit_line( points: list ) -> Line:
@@ -143,14 +142,14 @@ def fit_line( points: list ) -> Line:
     Parameters
     ----------
     points : array_like
-        list of N points (all need to be the same dimension).
+        list of N points (all points need to have the same number of dimensions).
 
     Returns
     ----------
     Line
         line containing a point and the direction that best fit the list points
     """
-    points = np.array(points)
+    points = np.array(points, dtype=np.float32)
     C = np.mean(points, axis=0)
     _, _, V = np.linalg.svd(points - C)
 
@@ -164,7 +163,7 @@ def fit_plane( points: list ) -> Plane:
     Parameters
     ----------
     points : array_like
-        list of N points (all need to be the same dimension).
+        list of N points (all points need to have the same number of dimensions).
 
     Returns
     ----------
@@ -204,14 +203,15 @@ def homogeneous_coordinates(
     Parameters
     ----------
     points2D : array_like
-        list of N 2D coordinates (shape Nx2)
+        list of N 2D coordinates (shape Nx2).
     
     Returns
     ----------
     lines
         List of N 2D homogenous coordinates (shape Nx3).
     """
-    return np.concatenate([points2D, np.ones((points2D.shape[0], 1))], axis=1)
+    points = np.array(points2D, dtype=np.float32)
+    return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
 
 def camera_to_ray_world(
         points2D: np.ndarray,
@@ -243,13 +243,13 @@ def camera_to_ray_world(
     lines
         List of N lines in world coordinate system
     """
-    R = np.array(R)
-    T = np.array(T).reshape((3,1))
+    R = np.array(R, dtype=np.float32)
+    T = np.array(T, dtype=np.float32).reshape((3,1))
     if R.shape!=(3,3):
         R, _ = cv2.Rodrigues(R)
     xy = undistort_camera_points(points2D, K, dist_coeffs)
     directions = homogeneous_coordinates(xy)
-    lines = [Line(np.matmul(-R.T, T), np.matmul(R.T, direction)) for direction in directions]
+    lines = [Line(np.matmul(-R.T, T), np.matmul(R.T, direction.reshape((3,1)))) for direction in directions]
     return lines
 
 def camera_to_ray(
@@ -303,10 +303,10 @@ def combine_transformations(R1: np.ndarray,
     T
         Combined translation vector (3x1)
     """
-    R1 = np.array(R1).reshape((3,3))
-    T1 = np.array(T1).reshape((3,1))
-    R2 = np.array(R2).reshape((3,3))
-    T2 = np.array(T2).reshape((3,1))
+    R1 = np.array(R1, dtype=np.float32).reshape((3,3))
+    T1 = np.array(T1, dtype=np.float32).reshape((3,1))
+    R2 = np.array(R2, dtype=np.float32).reshape((3,3))
+    T2 = np.array(T2, dtype=np.float32).reshape((3,1))
 
     R = np.dot(R1, R2)
     T = np.dot(R2, T1) + T2

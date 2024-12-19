@@ -83,9 +83,9 @@ class CheckerBoard:
 
         Returns
         -------
-        - list of detected checker corner image coordinates
-        - list of detected checker corner world coordinates
-        - list of detected checker corner IDs
+        - numpy array of detected checker corner image coordinates
+        - numpy array of detected checker corner world coordinates
+        - numpy array of detected checker corner IDs
         """
 
         if type(image) is str:
@@ -204,9 +204,9 @@ class Charuco:
 
         Returns
         -------
-        - list of detected ChArUco image coordinates
-        - list of detected ChArUco world coordinates
-        - list of detected ChArUco marker IDs
+        - numpy array of detected ChArUco image coordinates
+        - numpy array of detected ChArUco world coordinates
+        - numpy array of detected ChArUco marker IDs
         """
 
         if type(image) is str:
@@ -243,10 +243,10 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_points : array_like
-            Array of 2D image coordinates.
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points : list
+            List, of length N, of 2D image coordinates, where N is number of images.
         image_shape : tuple
             (width, height) of images
 
@@ -287,10 +287,10 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_points : array_like
-            Array of 2D image coordinates.
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points : list
+            List, of length N, of 2D image coordinates, where N is number of images.
         image_shape : tuple
             (width, height) of images
         K : array_like, optional
@@ -307,8 +307,8 @@ class Calibration:
             {
                 'K': 3x3 intrinsic matrix,
                 'dist_coeffs': distortion coefficients,
-                'rvecs': , 
-                'tvecs': 
+                'rvecs': list of N rotation vectors, each with shape 1x3, 
+                'tvecs': list of N translation vectors, each with shape 1x3
             }
         """
         retval, cameraMatrix, distCoeffs, rvecs, tvecs = \
@@ -337,10 +337,10 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_points : array_like
-            Array of 2D image coordinates.
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points : list
+            List, of length N, of 2D image coordinates, where N is number of images.
         image_shape : tuple
             (width, height) of images
         K : array_like, optional
@@ -357,8 +357,8 @@ class Calibration:
             {
                 'K': 3x3 intrinsic matrix,
                 'dist_coeffs': distortion coefficients,
-                'rvecs': , 
-                'tvecs': 
+                'rvecs': list of N rotation vectors, each with shape 1x3, 
+                'tvecs': list of N translation vectors, each with shape 1x3 
             }
         """
         retval, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
@@ -403,7 +403,7 @@ class Calibration:
             Dictionary containing
             {
                 'newK': new 3x3 intrinsic matrix,
-                'roi': region of interest
+                'roi': tuple (x1,y1,x2,y2) of region of interest
             }
         """
         newK, roi = cv2.getOptimalNewCameraMatrix(K,
@@ -429,10 +429,10 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_points : array_like
-            Array of 2D image coordinates.
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points : list
+            List, of length N, of 2D image coordinates, where N is number of images.
         image_shape : tuple
             (width, height) of images
         rvecs : array_like
@@ -447,7 +447,7 @@ class Calibration:
         Returns
         -------
         array_like
-            float error for each image
+            list with length N of float reprojection error for each image
         """
         assert len(object_points)==len(image_points), \
             "Number of 3D world coordinates must equal number of 2D image coordinates"
@@ -471,10 +471,10 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_points : array_like
-            Array of 2D image coordinates.
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points : list
+            List, of length N, of 2D image coordinates, where N is number of images.
         image_shape : tuple
             (width, height) of images
         K : array_like, optional
@@ -490,9 +490,7 @@ class Calibration:
             Dictionary containing
             {
                 'rvec': 3x1 rotation vector, 
-                'R': 3x3 rotation matrix (obtained with Rodrigues formula),
                 'tvec': 3x1 translation vector
-                'T': 3x1 origin.
             }
 
         """
@@ -512,6 +510,7 @@ class Calibration:
     def stereo_calibrate(object_points: list,
                          image_points_1: list,
                          image_points_2: list,
+                         image_size: tuple,
                          K_1: np.ndarray,
                          dist_coeffs_1: np.ndarray,
                          K_2: np.ndarray,
@@ -524,12 +523,18 @@ class Calibration:
 
         Parameters
         ----------
-        object_points : array_like
-            Array of 3D world coordinates.
-        image_point_1 : array_like
-            Array of 2D image coordinates from camera 1.
-        image_point_2 : array_like
-            Array of 2D image coordinates from camera 2 (or projector).
+        object_points : list
+            List, of length N, of 3D world coordinates, where N is number of images.
+        image_points_1 : list
+            List, of length N, of 2D image coordinates from camera 1, where N is number of images.
+        image_points_1 : list
+            List, of length N, of 2D image coordinates from camera 2
+            (or projector), where N is number of images.
+        image_size : tuple
+            Tuple containing (height, width) of image resolution.
+            NOTE: OpenCV only accepts one value of image size, so it assumes cameras have
+            the same resolution. If they do not, pass the intrinsic parameters and
+            set the flag to cv2.CALIB_FIX_INTRINSIC.
         K_1 : array_like
             3x3 intrinsic matrix from camera 1.
         dist_coeffs_1 : array_like
@@ -552,14 +557,15 @@ class Calibration:
         dict
             Dictionary containing
             {
-                'R': 3x3 rotation matrix,
-                'T': 3x1 translation vector
+                'R': combined 3x3 rotation matrix,
+                'T': combined 3x1 translation vector
             }
 
         """
         retval, _, _, _, _, R, T, E, F = \
             cv2.stereoCalibrate(object_points, image_points_1, image_points_2,
-                                K_1, dist_coeffs_1, K_2, dist_coeffs_2)
+                                K_1, dist_coeffs_1, K_2, dist_coeffs_2, image_size,
+                                flags=cv2.CALIB_FIX_INTRINSIC)
 
         if not retval:
             raise RuntimeError("Stereo calibration failed")

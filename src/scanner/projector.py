@@ -5,9 +5,10 @@ import numpy as np
 import os
 
 from utils.file_io import save_json, load_json
+from utils.plotter import Plotter
 from scanner.calibration import Charuco, CheckerBoard, Calibration
 from scanner.camera import Camera
-from scanner.intersection import Plane, fit_plane, plane_line_intersection, camera_to_ray_world, combine_transformations
+from scanner.intersection import Plane, fit_plane, plane_line_intersection, camera_to_ray_world, combine_transformations, undistort_camera_points
 
 
 # camera detects all the points and has 2D image points and 3D object points
@@ -28,6 +29,8 @@ class Projector:
         # intrinsic
         self.K = None
         self.dist_coeffs = None
+        self.rvecs = np.zeros(shape=(3,1))
+        self.tvecs = np.zeros(shape=(3,1))
         # extrinsic
         self.R = np.identity(3)        # projector is initialized at origin
         self.T = np.zeros(shape=(1,3)) # projector is initialized at origin
@@ -36,7 +39,7 @@ class Projector:
         self.discarded_images = set()
         self.image_points = []
         self.object_points = []
-        self.plane_points = []
+        self.camera_points = []        # camera points will be used for extrinsic calibration
         self.planes = []
         self.errors = []
         self.plane_pattern = None
@@ -83,10 +86,9 @@ class Projector:
             It saves it as 3x3 rotation matrix.
         """
         r = np.array(r, dtype=np.float32)
-        if r.shape==(3,1) or r.shape==(1,3):
+        if r.shape!=(3,3):
             r, _ = cv2.Rodrigues(r)
         self.R = r
-
     def load_camera(self, camera: str | dict | Camera):
         if type(camera) is (str or dict):
             self.camera.load_calibration(camera)
@@ -357,7 +359,10 @@ class Projector:
 
     # functions
     def reconstruct_plane(self, image_path: str) -> Plane:
-        assert self.camera is not None, "No camera defined"
+        """
+        TODO: discard this function
+        """
+        assert self.camera.K is not None, "No camera defined"
         assert self.plane_pattern is not None, "No Plane Pattern defined"
         assert self.calibration_pattern is not None, "No Calibration Pattern defined"
 
@@ -376,9 +381,19 @@ class Projector:
                                                  self.camera.K,
                                                  self.camera.dist_coeffs)
         
+        rvec = result['rvec']
+        tvec = result['tvec']
+        
+        R, _ = cv2.Rodrigues(rvec)
+        T = tvec.reshape((1,3))
+        
         # move markers to world coordinate
-        R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, result['R'], result['T'])
-        world_points = np.dot(obj_points, R_combined.T) + T_combined.reshape((1,3))
+        R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
+        # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
+        # has to be written as (R @ obj_points.T).T
+        # to simplify:
+        # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
+        world_points = np.matmul(obj_points, R_combined.T) + T_combined.reshape((1,3))
 
         # fit plane
         return fit_plane(world_points)
@@ -387,7 +402,7 @@ class Projector:
         """
         Add markers (2D image coordinates and 3D world coordinates) for calibration.
         """
-        assert self.camera is not None, "No camera defined"
+        assert self.camera.K is not None, "No camera defined"
         assert len(self.images) > 0, "No intrinsic images defined"
         assert self.plane_pattern is not None, "No Plane Pattern defined"
         assert self.calibration_pattern is not None, "No Calibration Pattern defined"
@@ -397,40 +412,69 @@ class Projector:
         self.object_points = []
         self.planes = []
         
-        # TODO: the IDs actually matter, since we want to match them with the IDs
-        # it is not always true that the IDs will be a list ranging from 0 to MAX
-        # rewrite code, but efficiently, to find the correct projector image points
-        # given a set of IDs
-        projector_image_points, _, _ = self.calibration_pattern.detect_markers(self.calibration_image)
+        # TODO: the IDs actually matter, since we want to match them with the IDs.
+        # It is not always true that the IDs will be a list ranging from 0 to MAX.
+        # Rewrite code, but efficiently, to find the correct projector image points
+        # given a set of IDs.
+        all_projector_image_points, _, _ = self.calibration_pattern.detect_markers(self.calibration_image)
 
         for image_path in self.images:
-            plane = self.reconstruct_plane(image_path)
+            # plane = self.reconstruct_plane(image_path)
 
-            if plane is None:
+            plane = Plane([0,0,0], [0,0,-1]) # set the plane to be on z=0 -- normal can be [0,0,+-1]
+
+            # detect plane/board markers with camera
+            cam_img_points, obj_points, _ = \
+                self.plane_pattern.detect_markers(image_path)
+            
+            # although plane reconstruction requires 3 points,
+            # OpenCV extrinsic calibration requires 6 points
+            if len(cam_img_points) < max(6, self.min_points):
                 self.discarded_images.add(image_path)
                 continue
-
+            
+            # find relative position of camera and board
+            result = Calibration.calibrate_extrinsic(obj_points,
+                                                    cam_img_points,
+                                                    self.camera.K,
+                                                    self.camera.dist_coeffs)
+            
+            rvec = result['rvec']
+            tvec = result['tvec']
+            
             # detect checkerboard -> pixel coordinates
-            img_points, _, ids = \
+            cam_img_points, _, ids = \
                 self.calibration_pattern.detect_markers(image_path)
             
-            if len(img_points) < self.min_points:
+            if len(cam_img_points) < self.min_points:
                 self.discarded_images.add(image_path)
                 continue
 
             # undistort pixel coordinates -> normalized coordinates
             # project normalized coordinates onto Plane - X_3D
-            camera_rays = camera_to_ray_world(img_points)
-
-            for camera_ray in camera_rays:
-                checker_world_points = plane_line_intersection(plane, camera_ray)
-                self.image_points.extend(projector_image_points[ids])
-                self.object_points.extend(checker_world_points)
+            camera_rays = camera_to_ray_world(cam_img_points,
+                                              rvec,
+                                              tvec,
+                                              self.camera.K,
+                                              self.camera.dist_coeffs)
+            
+            proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
+            obj = np.array([plane_line_intersection(plane, camera_ray) 
+                            for camera_ray in camera_rays], dtype=np.float32).reshape((-1,3))
+            # TODO: opencv calibration only works with PLANAR data, but where we are moving our
+            # plane pattern board around and retrieving the 3D world coordinates
+            # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS
+            for o in obj:
+                o[2] = 0. # ENSURE THAT THESE ARE ZERO, OTHERWISE OPENCV WILL NOT ACCEPT THEM
+            
+            self.image_points.append(proj_img_points)
+            self.object_points.append(obj)
+            self.camera_points.append(cam_img_points)
             self.planes.append(plane)
         
         self.discard_intrinsic_images()
 
-    def calibrate(self):
+    def calibrate_intrinsic(self):
         """
         Perform projector intrinsic and extrinsic calibration.
         """
@@ -440,25 +484,15 @@ class Projector:
             "Projector resolution has not been defined"
 
         # run Calibration.calibrate with projector 2D coordinates and X_3D 
+
         result = Calibration.calibrate(self.object_points,
                                        self.image_points,
                                        self.get_projector_shape())
-        rvecs = result['rvecs']
-        tvecs = result['tvecs']
-
-        R, _ = cv2.Rodrigues(rvecs[0])
-        T = np.matmul(R.T, -tvecs[0])
         
+        self.rvecs = result['rvecs']
+        self.tvecs = result['tvecs']
         self.K = result['K']
         self.dist_coeffs = result['dist_coeffs']
-        self.R = R
-        self.T = T
-
-        # T, (R, _) = tvec.ravel(), cv2.Rodrigues(rvec)
-        # origin = np.matmul(R.T, -T)
-        # print("\nProjector Origin:", origin)
-        # print("\nProjector Basis [ex, ey, ez]:\n", R)
-        # extrinsic = origin, R
 
     def refine(self):
         """
@@ -470,19 +504,21 @@ class Projector:
 
         Function calculates reprojection errors if not already done. 
         """
-        assert self.K is not None, "Camera has not been calibrated yet"
+        assert self.K is not None, "Projector has not been calibrated yet"
         assert self.error_thr > 0, "Error threshold not defined"
         if len(self.errors) < 1: 
             self.projection_errors()
 
         img_filtered = []
         obj_filtered = []
+        cam_filtered = []
 
         # Select points with errors below the threshold
-        for image_path, img_points, obj_points, errors \
+        for image_path, img_points, obj_points, cam_points, errors \
             in zip (self.images,
                     self.image_points, 
                     self.object_points,
+                    self.camera_points,
                     self.errors):
             filtered_idxs = np.nonzero(errors < self.error_thr)[0]
 
@@ -493,6 +529,7 @@ class Projector:
             # Filter the object and image points based on selected indexes
             img_filtered.append(np.array([img_points[i] for i in filtered_idxs]))
             obj_filtered.append(np.array([obj_points[i] for i in filtered_idxs]))
+            cam_filtered.append(np.array([cam_points[i] for i in filtered_idxs]))
 
         # Perform refined calibration using the filtered points
         result = \
@@ -511,6 +548,7 @@ class Projector:
         self.discard_intrinsic_images()
         self.image_points = img_filtered
         self.object_points = obj_filtered
+        self.camera_points = cam_filtered
         self.projection_errors()
     
     def projection_errors(self):
@@ -536,6 +574,57 @@ class Projector:
                                                     self.K,
                                                     self.dist_coeffs)
             self.errors.append(errors)
+
+    def calibrate_extrinsics(self):
+        """
+        Perform extrinsic projector calibration. This function requires a camera
+        paired with the projector because it calls stereo calibration from OpenCV. 
+
+        This function saves R and T, where T is the origin of the projector in 
+        the world coordinate system and R is the rotation matrix.
+
+        p_w = T + lambda * R @ u, where p_w is point in world coordinate and
+        u is normalized image coordinate (u_1, u_2, 1)
+        """
+        assert len(self.image_points) > 0, "There are no 2D projector image points"
+        assert len(self.object_points) > 0, "There are no 3D object points"
+        assert len(self.camera_points) > 0, "There are no 2D camera image points "
+        assert self.K is not None, "Projector has not been calibrated yet"
+        assert self.camera.K is not None, "Camera has not been defined"
+        
+        result = Calibration.stereo_calibrate(self.object_points,
+                                              self.camera_points,
+                                              self.image_points,
+                                              self.camera.get_image_shape(),
+                                              self.camera.K,
+                                              self.camera.dist_coeffs,
+                                              self.K,
+                                              self.dist_coeffs,
+                                              self.camera.R,
+                                              self.camera.T)
+        
+        self.R = result['R']
+        self.T = result['T']
+
+    # plotter
+    def plot_distortion(self):
+        """
+        Plot (with matplotlib) an image displaying lens distortion.
+        """
+        assert self.K is not None, "Projector has not been calibrated yet"
+
+        Plotter.plot_distortion(self.get_projector_shape(), self.K, self.dist_coeffs)
+        return 
+    
+    def plot_detected_markers(self):
+        """
+        Plot (with matplotlib) an image displaying the position
+        of detected intrinsic markers used for calibration.
+        """
+        assert len(self.image_points) > 0, "There are no 2D image points"
+        assert self.K is not None, "Projector has not been calibrated yet"
+
+        Plotter.plot_markers(self.image_points, self.get_projector_shape(), self.K)
 
     def plot_errors(self):
         """

@@ -3,6 +3,35 @@ import numpy as np
 
 from scanner.intersection import undistort_camera_points
 
+def line(ax, p1, p2, *args, **kwargs):
+    ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)
+
+def basis(ax, T, R, *args, length=1, **kwargs):
+    T = T.flatten()
+    Rx = np.array(R[0]).flatten() # need array back to shape (3,)
+    Ry = np.array(R[1]).flatten() # need array back to shape (3,)
+    Rz = np.array(R[2]).flatten() # need array back to shape (3,)
+    Tx = T + length * Rx
+    Ty = T + length * Ry
+    Tz = T + length * Rz
+
+    line(ax, T, Tx, "b", **kwargs)
+    ax.text(Tx[0], Tx[1], Tx[2], 'X', color='black')
+    line(ax, T, Ty, "b", **kwargs)
+    ax.text(Ty[0], Ty[1], Ty[2], 'Y', color='black')
+    line(ax, T, Tz, "b", **kwargs)
+    ax.text(Tz[0], Tz[1], Tz[2], 'Z', color='black')
+
+def axis_equal_3d(ax, zoom=1):
+    extents = np.array([getattr(ax, 'get_{}lim'.format(dim))() for dim in 'xyz'])
+    sz = extents[:, 1] - extents[:, 0]
+    centers = np.mean(extents, axis=1)
+    maxsize = max(abs(sz))
+    r = maxsize/2
+    for ctr, dim in zip(centers, 'xyz'):
+        getattr(ax, 'set_{}lim'.format(dim))(ctr - r/zoom, ctr + r/zoom)
+    plt.tight_layout()
+
 class Plotter:
     @staticmethod
     def plot_distortion(image_shape: tuple,
@@ -70,6 +99,8 @@ class Plotter:
         plt.ylim([height, 0])
         plt.grid(visible=True)
         plt.show()
+        if filename:
+            plt.savefig(filename, transparent=True, bbox_inches='tight')
 
     @staticmethod
     def plot_markers(markers: np.ndarray,
@@ -120,6 +151,8 @@ class Plotter:
         plt.ylim([height, 0])
         plt.grid(visible=True)
         plt.show()
+        if filename:
+            plt.savefig(filename, transparent=True, bbox_inches='tight')
     
     @staticmethod
     def plot_errors():
@@ -132,5 +165,34 @@ class Plotter:
         of a list of camera/projector objects.
         The objects need to be already calibrated, otherwise all
         of them will be plotted at the origin.
+
+        TODO: Draw cameras in red, projectors in green.
+              Show the focal length / FOV of objects 
         """
-        pass
+
+        fig = plt.figure('3D Position')
+        ax = fig.add_subplot(111, projection='3d')
+
+        for idx, obj in enumerate(objects):
+            # color = 'red' if isinstance(obj, Camera) else 'green'
+
+            T = obj.get_translation()
+            R = obj.get_rotation()
+            origin = -np.matmul(R.T, T).flatten()
+            orientation = R.T
+            # origin = T.flatten()
+            basis(ax, origin, orientation, length=50)
+
+            ax.text(origin[0], origin[1], origin[2], f'object_{idx}', color='red')
+
+        ax.set_xlabel("X (mm)")
+        ax.set_ylabel("Y (mm)")
+        ax.set_zlabel("Z (mm)")
+
+        ax.view_init(0,0,0)
+
+        axis_equal_3d(ax)
+
+        return ax
+
+        plt.show()

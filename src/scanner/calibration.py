@@ -262,14 +262,14 @@ class Calibration:
             }
         """
 
-        retval, cameraMatrix, distCoeffs, = \
+        rms, cameraMatrix, distCoeffs, = \
             cv2.initCameraMatrix2D(object_points, image_points, image_shape)
         
-        if not retval:
+        if not rms:
             raise RuntimeError("Intrinsic calibration failed")
 
         return {
-            'retval': retval,
+            'rms': rms,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
         }
@@ -311,14 +311,14 @@ class Calibration:
                 'tvecs': list of N translation vectors, each with shape 1x3
             }
         """
-        retval, cameraMatrix, distCoeffs, rvecs, tvecs = \
+        rms, cameraMatrix, distCoeffs, rvecs, tvecs = \
             cv2.calibrateCamera(object_points, image_points, image_shape, K, dist_coeffs)
         
-        if not retval:
+        if not rms:
             raise RuntimeError("Calibration failed")
 
         return {
-            'retval': retval,
+            'rms': rms,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
             'rvecs': rvecs,
@@ -361,14 +361,14 @@ class Calibration:
                 'tvecs': list of N translation vectors, each with shape 1x3 
             }
         """
-        retval, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
+        rms, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
             cv2.calibrateCameraExtended(object_points, image_points, image_shape, K, dist_coeffs)
 
-        if not retval:
+        if not rms:
             raise RuntimeError("Extended calibration failed")
 
         return {
-            'retval': retval,
+            'rms': rms,
             'K': cameraMatrix,
             'dist_coeffs': distCoeffs,
             'rvecs': rvecs,
@@ -494,14 +494,14 @@ class Calibration:
             }
 
         """
-        retval, rvec, tvec = \
+        rms, rvec, tvec = \
             cv2.solvePnP(object_points, image_points, K, dist_coeffs)
 
-        if not retval:
+        if not rms:
             raise RuntimeError("Extrinsic calibration failed")
         
         return {
-            'retval': retval,
+            'rms': rms,
             'rvec': rvec,
             'tvec': tvec,
         }
@@ -516,7 +516,7 @@ class Calibration:
                          K_2: np.ndarray,
                          dist_coeffs_2: np.ndarray,
                          R_1: np.ndarray=np.identity(3),
-                         T_1: np.ndarray=np.zeros((1,3))
+                         T_1: np.ndarray=np.zeros((3,1))
                          ) -> dict:
         """
         TODO: function explanation
@@ -527,14 +527,14 @@ class Calibration:
             List, of length N, of 3D world coordinates, where N is number of images.
         image_points_1 : list
             List, of length N, of 2D image coordinates from camera 1, where N is number of images.
-        image_points_1 : list
+        image_points_2 : list
             List, of length N, of 2D image coordinates from camera 2
             (or projector), where N is number of images.
         image_size : tuple
             Tuple containing (height, width) of image resolution.
             NOTE: OpenCV only accepts one value of image size, so it assumes cameras have
-            the same resolution. If they do not, pass the intrinsic parameters and
-            set the flag to cv2.CALIB_FIX_INTRINSIC.
+            the same resolution. If they are not the same, pass the intrinsic parameters for each
+            and set the flag to cv2.CALIB_FIX_INTRINSIC.
         K_1 : array_like
             3x3 intrinsic matrix from camera 1.
         dist_coeffs_1 : array_like
@@ -546,7 +546,7 @@ class Calibration:
         R_1 : array_like, optional
             Rotation matrix from camera 1.
             If not given, assumes identity matrix.
-            If given as a 3x1 vector, converts it to
+            If given as a 3x1 or 1x3 vector, converts it to
             a 3x3 matrix using Rodrigues.
         T_1 : array_like, optional
             Translation vector from camera 1.
@@ -557,23 +557,29 @@ class Calibration:
         dict
             Dictionary containing
             {
-                'R': combined 3x3 rotation matrix,
-                'T': combined 3x1 translation vector
+                'R': 3x3 rotation matrix of camera 2 (or projector),
+                'T': 3x1 translation vector of camera 2 (or projector)
             }
 
         """
-        retval, _, _, _, _, R, T, E, F = \
+        rms, _, _, _, _, R, T, _, _ = \
             cv2.stereoCalibrate(object_points, image_points_1, image_points_2,
                                 K_1, dist_coeffs_1, K_2, dist_coeffs_2, image_size,
                                 flags=cv2.CALIB_FIX_INTRINSIC)
-
-        if not retval:
+    
+        if not rms:
             raise RuntimeError("Stereo calibration failed")
         
-        R_combined, T_combined = combine_transformations(R_1, T_1, R, T)
+        # as described in the OpenCV documentation,
+        # the R and T are "equivalent to the position of 
+        # the first camera with respect to the second camera coordinate system."
+        # perform matrix multiplication that R and T mean 
+        # bringing world points into second camera coordinate system
+
+        R_combined, T_combined = combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
 
         return {
-            'retval': retval,
+            'rms': rms,
             'R': R_combined,
             'T': T_combined
         }

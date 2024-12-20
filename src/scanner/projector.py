@@ -33,13 +33,14 @@ class Projector:
         self.tvecs = np.zeros(shape=(3,1))
         # extrinsic
         self.R = np.identity(3)        # projector is initialized at origin
-        self.T = np.zeros(shape=(1,3)) # projector is initialized at origin
+        self.T = np.zeros(shape=(3,1)) # projector is initialized at origin
         # calibration utils
         self.images = []               # image paths
         self.discarded_images = set()
         self.image_points = []
         self.object_points = []
-        self.camera_points = []        # camera points will be used for extrinsic calibration
+        self.camera_image_points = []  # camera points will be used for extrinsic calibration
+        self.camera_object_points = [] # camera points will be used for extrinsic calibration
         self.planes = []
         self.errors = []
         self.plane_pattern = None
@@ -73,9 +74,9 @@ class Projector:
         Parameters
         ----------
         T : array_like
-            1x3 translation vector of Projector.
+            3x1 translation vector of Projector.
         """
-        self.T = np.array(T, dtype=np.float32).reshape((1,3))
+        self.T = np.array(T, dtype=np.float32).reshape((3,1))
     def set_rotation(self, r):
         """
         Parameters
@@ -148,7 +149,7 @@ class Projector:
         Parameters
         ----------
         T : array_like
-            1x3 translation vector of Camera.
+            3x1 translation vector of Camera.
         """
         self.camera.set_translation(T)
     def set_camera_rotation(self, r):
@@ -297,7 +298,7 @@ class Projector:
         return self.dist_coeffs
     def get_translation(self):
         """
-        Returns the projector translation vector (shape 1x3) T.
+        Returns the projector translation vector (shape 3x1) T.
         """
         return self.T
     def get_rotation(self):
@@ -385,7 +386,7 @@ class Projector:
         tvec = result['tvec']
         
         R, _ = cv2.Rodrigues(rvec)
-        T = tvec.reshape((1,3))
+        T = tvec.reshape((3,1))
         
         # move markers to world coordinate
         R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
@@ -410,6 +411,8 @@ class Projector:
         # Empty the list of image points, object points, and planes before going through list of images 
         self.image_points = []
         self.object_points = []
+        self.camera_image_points = []
+        self.camera_object_points = []
         self.planes = []
         
         # TODO: the IDs actually matter, since we want to match them with the IDs.
@@ -469,7 +472,19 @@ class Projector:
             
             self.image_points.append(proj_img_points)
             self.object_points.append(obj)
-            self.camera_points.append(cam_img_points)
+            self.camera_image_points.append(cam_img_points)
+                        
+            R, _ = cv2.Rodrigues(rvec)
+            T = tvec.reshape((3,1))
+            
+            # move markers to world coordinate
+            R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
+            # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
+            # has to be written as (R @ obj_points.T).T
+            # to simplify:
+            # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
+            camera_obj =  np.matmul(obj, R_combined.T) + T_combined.reshape((1,3))
+            self.camera_object_points.append(camera_obj)
             self.planes.append(plane)
         
         self.discard_intrinsic_images()
@@ -511,14 +526,16 @@ class Projector:
 
         img_filtered = []
         obj_filtered = []
-        cam_filtered = []
+        cam_img_filtered = []
+        cam_obj_filtered = []
 
         # Select points with errors below the threshold
-        for image_path, img_points, obj_points, cam_points, errors \
+        for image_path, img_points, obj_points, cam_img_points, cam_obj_points, errors \
             in zip (self.images,
                     self.image_points, 
                     self.object_points,
-                    self.camera_points,
+                    self.camera_image_points,
+                    self.camera_object_points,
                     self.errors):
             filtered_idxs = np.nonzero(errors < self.error_thr)[0]
 
@@ -529,7 +546,8 @@ class Projector:
             # Filter the object and image points based on selected indexes
             img_filtered.append(np.array([img_points[i] for i in filtered_idxs]))
             obj_filtered.append(np.array([obj_points[i] for i in filtered_idxs]))
-            cam_filtered.append(np.array([cam_points[i] for i in filtered_idxs]))
+            cam_img_filtered.append(np.array([cam_img_points[i] for i in filtered_idxs]))
+            cam_obj_filtered.append(np.array([cam_obj_points[i] for i in filtered_idxs]))
 
         # Perform refined calibration using the filtered points
         result = \
@@ -548,7 +566,8 @@ class Projector:
         self.discard_intrinsic_images()
         self.image_points = img_filtered
         self.object_points = obj_filtered
-        self.camera_points = cam_filtered
+        self.camera_image_points = cam_img_filtered
+        self.camera_object_points = cam_obj_filtered
         self.projection_errors()
     
     def projection_errors(self):
@@ -588,12 +607,12 @@ class Projector:
         """
         assert len(self.image_points) > 0, "There are no 2D projector image points"
         assert len(self.object_points) > 0, "There are no 3D object points"
-        assert len(self.camera_points) > 0, "There are no 2D camera image points "
+        assert len(self.camera_image_points) > 0, "There are no 2D camera image points "
         assert self.K is not None, "Projector has not been calibrated yet"
         assert self.camera.K is not None, "Camera has not been defined"
         
-        result = Calibration.stereo_calibrate(self.object_points,
-                                              self.camera_points,
+        result = Calibration.stereo_calibrate(self.camera_object_points,
+                                              self.camera_image_points,
                                               self.image_points,
                                               self.camera.get_image_shape(),
                                               self.camera.K,

@@ -9,7 +9,6 @@ import os
 from utils.file_io import save_json, load_json
 from utils.plotter import Plotter
 from scanner.calibration import Calibration, Charuco, CheckerBoard
-from scanner.intersection import undistort_camera_points
 
 class CameraModel(Enum):
         """
@@ -93,7 +92,7 @@ class Camera:
         self.extrinsic_object_points =[]
         self.extrinsic_image_points = []
         self.R = np.identity(3)        # camera is initialized at origin
-        self.T = np.zeros(shape=(1,3)) # camera is initialized at origin
+        self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
         # calibration utils
         self.errors = []
         self.calibration_pattern = None
@@ -133,9 +132,9 @@ class Camera:
         Parameters
         ----------
         T : array_like
-            1x3 translation vector of Camera.
+            3x1 translation vector of Camera.
         """
-        self.T = np.array(T, dtype=np.float32).reshape((1,3))
+        self.T = np.array(T, dtype=np.float32).reshape((3,1))
     def set_rotation(self, r):
         """
         Parameters
@@ -311,17 +310,19 @@ class Camera:
         return self.newK
     def get_rvecs(self) -> list[np.ndarray]:
         """
-        Returns the list of camera translation rotation vectors (shape 1x3) found during calibration.
+        Returns the list of camera translation rotation vectors (shape Nx3,
+        where N is the number of images) found during calibration.
         """
         return self.rvecs
     def get_tvecs(self) -> list[np.ndarray]:
         """
-        Returns the list of camera translation translation vectors (shape 1x3) found during calibration.
+        Returns the list of camera translation translation vectors (shape Nx3,
+        where N is the number of images) found during calibration.
         """
         return self.tvecs
     def get_translation(self) -> np.ndarray:
         """
-        Returns the camera translation vector (shape 1x3) T.
+        Returns the camera translation vector (shape 3x1) T.
         """
         return self.T
     def get_rotation(self) -> np.ndarray:
@@ -527,7 +528,7 @@ class Camera:
         tvec = result['tvec']
         
         R, _ = cv2.Rodrigues(rvec)
-        T = tvec.reshape((1,3))
+        T = tvec.reshape((3,1))
         
         self.R = R
         self.T = T

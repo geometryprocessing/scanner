@@ -198,7 +198,7 @@ def homogeneous_coordinates(
         ) -> np.ndarray:
     """
     Converts coordinates into homogenous form, i.e.
-    the points (x, y) becomes (x, y, 1)
+    the points (u, v) becomes (u, v, 1)
 
     Parameters
     ----------
@@ -207,7 +207,7 @@ def homogeneous_coordinates(
     
     Returns
     ----------
-    lines
+    homegeneous coordinates
         List of N 2D homogenous coordinates (shape Nx3).
     """
     points = np.array(points2D, dtype=np.float32)
@@ -308,7 +308,7 @@ def combine_transformations(R1: np.ndarray,
     R2 = np.array(R2, dtype=np.float32).reshape((3,3))
     T2 = np.array(T2, dtype=np.float32).reshape((3,1))
 
-    R = np.dot(R1, R2)
-    T = np.dot(R2, T1) + T2
+    R = np.matmul(R2, R1)
+    T = np.matmul(R2, T1) + T2
 
     return R, T

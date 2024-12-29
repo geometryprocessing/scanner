@@ -1,6 +1,10 @@
+Imath==0.0.2
 matplotlib==3.8.4
 numpy==1.26.4
 opencv_contrib_python==4.5.5.64
+OpenEXR==3.2.4
+rawpy==0.20.0
+scipy==1.13.0
 
 ## structured light codebase for generating and decoding patterns
 git+https://github.com/elerac/structuredlight

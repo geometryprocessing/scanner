@@ -247,8 +247,8 @@ def camera_to_ray_world(
     T = np.array(T, dtype=np.float32).reshape((3,1))
     if R.shape!=(3,3):
         R, _ = cv2.Rodrigues(R)
-    xy = undistort_camera_points(points2D, K, dist_coeffs)
-    directions = homogeneous_coordinates(xy)
+    uv = undistort_camera_points(points2D, K, dist_coeffs)
+    directions = homogeneous_coordinates(uv)
     lines = [Line(np.matmul(-R.T, T), np.matmul(R.T, direction.reshape((3,1)))) for direction in directions]
     return lines
 

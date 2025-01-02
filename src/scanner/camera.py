@@ -509,10 +509,12 @@ class Camera:
         """
         Perform extrinsic camera calibration.
 
-        This function saves R and T, where T is the origin of the camera in 
-        the world coordinate system and R is the rotation matrix.
+        This function saves R and T, where R and T are the rotation and translation
+        tuple to bring the world coordinates into the camera coordinate system.
 
-        p_w = T + lambda * R @ u, where p_w is point in world coordinate and
+        Notes
+        -----
+        lambda u = R @ p_w + T, where p_w is point in world coordinate and
         u is normalized image coordinate (u_1, u_2, 1)
         """
         assert len(self.extrinsic_image_points) > 0, "There are no 2D image points"

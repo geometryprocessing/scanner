@@ -599,10 +599,12 @@ class Projector:
         Perform extrinsic projector calibration. This function requires a camera
         paired with the projector because it calls stereo calibration from OpenCV. 
 
-        This function saves R and T, where T is the origin of the projector in 
-        the world coordinate system and R is the rotation matrix.
+        This function saves R and T, where R and T are the rotation and translation
+        tuple to bring the world coordinates into the projector coordinate system.
 
-        p_w = T + lambda * R @ u, where p_w is point in world coordinate and
+        Notes
+        -----
+        lambda u = R @ p_w + T, where p_w is point in world coordinate and
         u is normalized image coordinate (u_1, u_2, 1)
         """
         assert len(self.image_points) > 0, "There are no 2D projector image points"
@@ -611,19 +613,33 @@ class Projector:
         assert self.K is not None, "Projector has not been calibrated yet"
         assert self.camera.K is not None, "Camera has not been defined"
         
-        result = Calibration.stereo_calibrate(self.camera_object_points,
-                                              self.camera_image_points,
-                                              self.image_points,
-                                              self.camera.get_image_shape(),
-                                              self.camera.K,
-                                              self.camera.dist_coeffs,
-                                              self.K,
-                                              self.dist_coeffs,
-                                              self.camera.R,
-                                              self.camera.T)
+        # result = Calibration.stereo_calibrate(self.camera_object_points,
+        #                                       self.camera_image_points,
+        #                                       self.image_points,
+        #                                       self.camera.get_image_shape(),
+        #                                       self.camera.K,
+        #                                       self.camera.dist_coeffs,
+        #                                       self.K,
+        #                                       self.dist_coeffs,
+        #                                       self.camera.R,
+        #                                       self.camera.T)
         
-        self.R = result['R']
-        self.T = result['T']
+        # self.R = result['R']
+        # self.T = result['T']
+
+        result = Calibration.calibrate_extrinsic(np.concatenate(self.camera_object_points),
+                                                 np.concatenate(self.image_points),
+                                                 self.K,
+                                                 self.dist_coeffs)
+        
+        rvec = result['rvec']
+        tvec = result['tvec']
+        
+        R, _ = cv2.Rodrigues(rvec)
+        T = tvec.reshape((3,1))
+        
+        self.R = R
+        self.T = T
 
     # plotter
     def plot_distortion(self):
@@ -703,6 +719,7 @@ class Projector:
         self.set_error_threshold(config['error_thr'])
         self.set_min_points(config['min_points'])
 
-        self.calibrate()
+        self.calibrate_intrinsic()
+        self.calibrate_extrinsics()
         
         self.save_calibration(config['output_filename'])

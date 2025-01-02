@@ -461,10 +461,10 @@ class Calibration:
     
     
     @staticmethod
-    def calibrate_extrinsic(object_points: np.ndarray,
-                           image_points: np.ndarray,
-                           K,
-                           dist_coeffs
+    def calibrate_extrinsic(object_points: list,
+                           image_points: list,
+                           K: np.ndarray,
+                           dist_coeffs: np.ndarray
                            ) -> dict:
         """
         TODO: function explanation
@@ -576,7 +576,9 @@ class Calibration:
         # perform matrix multiplication that R and T mean 
         # bringing world points into second camera coordinate system
 
-        R_combined, T_combined = combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
+        # R_combined, T_combined = combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
+        R_combined, T_combined = combine_transformations(R_1, T_1, R, T)
+        # R_combined, T_combined = combine_transformations(R, T, R_1, T_1)
 
         return {
             'rms': rms,

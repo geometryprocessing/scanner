@@ -17,7 +17,7 @@ def normalize(vector) -> np.ndarray:
     norm = np.linalg.norm(vector)
     if norm < 1e-8:
         return vector
-    return np.array(vector, dtype=np.float32) / np.linalg.norm(vector)
+    return np.array(vector, dtype=np.float32) / norm
 
 class Plane:
     def __init__( self, point, direction ):
@@ -92,6 +92,98 @@ def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndar
     """
     return np.average(np.array([plane_line_intersection(plane, line) for line in lines], dtype=np.float32), axis=0)
 
+def triangulate( line1: Line, line2: Line ) -> np.ndarray:
+    """
+    Parameters
+    ----------
+    line1 : Line
+        line class containing a point and a direction vector.
+    line2 : Line
+        line class containing a point and a direction vector.
+
+    Returns 
+    ----------
+    triangulated point of two lines.
+    """
+    T1 = line1.q
+    T2 = line2.q
+    dir1 = line1.v
+    dir2 = line2.v
+    
+    v12 = np.sum(np.multiply(dir1, dir2), axis=1)
+    v1 = np.linalg.norm(dir1, axis=1)
+    v2 = np.linalg.norm(dir2, axis=1)
+
+    lambda1 = (np.matmul(dir1, T2 - T1) * v1**2 + np.matmul(dir1, T1 - T2) * v12)   / (v1**2 * v2**2 - v12**2)
+    lambda2 = (np.matmul(dir1, T2 - T1) * v12.T + np.matmul(dir2, T1 - T2) * v2**2) / (v1**2 * v2**2 - v12**2)
+
+    # find the midpoint between the two lines for every point
+    return ( (T1 + dir2 * lambda1[:, None]) + (T2 + dir2 * lambda2[:, None]) ) / 2
+
+def triangulate_pixels(
+        pixels_1: np.ndarray,
+        K_1: np.ndarray,
+        dist_coeffs_1: np.ndarray,
+        R_1: np.ndarray,
+        T_1: np.ndarray,
+        pixels_2: np.ndarray,
+        K_2: np.ndarray,
+        dist_coeffs_2: np.ndarray,
+        R_2: np.ndarray,
+        T_2: np.ndarray) -> np.ndarray:
+    """
+    Parameters
+    ----------
+    pixels_1 : array_like
+        list of N 2D pixel coordinates (shape Nx2) of camera 1.
+    K_1 : array_like
+        intrinsic matrix of camera 1.
+    dist_coeffs_1 : array_like
+        distortion coefficients of camera 1.
+    R_1 : array_like
+        rotation matrix (shape 3x3 or 3x1) of camera 1.
+    T_1 : array_like
+        translation vector (shape 3x1) of camera 1.
+    pixels_2 : array_like
+        list of N 2D pixel coordinates (shape Nx2) of camera 2.
+    K_2 : array_like
+        intrinsic matrix of camera 2.
+    dist_coeffs_2 : array_like
+        distortion coefficients of camera 2.
+    R_2 : array_like
+        rotation matrix (shape 3x3 or 3x1) of camera 2.
+    T_2 : array_like
+        translation vector (shape 3x1) of camera 2.
+    
+    Returns 
+    ----------
+    numpy array of triangulated points
+
+    Notes
+    -----
+    pixels1 and pixels2 need to have the same shape. Additionally,
+    pixels1[i] and pixels2[i] should be the corresponding 2D pixel
+    coordinates of the same 3D object.
+    """
+    
+    rays1 = camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
+    rays2 = camera_to_ray_world(pixels_2, R_2, T_2, K_2, dist_coeffs_2)
+
+    origin1 = rays1[0].q
+    origin2 = rays2[0].q
+    directions1 = np.vstack([line.v for line in rays1])
+    directions2 = np.vstack([line.v for line in rays2])
+
+    v12 = np.sum(np.multiply(directions1, directions2), axis=1).reshape(-1,1)
+    v1 = np.linalg.norm(directions1, axis=1).reshape(-1,1)
+    v2 = np.linalg.norm(directions2, axis=1).reshape(-1,1)
+
+    lambda1 = (np.matmul(directions1, origin2.T - origin1.T) * v1**2 + np.matmul(directions2, origin1.T - origin2.T) * v12)   / (v1**2 * v2**2 - v12**2)
+    lambda2 = (np.matmul(directions1, origin2.T - origin1.T) * v12   + np.matmul(directions2, origin1.T - origin2.T) * v2**2) / (v1**2 * v2**2 - v12**2)
+
+    # find the midpoint between the two lines for every point
+    return ( (origin1 + directions1 * lambda1) + (origin2 + directions2 * lambda2) ) / 2
+
 def intersect_lines( lines: np.ndarray[Line] ) -> np.ndarray:
     """
     TODO: vectorize operations to avoid using list comprehension.
@@ -129,7 +221,7 @@ def point_line_distance(p: np.ndarray, line: Line):
         
     Returns 
     ----------
-    float distance between point and line.
+    distance between point and line
     """
     p = np.array(p, dtype=np.float32).reshape((1,-1))
     return np.linalg.norm(np.cross(line.v, p - line.q)) / np.linalg.norm(line.v)

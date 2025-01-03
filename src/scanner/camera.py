@@ -73,31 +73,31 @@ class Camera:
         self.model = "to-be-implemented" # this will be the CameraModel ENUM
 
         # image resolution
-        self.width = None
+        self.width  = None
         self.height = None
         # intrinsic
-        self.intrinsic_images = []     # image paths
-        self.discarded_images = set()
+        self.intrinsic_images        = []     # image paths
+        self.discarded_images        = set()
         self.intrinsic_object_points = []
-        self.intrinsic_image_points = []
-        self.K = None
-        self.scaling_factor = 0
-        self.newK = None
-        self.roi = None
-        self.dist_coeffs = None
-        self.rvecs = np.zeros(shape=(3,1))
-        self.tvecs = np.zeros(shape=(3,1))
+        self.intrinsic_image_points  = []
+        self.K                       = None
+        self.scaling_factor          = 0
+        self.newK                    = None
+        self.roi                     = None
+        self.dist_coeffs             = None
+        self.rvecs                   = np.zeros(shape=(3,1))
+        self.tvecs                   = np.zeros(shape=(3,1))
         # extrinsic
-        self.extrinsic_image = None     # image paths
-        self.extrinsic_object_points =[]
-        self.extrinsic_image_points = []
-        self.R = np.identity(3)        # camera is initialized at origin
-        self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
+        self.extrinsic_image         = None     # image paths
+        self.extrinsic_object_points = []
+        self.extrinsic_image_points  = []
+        self.R                       = np.identity(3)        # camera is initialized at origin
+        self.T                       = np.zeros(shape=(3,1)) # camera is initialized at origin
         # calibration utils
-        self.errors = []
+        self.errors              = []
         self.calibration_pattern = None
-        self.error_thr = 0
-        self.min_points = 4
+        self.error_thr           = 0
+        self.min_points          = 4
 
     # setters
     def set_intrinsic_matrix(self, K):
@@ -599,8 +599,7 @@ class Camera:
 
     def run(self, config: str | dict):
         if type(config) is str:
-            with open(config, 'r') as f:
-                config = json.load(f)
+            config = load_json(config)
 
         self.set_intrinsic_image_paths(config['intrinsic_folder_path'])
         self.set_extrinsic_image_path(config['extrinsic_image_path'])

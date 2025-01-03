@@ -1,7 +1,7 @@
 import unittest
 import random
 
-from src.scanner.intersection import *
+from utils.three_d_utils import *
 
 DOUBLE_EPS = 1.0e-14
 DOUBLE_EPS_SQ = 1.0e-28
@@ -51,7 +51,7 @@ class TestIntersection(unittest.TestCase):
         line2 = Line([0,1,0], [0,-1,0])
         line3 = Line([0,0,1], [0,0,-1])
 
-        result = intersect_lines([line1,line2,line3])
+        result = ThreeDUtils.intersect_lines([line1,line2,line3])
         expected = np.array([0, 0, 0]).reshape((1,3))
         
         self.assertAlmostEqual(np.linalg.norm(result - expected), 0.0,
@@ -60,7 +60,7 @@ class TestIntersection(unittest.TestCase):
     def test_plane_line_intersection(self):
         plane = Plane([0,0,0], [0,0,1])
         line = Line([0,0,3], [1,1,-1])
-        result = plane_line_intersection(plane, line)
+        result = ThreeDUtils.plane_line_intersection(plane, line)
         expected = np.array([-3,-3, 0]).reshape((1,3))
 
         self.assertAlmostEqual(np.linalg.norm(result - expected), 0.0, 
@@ -69,7 +69,7 @@ class TestIntersection(unittest.TestCase):
     def test_point_line_distance(self):
         point = [1,0,1]
         line = Line([0,0,0], [0,0,1])
-        result = point_line_distance(point, line)
+        result = ThreeDUtils.point_line_distance(point, line)
         expected = 1.0
 
         self.assertAlmostEqual(result, expected,

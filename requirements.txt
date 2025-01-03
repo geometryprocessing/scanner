@@ -1,6 +1,7 @@
 Imath==0.0.2
 matplotlib==3.8.4
 numpy==1.26.4
+open3d==0.18.0
 opencv_contrib_python==4.5.5.64
 OpenEXR==3.2.4
 rawpy==0.20.0

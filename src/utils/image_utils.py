@@ -2,10 +2,44 @@ import cv2
 import Imath
 import numpy as np
 import rawpy
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion
 import OpenEXR
 
 class ImageUtils:
+    @staticmethod
+    def undistort_camera_points(
+        points2D: np.ndarray,
+        K: np.ndarray,
+        dist_coeffs: np.ndarray,
+        R: np.ndarray=None,
+        P: np.ndarray=None ) -> np.ndarray:
+        """
+        TODO: understand better the functionality of cv2.undistortPoints
+        In order to find where the points would be from undistortion, pass the same matrix K for P.
+        """
+        return cv2.undistortPoints(np.array(points2D, dtype=np.float32).reshape((-1, 1, 2)), K, dist_coeffs, R, P).reshape((-1, 2))
+    
+    @staticmethod
+    def homogeneous_coordinates(
+            points2D: np.ndarray
+            ) -> np.ndarray:
+        """
+        Converts coordinates into homogenous form, i.e.
+        the point (u, v) becomes (u, v, 1)
+
+        Parameters
+        ----------
+        points2D : array_like
+            list of N 2D coordinates (shape Nx2).
+        
+        Returns
+        ----------
+        homegeneous coordinates
+            List of N 2D homogenous coordinates (shape Nx3).
+        """
+        points = np.array(points2D, dtype=np.float32)
+        return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+
     @staticmethod
     def colorize(image: np.ndarray) -> np.ndarray:
         """
@@ -147,9 +181,9 @@ class ImageUtils:
         return np.maximum(0, np.minimum(bayer, 1))
     
     @staticmethod
-    def load_ldr(filename: str, make_gray: bool=True, normalize: bool=True) -> np.ndarray:
+    def load_ldr(filename: str, make_gray: bool=False, normalize: bool=False) -> np.ndarray:
         """
-        Load LDR image using OpenCV. Flags can be set to make it grayscale
+        Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
         and/or normalize the value range from [0, 2**16[ to [0, 1[.
 
         Parameters
@@ -157,11 +191,11 @@ class ImageUtils:
         filename : str
             path to image file.  
         make_gray : boolean, optional
-            Flag to convert image to grayscale (True) or keep all three channels (False).
-            Default is True.
+            Flag to convert image to grayscale (True) or keep all three color channels intact (False).
+            Default is False.
         normalize : boolean, optional
-            Flag to normalize image to grayscale (True) or keep all three channels (False).
-            Default is True.
+            Flag to normalize image range to single [0, 1[ (True) or keep as uint16 [0, 2**16[ (False).
+            Default is False.
         """
         img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
         if img is None:
@@ -173,8 +207,9 @@ class ImageUtils:
         if make_gray:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-        if normalize:
-            img = img / 2**16
+        # if normalize:
+            ## why do we divide by 2**16?
+            # img = img / 2**16
 
         # if chronos_raw:
         #     if len(img.shape) == 2:
@@ -218,17 +253,29 @@ class ImageUtils:
         cv2.imwrite(filename, image)  # expects BGR or Gray
     
     @staticmethod
-    def load_openexr(filename: str, make_gray: bool=True):
+    def load_openexr(filename: str, make_gray: bool=False, load_depth: bool=False):
         """
-        Load .EXR extension image using OpenEXR.
+        Load .EXR extension image using OpenEXR. These are multi-channel,
+        high-dynamic range images.
 
         Parameters
         ----------
         filename : str
             path to image file.  
         make_gray : boolean, optional
-            Flag to convert image to grayscale (True) or keep all three channels (False).
-            Default is True.
+            Flag to convert image to grayscale (True) or keep all three color channels intact (False).
+            Default is False.
+        load_depth : boolean, optional
+            Flag to load the channel distance.Y (True) or not (False).
+            Default is False.
+
+        Returns
+        -------
+        image
+            numpy array (shape NxMx3 if make_gray set to False,
+            shape NxMx1 if make_gray set to True) of image
+        depth (optional)
+            numpy array (shape NxMx1) of depth (only returned if load_depth set to True)
         """
         with open(filename, "rb") as f:
             in_file = OpenEXR.InputFile(f)
@@ -236,22 +283,30 @@ class ImageUtils:
                 dw = in_file.header()['dataWindow']
                 pt = Imath.PixelType(Imath.PixelType.FLOAT)
                 dim = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
-                # print(dim)
-                if len(in_file.header()['channels']) == 3:  # Scan
+                if len(in_file.header()['channels']) == 3:
                     (r, g, b) = in_file.channels("RGB", pixel_type=pt)
-                elif len(in_file.header()['channels']) >= 4:  # Sim
+                    d = None
+                elif len(in_file.header()['channels']) >= 4:
                     r = in_file.channel('color.R', pt)
                     g = in_file.channel('color.G', pt)
                     b = in_file.channel('color.B', pt)
+
+                    if load_depth:
+                        d = in_file.channel("distance.Y", pt)
+                        d = np.reshape(np.frombuffer(d, dtype=np.float32), dim)
+                    else:
+                        d = None
 
                 r = np.reshape(np.frombuffer(r, dtype=np.float32), dim)
                 g = np.reshape(np.frombuffer(g, dtype=np.float32), dim)
                 b = np.reshape(np.frombuffer(b, dtype=np.float32), dim)
                 rgb = np.stack([r, g, b], axis=2)
 
-                ret = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if make_gray else rgb
-
-                return ret
+                img = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if make_gray else rgb
+                if load_depth:
+                    return img, d
+                else:
+                    return img
             finally:
                 in_file.close()
 
@@ -290,3 +345,79 @@ class ImageUtils:
         exr.writePixels({'R': R, 'G': G, 'B': B})   # need to duplicate channels for grayscale anyways
                                                     # (to keep it readable by LuminanceHDR)
         exr.close()
+
+    @staticmethod
+    def linear_map(img, thr=None, mask=None, gamma=1.0):
+        """
+        """
+        if thr is None:
+            pixels = img[mask].ravel() if mask is not None else img.ravel()
+
+            if pixels.shape[0] > 1e+6:
+                pixels = pixels[::int(pixels.shape[0] / 1e+6)]
+
+            thr = 1.2 * np.sort(pixels)[int(0.99*pixels.shape[0])]  # threshold at 99th percentile
+
+        img = img / thr
+        if abs(gamma - 1.0) > 1e-6:
+            img = np.power(img, 1/gamma)
+
+        return np.minimum(255 * img, 255).astype(np.uint8), thr
+
+    @staticmethod
+    def generate_mask(image: np.ndarray,
+                      threshold: float,
+                      mask_sigma: float=3,
+                      rank: int=2,
+                      connectivity: int=1,
+                      iterations: int=6):
+        """
+        Take in an image and generate a binary mask from it using scipy.ndimage
+
+        Parameters
+        ----------
+        image : array_like
+            image for which a binary mask will be generated
+        threshold : float
+            ls
+        mask_sigma : scalar or sequence of scalars, optional
+            Standard deviation for Gaussian kernel. The standard
+            deviations of the Gaussian filter are given for each axis as a
+            sequence, or as a single number, in which case it is equal for
+            all axes.
+            Default is set to 3 for all axes.
+        rank : int, optional
+            Number of dimensions of the array to which the structuring element
+            will be applied, as returned by `np.ndim`.
+            Default is set to 2 (a square).
+        connectivity : int, optional
+            `connectivity` determines which elements of the output array belong
+            to the structure, i.e., are considered as neighbors of the central
+            element. Elements up to a squared distance of `connectivity` from
+            the center are considered neighbors. `connectivity` may range from 1
+            (no diagonal elements are neighbors) to `rank` (all elements are
+            neighbors).
+            Default is set to 1 (only immediate neighbors).
+        iterations : int, optional
+            The erosion is repeated `iterations` times (one, by default).
+            If iterations is less than 1, the erosion is repeated until the
+            result does not change anymore.
+            Default is set to 6.
+        
+        Returns
+        -------
+        mask
+            numpy array of binary mask
+        
+        """
+        # blur image
+        ldr, thr_ldr = ImageUtils.linear_map(gaussian_filter(image, sigma=mask_sigma))
+        # use OTSU for thresholding (avoids setting a fixed value)
+        thr_otsu, mask = cv2.threshold(ldr, threshold, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # print("Thresholds:", thr_ldr, thr_otsu)
+        # generate binary structure and erode mask
+        struct = generate_binary_structure(rank, connectivity)
+        mask = binary_erosion(mask, struct, iterations)
+
+        return mask
+    

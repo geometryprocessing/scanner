@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from utils.three_d_utils import Plane, fit_plane, ThreeDUtils
 from utils.file_io import save_json, load_json
 from utils.plotter import Plotter
 from scanner.calibration import Charuco, CheckerBoard, Calibration
 from scanner.camera import Camera
-from scanner.intersection import Plane, fit_plane, plane_line_intersection, camera_to_ray_world, combine_transformations, undistort_camera_points
 
 
 # camera detects all the points and has 2D image points and 3D object points
@@ -22,32 +22,32 @@ from scanner.intersection import Plane, fit_plane, plane_line_intersection, came
 class Projector:
     def __init__(self):
         # resolution
-        self.width = None
+        self.width  = None
         self.height = None
         # accompanying camera
         self.camera = Camera()
         # intrinsic
-        self.K = None
+        self.K           = None
         self.dist_coeffs = None
-        self.rvecs = np.zeros(shape=(3,1))
-        self.tvecs = np.zeros(shape=(3,1))
+        self.rvecs       = np.zeros(shape=(3,1))
+        self.tvecs       = np.zeros(shape=(3,1))
         # extrinsic
         self.R = np.identity(3)        # projector is initialized at origin
         self.T = np.zeros(shape=(3,1)) # projector is initialized at origin
         # calibration utils
-        self.images = []               # image paths
-        self.discarded_images = set()
-        self.image_points = []
-        self.object_points = []
-        self.camera_image_points = []  # camera points will be used for extrinsic calibration
+        self.images               = []               # image paths
+        self.discarded_images     = set()
+        self.image_points         = []
+        self.object_points        = []
+        self.camera_image_points  = []  # camera points will be used for extrinsic calibration
         self.camera_object_points = [] # camera points will be used for extrinsic calibration
-        self.planes = []
-        self.errors = []
-        self.plane_pattern = None
-        self.calibration_pattern = None
-        self.calibration_image = None
-        self.error_thr = None
-        self.min_points = 4
+        self.planes               = []
+        self.errors               = []
+        self.plane_pattern        = None
+        self.calibration_pattern  = None
+        self.calibration_image    = None
+        self.error_thr            = None
+        self.min_points           = 4
         # self.max_planes = 0 # TODO: discard
 
     # setters
@@ -389,7 +389,7 @@ class Projector:
         T = tvec.reshape((3,1))
         
         # move markers to world coordinate
-        R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
+        R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
         # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
         # has to be written as (R @ obj_points.T).T
         # to simplify:
@@ -455,14 +455,14 @@ class Projector:
 
             # undistort pixel coordinates -> normalized coordinates
             # project normalized coordinates onto Plane - X_3D
-            camera_rays = camera_to_ray_world(cam_img_points,
+            camera_rays = ThreeDUtils.camera_to_ray_world(cam_img_points,
                                               rvec,
                                               tvec,
                                               self.camera.K,
                                               self.camera.dist_coeffs)
             
             proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
-            obj = np.array([plane_line_intersection(plane, camera_ray) 
+            obj = np.array([ThreeDUtils.plane_line_intersection(plane, camera_ray) 
                             for camera_ray in camera_rays], dtype=np.float32).reshape((-1,3))
             # TODO: opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
@@ -478,7 +478,7 @@ class Projector:
             T = tvec.reshape((3,1))
             
             # move markers to world coordinate
-            R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
+            R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
             # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
             # has to be written as (R @ obj_points.T).T
             # to simplify:
@@ -707,8 +707,7 @@ class Projector:
 
     def run(self, config: str | dict):
         if type(config) is str:
-            with open(config, 'r') as f:
-                config = json.load(f)
+            config = load_json(config)
 
         self.set_image_paths(config['image_folder_path'])
         self.set_projector_height(config['height'])

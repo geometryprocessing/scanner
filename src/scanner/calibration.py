@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 
-from scanner.intersection import combine_transformations
+from utils.three_d_utils import ThreeDUtils
+from utils.image_utils import ImageUtils
 
 CHARUCO_DICTIONARY_ENUM = {
     "4X4_50"   : cv2.aruco.DICT_4X4_50,
@@ -74,7 +75,8 @@ class CheckerBoard:
         """
         Detect checkerboard markers on grayscale image.
 
-        If image is a string, function opens the image using cv2.imread().
+        If image is a string, function opens the image using cv2.imread() and
+        converts it to grayscale.
 
         Parameters
         ----------
@@ -83,13 +85,16 @@ class CheckerBoard:
 
         Returns
         -------
-        - numpy array of detected checker corner image coordinates
-        - numpy array of detected checker corner world coordinates
-        - numpy array of detected checker corner IDs
+        img_points
+            numpy array of detected checker corner image coordinates
+        obj_points
+            numpy array of detected checker corner world coordinates
+        ids
+            numpy array of detected checker corner IDs
         """
 
         if type(image) is str:
-            image = cv2.imread(image, flags=cv2.IMREAD_GRAYSCALE)
+            image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -194,7 +199,8 @@ class Charuco:
         """
         Detect ChArUco markers on image.
 
-        If image is a string, function opens the image using cv2.imread().
+        If image is a string, function opens the image using cv2.imread() and
+        converts it to grayscale.
 
         Parameters
         ----------
@@ -204,13 +210,14 @@ class Charuco:
 
         Returns
         -------
-        - numpy array of detected ChArUco image coordinates
-        - numpy array of detected ChArUco world coordinates
-        - numpy array of detected ChArUco marker IDs
+        tuple
+            - numpy array of detected ChArUco image coordinates
+            - numpy array of detected ChArUco world coordinates
+            - numpy array of detected ChArUco marker IDs
         """
 
         if type(image) is str:
-            image = cv2.imread(image, flags=cv2.IMREAD_GRAYSCALE)
+            image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -255,10 +262,9 @@ class Calibration:
         dict
             Dictionary containing
             {
+                'rms': root mean squared error,
                 'K': 3x3 intrinsic matrix,
-                'dist_coeffs': distortion coefficients,
-                'rvecs': , 
-                'tvecs': 
+                'dist_coeffs': distortion coefficients
             }
         """
 
@@ -305,6 +311,7 @@ class Calibration:
         dict
             Dictionary containing
             {
+                'rms': root mean squared error,
                 'K': 3x3 intrinsic matrix,
                 'dist_coeffs': distortion coefficients,
                 'rvecs': list of N rotation vectors, each with shape 1x3, 
@@ -355,10 +362,12 @@ class Calibration:
         dict
             Dictionary containing
             {
+                'rms': root mean squared error,
                 'K': 3x3 intrinsic matrix,
                 'dist_coeffs': distortion coefficients,
                 'rvecs': list of N rotation vectors, each with shape 1x3, 
-                'tvecs': list of N translation vectors, each with shape 1x3 
+                'tvecs': list of N translation vectors, each with shape 1x3,
+                'perViewErrors': list of N root mean squared reprojection errors
             }
         """
         rms, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
@@ -489,6 +498,7 @@ class Calibration:
         dict
             Dictionary containing
             {
+                'rms': root mean squared error,
                 'rvec': 3x1 rotation vector, 
                 'tvec': 3x1 translation vector
             }
@@ -557,6 +567,7 @@ class Calibration:
         dict
             Dictionary containing
             {
+                'rms': root mean squared error,
                 'R': 3x3 rotation matrix of camera 2 (or projector),
                 'T': 3x1 translation vector of camera 2 (or projector)
             }
@@ -576,9 +587,9 @@ class Calibration:
         # perform matrix multiplication that R and T mean 
         # bringing world points into second camera coordinate system
 
-        # R_combined, T_combined = combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
-        R_combined, T_combined = combine_transformations(R_1, T_1, R, T)
-        # R_combined, T_combined = combine_transformations(R, T, R_1, T_1)
+        # R_combined, T_combined = ThreeDUtils.combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
+        R_combined, T_combined = ThreeDUtils.combine_transformations(R_1, T_1, R, T)
+        # R_combined, T_combined = ThreeDUtils.combine_transformations(R, T, R_1, T_1)
 
         return {
             'rms': rms,

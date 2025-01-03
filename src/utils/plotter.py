@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from scanner.intersection import undistort_camera_points
+from utils.image_utils import ImageUtils
 
 def line(ax, p1, p2, *args, **kwargs):
     ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)
@@ -64,7 +64,7 @@ class Plotter:
         points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
 
         # undistort points
-        undistorted_points = undistort_camera_points(points,
+        undistorted_points = ImageUtils.undistort_camera_points(points,
                                                      K, 
                                                      dist_coeffs,
                                                      P=K)

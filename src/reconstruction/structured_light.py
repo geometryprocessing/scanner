@@ -216,16 +216,18 @@ class StructuredLight:
             print("External mask provided")
             return
         
-        white = ImageUtils.load_ldr('../data/david_gray_sl/01.bmp', make_gray=True)
-        black = ImageUtils.load_ldr('../data/david_gray_sl/02.bmp', make_gray=True)
+        if self.white_image is None or self.black_image is None:
+            cam_resolution = self.camera.get_image_shape()
+            self.mask = np.full(cam_resolution, True)
+            return
+
+        white = ImageUtils.load_ldr(self.white_image, make_gray=True)
+        black = ImageUtils.load_ldr(self.black_image, make_gray=True)
         try:   
             max = np.iinfo(white.dtype).max
         except:
             max = np.finfo(white.dtype).max
         self.mask = (abs(white-black) > max*self.minimum_contrast)
-
-        return
-        # TODO: discard this ImageUtils.generate_mask()
 
     def decode(self):
         """
@@ -253,8 +255,8 @@ class StructuredLight:
 
         if len(self.vertical_images) > 0:
             gray_vertical = [ImageUtils.load_ldr(img, make_gray=True) for img in self.vertical_images]
-            if self.inverse_horizontal_images:
-                assert len(self.inverse_horizontal_images) == len(self.horizontal_images), \
+            if self.inverse_vertical_images:
+                assert len(self.inverse_vertical_images) == len(self.vertical_images), \
                     "Mismatch between number of horizontal patterns \
                         and inverse horizontal patterns. Must be the same"
                 vertical_second_argument = [ImageUtils.load_ldr(img, make_gray=True)
@@ -286,15 +288,18 @@ class StructuredLight:
         assert self.projector.K is not None, "No projector defined"
         assert self.index_x is not None or self.index_y is not None, \
             "Decoding function call missing"
+        
+        if self.mask is None:
+            self.generate_mask()
 
         cam_resolution = self.camera.get_image_shape()
         campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[1]),
                             np.arange(cam_resolution[0]))
         
-        campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
+        campixels = np.stack([campixels_x, campixels_y], axis=-1)[self.mask].reshape((-1,2))
 
         if self.index_x is not None and self.index_y is not None:
-            projpixels = np.vstack([self.index_x, self.index_y]).reshape((-1,2))#[self.mask]
+            projpixels = np.vstack([self.index_x, self.index_y])[self.mask].reshape((-1,2))
             point_cloud = ThreeDUtils.triangulate_pixels(
                 campixels,
                 self.camera.K,
@@ -314,7 +319,7 @@ class StructuredLight:
                 self.camera.dist_coeffs,
                 self.camera.R,
                 self.camera.T,
-                self.index_x,
+                self.index_x[self.mask],
                 self.projector.get_projector_shape(),
                 self.projector.K,
                 self.projector.dist_coeffs,
@@ -329,7 +334,7 @@ class StructuredLight:
                 self.camera.dist_coeffs,
                 self.camera.R,
                 self.camera.T,
-                self.index_y,
+                self.index_y[self.mask],
                 self.projector.get_projector_shape(),
                 self.projector.K,
                 self.projector.dist_coeffs,
@@ -352,6 +357,8 @@ class StructuredLight:
         """
         assert self.white_image is not None \
               and self.black_image is not None, "Need to set both black and white images"
+        if self.mask is None:
+            self.generate_mask()
         img_white = ImageUtils.load_ldr(self.white_image)
         img_black = ImageUtils.load_ldr(self.black_image)
 
@@ -368,7 +375,7 @@ class StructuredLight:
         img = img.astype(np.float32)
         img /= m
 
-        self.colors = img#[self.mask]
+        self.colors = img[self.mask]
     
     def extract_normals(self):
         assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"

@@ -1,25 +1,48 @@
 import cv2
-import numpy
+import numpy as np
 import structuredlight as sl
+import os
 
+from utils.three_d_utils import ThreeDUtils
+from utils.file_io import save_json, load_json, get_all_paths
+from utils.image_utils import ImageUtils
+from utils.plotter import Plotter
 from scanner.camera import Camera
 from scanner.projector import Projector
 
 class StructuredLight:
     def __init__(self):
         self.projector = Projector()
-        self.camera = Camera()
-        self.pattern = None
+        self.camera    = Camera()
+        self.pattern   = None
+
+        # image paths
+        self.horizontal_images         = []
+        self.vertical_images           = []
+        self.inverse_horizontal_images = []
+        self.inverse_vertical_images   = []
+
+        self.black_image = None
+        self.white_image = None
+
+        # reconstruction utils
+        self.thr         = None
+        self.index_x     = None
+        self.index_y     = None
+        self.mask        = None
+        # reconstruction
+        self.point_cloud = None
+        self.depth_map   = None
+        self.colors      = None
+        self.normals     = None
 
     # setters
     def set_pattern(self, pattern: str):
         """
-        
+        Currently supported structured light patterns: Gray, Binary, and XOR.
         """
-        match pattern:
+        match pattern.lower():
             case 'gray':
-                self.pattern = sl.Gray()
-            case 'grey':
                 self.pattern = sl.Gray()
             case 'binary':
                 self.pattern = sl.Binary()
@@ -30,49 +53,300 @@ class StructuredLight:
             case _:
                 print("Unrecognized structured light pattern type, defaulting to gray...\n")
                 self.pattern = sl.Gray()
+    def set_horizontal_pattern_image_paths(self, image_paths: list | str):
+        """
+        Parameters
+        ----------
+        image_paths : list | string
+            List of strings containing image paths (or string for folder containing images).
+            These images will be used for decoding horizontal structured light patterns.
+        """
+        self.horizontal_images = get_all_paths(image_paths)
+    def set_vertical_pattern_image_paths(self, image_paths: list | str):
+        """
+        Parameters
+        ----------
+        image_paths : list | string
+            List of strings containing image paths (or string for folder containing images).
+            These images will be used for decoding vertical structure light patterns.
+        """
+        self.vertical_images = get_all_paths(image_paths)
+    def set_inverse_horizontal_image_paths(self, image_paths: list | str):
+        """
+        Inverse horizontal structured light pattern images will be used for 
+        setting a threshold value for pixel intensity when decoding horizontal patterns.
+        Read the structuredlight docs for more information:
+        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
 
-    def set_image_paths(self, image_paths: list | str):
-        pass
+        Parameters
+        ----------
+        image_paths : list | string
+            List of strings containing image paths (or string for folder containing images).
+        """
+        self.inverse_horizontal_images = get_all_paths(image_paths)
+    def set_inverse_vertical_image_paths(self, image_paths: list | str):
+        """
+        Inverse vertical structured light pattern images will be used for 
+        setting a threshold value for pixel intensity when decoding vertical patterns.
+        Read the structuredlight docs for more information:
+        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+
+        Parameters
+        ----------
+        image_paths : list | string
+            List of strings containing image paths (or string for folder containing images).
+        """
+        self.inverse_vertical_images = get_all_paths(image_paths)
     def set_white_pattern_image(self, image_path: str):
         """
         Set the path of captured image of scene with an all-white pattern projected.
-        
+        The white image can be used to extract colors for the reconstructed point cloud.
+        The white image can also be used for setting a threshold value when decoding
+        structured light patterns.
+        Read the structuredlight docs for more information:
+        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+
+        Parameters
+        ----------
+        image_path : str
+            path to white pattern image
+
+        Notes
+        -----
         This has to be used in combination with set_black_pattern_image, since the 
         threshold for ON or OFF will be set per pixel as:
-        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image
-        """        
-        pass
+        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image.
+        If negative/inverse structured light patterns are passed,
+        black and white pattern images will be ignored for threshold setting.
+        """
+        self.white_image = image_path
     def set_black_pattern_image(self, image_path: str):
         """
         Set the path of captured image of scene with an all-black pattern projected.
+        The black image can be used to extract colors for the reconstructed point cloud.
+        The black image can also be used for setting a threshold value when decoding
+        structured light patterns.
+        Read the structuredlight docs for more information:
+        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
 
-        This has to be used in combination with set_black_pattern_image, since the 
+        Parameters
+        ----------
+        image_path : str
+            path to black pattern image
+
+        Notes
+        -----
+        This has to be used in combination with set_white_pattern_image, since the 
         threshold for ON or OFF will be set per pixel as:
-        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image
-        """        
-        pass
+        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image.
+        If negative/inverse structured light patterns are passed,
+        black and white pattern images will be ignored for threshold setting.
+        """
+        self.black_image = image_path
+    def set_threshold(self, thr: float):
+        """
+        Set the threshold value for considering a pixel ON or OFF
+        based on its intensity.
+
+        Parameters
+        ----------
+        thr : float
+            threshold value for considering a pixel ON or OFF
+
+        Notes
+        -----
+        If black and white pattern images are set, or if negative/inverse
+        patterns are passed, this threshold value will be ignored.
+        """
+        assert thr > 0, "Incorrect value for threshold, has to be nonnegative"
+        self.thr = float(thr)
     def set_projector(self, projector: str | dict |Projector):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
-        if type(projector) is str or dict:
+        if type(projector) is (str or dict):
             self.projector.load_calibration(projector)
         else:
             self.projector = projector
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
-        if type(camera) is str or dict:
+        if type(camera) is (str or dict):
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+    def set_mask(self, mask: np.ndarray):
+        """
+        Set mask of image to reduce 
+
+        Parameters
+        ----------
+        mask : np.ndarray
+            numpy array (shape Nx1)
+        """
+        self.mask = mask
+
+    # getters
+    def get_mask(self):
+        return self.mask
+    def get_point_cloud(self):
+        return self.point_cloud
+    def get_depth_map(self):
+        return self.depth_map
+    def get_colors(self):
+        return self.colors
+    def get_normals(self):
+        return self.normals
+
+    # function
+    def generate_mask(self):
+        if self.mask is not None:
+            print("External mask provided")
+            return
+        ImageUtils.generate_mask()
+
     def decode(self):
         """
         
         """
-        self.pattern.decode(self.images)
+        assert self.pattern is not None, "Structured light pattern not specified"
+
+        thresh = self.thr
+        if self.white_image and self.black_image:
+            img_white = ImageUtils.load_ldr(self.white_image, make_gray=True)
+            img_black = ImageUtils.load_ldr(self.black_image, make_gray=True)
+            thresh = 0.5*img_white + 0.5*img_black
+
+        if len(self.horizontal_images) > 0:
+            gray_horizontal = [ImageUtils.load_ldr(img, make_gray=True) for img in self.horizontal_images]
+            if self.inverse_horizontal_images:
+                assert len(self.inverse_horizontal_images) == len(self.horizontal_images), \
+                    "Mismatch between number of horizontal patterns \
+                        and inverse horizontal patterns. Must be the same"
+                horizontal_second_argument = [ImageUtils.load_ldr(img, make_gray=True) 
+                                              for img in self.inverse_horizontal_images]
+            else:
+                horizontal_second_argument = thresh
+            self.index_y = self.pattern.decode(gray_horizontal, horizontal_second_argument)
+
+        if len(self.vertical_images) > 0:
+            gray_vertical = [ImageUtils.load_ldr(img, make_gray=True) for img in self.vertical_images]
+            if self.inverse_horizontal_images:
+                assert len(self.inverse_horizontal_images) == len(self.horizontal_images), \
+                    "Mismatch between number of horizontal patterns \
+                        and inverse horizontal patterns. Must be the same"
+                vertical_second_argument = [ImageUtils.load_ldr(img, make_gray=True)
+                                            for img in self.inverse_vertical_images]
+            else:
+                vertical_second_argument = thresh
+            self.index_x = self.pattern.decode(gray_vertical, vertical_second_argument)
+
+    def plot_decoding(self):
+        """
         
+        """
+        Plotter.plot_decoding(self.camera.get_image_shape(),
+                              self.projector.get_projector_shape(),
+                              self.index_x,
+                              self.index_y)
+
     def reconstruct(self):
         """
-        
+        Take correspondence indices between camera and projector and use
+        ray intersection to triangulate points in 3D.
+
+        If decoding was done for both x and y coordinates, this functions does a
+        direct triangulation of the projector pixels and camera pixels.
+        Otherwise, it does a plane-line intersection to find the 3D points in 
+        world coordinates. 
         """
-        pass
+        assert self.camera.K is not None, "No camera defined"
+        assert self.projector.K is not None, "No projector defined"
+        assert self.index_x is not None or self.index_y is not None, \
+            "Decoding function call missing"
+
+        cam_resolution = self.camera.get_image_shape()
+        campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[1]),
+                            np.arange(cam_resolution[0]))
+        campixels = np.stack([campixels_x, campixels_y], axis=-1)
+
+        if self.index_x is not None and self.index_y is not None:
+            projpixels = np.vstack([self.index_x, self.index_y])#[self.mask]
+            point_cloud, _ = ThreeDUtils.triangulate_pixels(
+                campixels,
+                self.camera.K,
+                self.camera.dist_coeffs,
+                self.camera.R,
+                self.camera.T,
+                projpixels,
+                self.projector.K,
+                self.projector.dist_coeffs,
+                self.projector.R,
+                self.projector.T
+            )
+        elif self.index_x is not None:
+            point_cloud = ThreeDUtils.intersect_pixels(
+                campixels,
+                self.camera.K,
+                self.camera.dist_coeffs,
+                self.camera.R,
+                self.camera.T,
+                self.index_x,
+                self.projector.get_projector_shape(),
+                self.projector.K,
+                self.projector.dist_coeffs,
+                self.projector.R,
+                self.projector.T,
+                index = 'x'
+            )
+        elif self.index_y is not None:
+            point_cloud = ThreeDUtils.intersect_pixels(
+                campixels,
+                self.camera.K,
+                self.camera.dist_coeffs,
+                self.camera.R,
+                self.camera.T,
+                self.index_y,
+                self.projector.get_projector_shape(),
+                self.projector.K,
+                self.projector.dist_coeffs,
+                self.projector.R,
+                self.projector.T,
+                index = 'y'
+            )
+
+        self.point_cloud = point_cloud
+    
+    def extract_colors(self):
+        assert self.white_image is not None \
+              and self.black_image is not None, "Need to set both black and white images"
+        img_white = ImageUtils.load_ldr(self.white_image)
+        img_black = ImageUtils.load_ldr(self.black_image)
+
+        img_clean = img_white - img_black
+        self.colors = img_clean#[self.mask]
+    
+    def extract_normals(self):
+        assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"
+        if self.depth_map:
+            self.normals = ThreeDUtils.normals_from_depth_map(self.depth_map)
+        elif self.point_cloud:
+            self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
+
+    def save_point_cloud_as_ply(self, filename: str):
+        assert self.point_cloud is not None, "No reconstruction yet"
+        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors)
+        
+
+    def run(self, config: str | dict):
+        if type(config) is str:
+            config = load_json(config)
+
+        self.set_black_pattern_image(config['black_image'])
+        self.set_white_pattern_image(config['white_image'])
+        self.set_threshold(config['threshold'])
+        self.decode()
+        self.reconstruct()
+        self.plot_decoding()
+        self.extract_colors()
+        self.extract_normals()
+        self.save_point_cloud_as_ply(config['ply_filename'])

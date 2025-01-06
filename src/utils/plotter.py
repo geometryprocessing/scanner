@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from utils.image_utils import ImageUtils
+from utils.three_d_utils import ThreeDUtils
 
 def line(ax, p1, p2, *args, **kwargs):
     ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)
@@ -178,7 +179,7 @@ class Plotter:
 
             T = obj.get_translation()
             R = obj.get_rotation()
-            origin = -np.matmul(R.T, T).flatten()
+            origin = ThreeDUtils.get_origin(R, T).flatten()
             orientation = R.T
             # origin = T.flatten()
             basis(ax, origin, orientation, length=50)
@@ -196,3 +197,64 @@ class Plotter:
         return ax
 
         plt.show()
+    def plot_decoding(camera_resolution: tuple,
+                      projector_resolution: tuple,
+                      index_x: np.ndarray=None,
+                      index_y: np.ndarray=None,
+                      cmap: str='jet',
+                      figsize: tuple = (16,12),
+                      filename: str=None):
+        """
+        Plot (with matplotlib) an image of decoded row (y) and column (x)
+        indices from structured light pattern.
+        It uses jet colormap by default.
+
+        Parameters
+        ----------
+        camera_resolution : tuple
+            tuple containing (height, width) of image resolution.
+        projector_resolution : tuple
+            tuple containing (height, width) of projector resolution.
+        index_x : array_like
+            numpy array of decoded column indices from structured light 
+        cmap : str
+            string for indicating which colormap to use from matplotlib.
+            The default is 'jet'.
+        figsize : tuple
+            tuple containing (width, height) of figure to plot.
+            The default is (16,12).
+        filename : str
+            if passed, path to file where figure will be saved.  
+        """
+        cam_height, cam_width = camera_resolution
+
+        # Plot index_x if provided
+        if index_x is not None:
+            plt.figure(figsize=figsize)
+            plt.title("Decoded X Indices")
+            plt.imshow(index_x, cmap=cmap, extent=[0, cam_width, cam_height, 0])
+            plt.xlabel('x (pixels)')
+            plt.ylabel('y (pixels)')
+            plt.xlim([0, cam_width])
+            plt.ylim([cam_height, 0])
+
+            plt.show()
+
+            if filename:
+                plt.savefig(f"{filename}_column.png", transparent=True, bbox_inches='tight')
+
+        # Plot index_y if provided
+        if index_y is not None:
+            plt.figure(figsize=figsize)
+            plt.title("Decoded Y Indices")
+            plt.imshow(index_y, cmap=cmap, extent=[0, cam_width, cam_height, 0])
+            plt.xlabel('x (pixels)')
+            plt.ylabel('y (pixels)')
+            plt.xlim([0, cam_width])
+            plt.ylim([cam_height, 0])  # Reverse y-axis
+
+            plt.show()
+
+            if filename:
+                plt.savefig(f"{filename}_row.png", transparent=True, bbox_inches='tight')
+    

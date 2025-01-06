@@ -187,12 +187,6 @@ class StructuredLight:
         self.minimum_contrast = max(min(contrast, 1.), 0.)
     def set_mask(self, mask: np.ndarray):
         """
-        Set mask of image to reduce 
-
-        Parameters
-        ----------
-        mask : np.ndarray
-            numpy array (shape Nx1)
         """
         self.mask = mask
 

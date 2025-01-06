@@ -432,7 +432,7 @@ class Projector:
 
         for image_path in self.images:
             # plane = self.reconstruct_plane(image_path)
-            
+
             # detect plane/board markers with camera
             cam_img_points, obj_points, _ = \
                 self.plane_pattern.detect_markers(image_path)
@@ -469,7 +469,7 @@ class Projector:
                                               self.camera.dist_coeffs)
             
             proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
-            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1])
+            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1]).astype(np.float32)
             # TODO: opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
             # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS
@@ -491,7 +491,7 @@ class Projector:
             # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
             camera_obj =  np.matmul(obj, R_combined.T) + T_combined.reshape((1,3))
             self.camera_object_points.append(camera_obj)
-            self.planes.append(plane)
+            # self.planes.append(plane)
         
         self.discard_intrinsic_images()
 

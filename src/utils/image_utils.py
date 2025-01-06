@@ -36,10 +36,10 @@ class ImageUtils:
         Returns
         ----------
         homegeneous coordinates
-            List of N 2D homogenous coordinates (shape Nx3).
+            array (shape Nx3) of homogenous coordinates
         """
-        points = np.array(points2D, dtype=np.float32)
-        return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+        points = np.array(points2D, dtype=np.float32).reshape((-1,2))
+        return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1).reshape((-1,3))
 
     @staticmethod
     def colorize(image: np.ndarray) -> np.ndarray:
@@ -289,10 +289,11 @@ class ImageUtils:
             if normalize:
                 try:
                     # first try with integer, np.iinfo for integer only
-                    img_array /= np.iinfo(img_array.dtype).max
+                    m = np.iinfo(img_array.dtype).max
                 except:
                     # then move to float, np.finfo for float only
-                    img_array /= np.finfo(img_array.dtype).max
+                    m = np.finfo(img_array.dtype).max
+                img_array /= m
 
             return img_array
 

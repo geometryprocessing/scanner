@@ -6,200 +6,273 @@ from utils.image_utils import ImageUtils
 
 def normalize(vector: np.ndarray) -> np.ndarray:
     """
-    Normalizes one-dimensional vector. If vector is all zero, returns original vector.
+    Normalizes a list of N D-dimensional vectors.
+    If a vector is all zero, it returns an array filled with np.nan in place of that vector.
 
     Parameters
     ----------
     vector : array_like
-        vector of shape Nx1 or 1xN
+        vector of shape NxD
 
     Returns
     ----------
-    Normalized vector of original shape.
+    array of normalized vector (along axis=1) of original shape NxD.
     """
-    norm = np.linalg.norm(vector)
-    if norm < 1e-8:
-        return vector
-    return np.array(vector, dtype=np.float32) / norm
-
-class Plane:
-    def __init__( self, point, direction ):
-        """
-        Plane class
-
-        Parameters
-        ----------
-        point : array_like
-            point present on plane. Class saves it as numpy array and with shape 1xN.
-        direction : array_like
-            normal direction of plane. Class saves it as a normalized numpy array and with shape 1xN.
-        """
-        self.q = np.array(point, dtype=np.float32).reshape((1,-1))
-        self.n = normalize(direction).reshape((1,-1))
-
-class Line:
-    def __init__( self, point, direction ):
-        """
-        Line class
-
-        Parameters
-        ----------
-        point : array_like
-            point present on plane. Class saves it as numpy array and with shape 1xN.
-        direction : array_like
-            direction of line. Class saves it as a normalized numpy array and with shape 1xN.
-        """
-        self.q = np.array(point, dtype=np.float32).reshape((1,-1))
-        self.v = normalize(direction).reshape((1,-1))
-
-def fit_line( points: list ) -> Line:
-    """
-    Fit line through list of points using
-    Singular Value Decomposition.
-
-    Parameters
-    ----------
-    points : array_like
-        list of N points (all points need to have the same number of dimensions).
-
-    Returns
-    ----------
-    Line
-        line containing a point and the direction that best fit the list points
-    """
-    points = np.array(points, dtype=np.float32)
-    C = np.mean(points, axis=0)
-    _, _, V = np.linalg.svd(points - C)
-
-    return Line(C, V[0])
-
-def fit_plane( points: list ) -> Plane:
-    """
-    Fit plane through list of points using
-    Singular Value Decomposition.
-
-    Parameters
-    ----------
-    points : array_like
-        list of N points (all points need to have the same number of dimensions).
-
-    Returns
-    ----------
-    Plane
-        plane containing a point and the normal that best fit the list of points
-    """
-    # Find the average of points (centroid) along the columns
-    C = np.average(points, axis=0)
-    # Create CX vector (centroid to point) matrix
-    CX = points - C
-    # Singular value decomposition
-    _, _, V = np.linalg.svd(CX)
-    # The last row of V matrix indicate the eigenvectors of
-    # smallest eigenvalues (singular values).
-    N = V[-1]
-    return Plane(C, N)
+    vector = np.array(vector)
+    norm = np.linalg.norm(vector, axis=1).reshape((-1,1))
+    return vector / norm
 
 class ThreeDUtils:
     @staticmethod
-    def plane_line_intersection( plane: Plane, line: Line ):
+    def fit_line( points: list ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Find intersection of a plane and multiple lines.
+        Fit line through list of points using
+        Singular Value Decomposition.
 
         Parameters
         ----------
-        plane : Plane
-            plane class containing a point and a normal vector.
-        line : Line
-            line class containing a point and a direction vector.
+        points : array_like
+            list of N points (all points need to have the same number of dimensions).
 
-        Returns 
+        Returns
         ----------
-        numpy array of shape 1xN of point where line and plane intersect.
+        C
+            point in line
+        N
+            vector (normalized in L-2 norm) direction of line 
         """
-        planePoint = plane.q
-        planeNormalTranspose = plane.n.T
-        linePoint = line.q
-        lineDirection = line.v
+        points = np.array(points, dtype=np.float32)
+        C = np.mean(points, axis=0)
+        _, _, V = np.linalg.svd(points - C)
+        N = V[0]
+        return C, N / np.linalg.norm(N)
+    
+    @staticmethod
+    def fit_plane( points: list ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Fit plane through list of points using
+        Singular Value Decomposition.
 
-        if abs(np.dot(lineDirection, planeNormalTranspose)) < 1e-8:
-            raise RuntimeError("Line and Plane do not intersect")
+        Parameters
+        ----------
+        points : array_like
+            list of N points (all points need to have the same number of dimensions).
 
-        return linePoint + lineDirection * np.dot((planePoint - linePoint), planeNormalTranspose) / np.dot(lineDirection, planeNormalTranspose)
+        Returns
+        ----------
+        C
+            point in plane
+        N
+            normal vector (normalized in L-2 norm) of plane
+
+        Notes
+        -----
+        the normal vector N and its opposite -N are both valid normals of a plane
+        """
+        # Find the average of points (centroid) along the columns
+        C = np.average(points, axis=0)
+        # Create CX vector (centroid to point) matrix
+        CX = points - C
+        # Singular value decomposition
+        _, _, V = np.linalg.svd(CX)
+        # The last row of V matrix indicate the eigenvectors of
+        # smallest eigenvalues (singular values).
+        N = V[-1]
+        return C, N / np.linalg.norm(N)
+    
+    @staticmethod
+    def intersect_line_with_plane(line_q: np.ndarray,
+                                  line_v: np.ndarray,
+                                  plane_q: np.ndarray, 
+                                  plane_n: np.ndarray) -> np.ndarray:
+        """
+        Finds the point of intersection of a line with a plane.
+        This function can also find:
+        - the intersection of N lines with N planes, resulting in N points;
+        - the intersection of N lines with 1 plane, resulting in N points.
+
+        Parameters
+        ----------
+        line_q : array_like
+            array (shape Nx3) of points from N lines
+        line_v : array_like
+            array (shape Nx3) of direction vectors from N lines
+        plane_q : array_like
+            array (shape Nx3) of points from N planes
+        plane_n : array_like
+            array (shape Nx3) of normal vectors from N planes
+         
+        Returns
+        -------
+        points
+            array (shape Nx3) of points 
+
+        Notes
+        -----
+        You can pass a single line_q for multiple line_v -- the function will
+        assume that all the lines pass through that singular point.
+        You can do the same with plane_q and plane_n.
+        If you would like to find a single intersection point of N lines
+        with a single plane, then you should take the average of the N
+        points returned from this function to get back a singular point.
+        """
+        line_q = np.array(line_q).reshape((-1,3))
+        line_v = normalize(np.array(line_v).reshape((-1,3)))
+        plane_q = np.array(plane_q).reshape((-1,3))
+        plane_n = normalize(np.array(plane_n).reshape((-1,3)))
+
+        # if only one line point is passed but multiple line directions,
+        # this function assumes that they all pass through that same point
+        if line_q.shape[0] != line_v.shape[0]:
+            print('line_q and line_v different shapes... tiling')
+            line_q = np.tile(line_q, (line_v.shape[0],1))
+
+        # if only one plane point is passed but multiple normal vectors,
+        # this function assumes that the planes all pass through that same point
+        if plane_q.shape[0] != plane_n.shape[0]:
+            print('plane_q and plane_n different shapes... tiling')
+            plane_q = np.tile(plane_q, (plane_n.shape[0],1))
+
+        # if only one plane is passed, repeat it to have the same shape of
+        # the input lines
+        if plane_q.shape[0] != line_q.shape[0]:
+            print('line_q and plane_q different shapes... tiling plane_q and plane_n')
+            plane_q = np.tile(plane_q, (line_q.shape[0],1))
+            plane_n = np.tile(plane_n, (line_q.shape[0],1))
+
+        # Intersect a line(s) with a plane(s) (in 3D).
+        L = np.einsum('ij,ij->i', (plane_q - line_q), plane_n) / np.einsum('ij,ij->i', plane_n, line_v)
+        points = line_q + L.reshape((-1,1)) * line_v
+        return points
 
     @staticmethod
-    def plane_lines_intersection( plane: Plane, lines: np.ndarray[Line] ) -> np.ndarray:
+    def intersect_line_with_line(q1: np.ndarray,
+                                 v1: np.ndarray,
+                                 q2: np.ndarray,
+                                 v2: np.ndarray) -> np.ndarray:
         """
-        TODO: vectorize operations to avoid using list comprehension.
-        Find intersection of a plane and multiple lines.
+        Finds the point of intersection of a line with another line.
+        This function can also find:
+        - the intersection of N lines with N lines, resulting in N points;
+        - the intersection of N lines with 1 line, resulting in N points.
 
         Parameters
         ----------
-        plane : Plane
-            plane class containing a point and a normal vector.
-        lines : array_like
-            list of N > 1 line classes, each containing a point and a direction vector.
+        q1 : array_like
+            array (shape Nx3) of point from N lines
+        v1 : array_like
+            array (shape Nx3) of direction vector from N lines
+        q2 : array_like
+            array (shape Nx3) of point from N other lines
+        v2 : array_like
+            array (shape Nx3) of direction vector from N other lines
+         
+        Returns
+        -------
+        points
+            array (shape Nx3) of points
 
-        Returns 
-        ----------
-        numpy array of closest point of multiple lines intersecting on a plane.
+        Notes
+        -----
+        You can pass a single q1 for multiple v1 -- the function will
+        assume that all the lines pass through that singular point.
+        You can do the same with q2 and v2.
+        If you would like to find a single intersection point of N lines,
+        do not use this function. Use instead intersect_lines(), which
+        will return a single point for N lines.
         """
-        return np.average(np.array([ThreeDUtils.plane_line_intersection(plane, line) for line in lines], dtype=np.float32), axis=0)
+        q1 = np.array(q1).reshape((-1,3))
+        v1 = normalize(np.array(v1).reshape((-1,3)))
+        q2 = np.array(q2).reshape((-1,3))
+        v2 = normalize(np.array(v2).reshape((-1,3)))
+
+        # if only one line point is passed but multiple line directions,
+        # this function assumes that they all pass through that same point
+        if q1.shape[0] != v1.shape[0]:
+            print('q1 and v1 different shapes... tiling')
+            q1 = np.tile(q1, (v1.shape[0],1))
+
+        # if only one plane point is passed but multiple normal vectors,
+        # this function assumes that the planes all pass through that same point
+        if q2.shape[0] != v2.shape[0]:
+            print('q2 and v2 different shapes... tiling')
+            q2 = np.tile(q2, (v2.shape[0],1))
+
+        # if only one second line is passed, repeat it to have the same shape of
+        # the input lines
+        if q2.shape[0] != q1.shape[0]:
+            print('q1 and q2 different shapes... tiling q2 and v2')
+            q2 = np.tile(q2,(q1.shape[0], 1))
+            v2 = np.tile(v2,(q1.shape[0], 1))
+
+        L = ThreeDUtils.find_lambda(q1,v1,q2,v2)
+        points = q1 + L.reshape((-1,1)) * v1
+        return points
 
     @staticmethod
-    def find_lambda(origin1: np.ndarray,
-                    directions1: np.ndarray,
-                    origin2: np.ndarray,
-                    directions2: np.ndarray) -> np.ndarray:
+    def find_lambda(q1: np.ndarray,
+                    v1: np.ndarray,
+                    q2: np.ndarray,
+                    v2: np.ndarray) -> np.ndarray:
         """
-        Finds the length/depth (lambda) along the camera 1 rays
+        Finds the length/depth (lambda) along the N lines
 
         Parameters
         ----------
-        origin1 : array_like
-            origin (shape 1x3) of camera 1
-        directions1 : array_like
-            camera 1 rays (shape Nx3)
-        origin2 : array_like
-            origin (shape 1x3) of camera 2
-        directions2 : array_like
-            camera 2 rays (shape Nx3)
+        q1 : array_like
+            array (shape Nx3) of point from N lines
+        v1 : array_like
+            array (shape Nx3) of direction vector from N lines
+        q2 : array_like
+            array (shape Nx3) of point from N other lines
+        v2 : array_like
+            array (shape Nx3) of direction vector from N other lines
 
         Returns 
         ----------
         L
             numpy array of lambdas (shape Nx1), where lambda is the depth along
-            camera 1 rays, i.e. p_w = origin1 + directions1 * L, where p_w
-            are the world coordinates (shape Nx3)
+            lines
         """
-        v12 = np.sum(np.multiply(directions1, directions2), axis=1).reshape(-1,1)
-        v1 = np.linalg.norm(directions1, axis=1).reshape(-1,1)**2
-        v2 = np.linalg.norm(directions2, axis=1).reshape(-1,1)**2
+        v1v2 = np.einsum('ij,ij->i',v1, v2).reshape((-1,1))
+        v1v1 = np.linalg.norm(v1, axis=1).reshape((-1,1))**2
+        v2v2 = np.linalg.norm(v2, axis=1).reshape((-1,1))**2
 
-        L = (np.matmul(directions1, origin2.T - origin1.T) * v1 + np.matmul(directions2, origin1.T - origin2.T) * v12) / (v1 * v2 - v12**2)
+        L = (  np.einsum('ij,ij->i',v1, q2 - q1).reshape((-1,1)) * v1v1 \
+             + np.einsum('ij,ij->i',v2, q1 - q2).reshape((-1,1)) * v1v2) / (v1v1 * v2v2 - v1v2**2)
+
+        # L = (np.matmul(directions1, origin2.T - origin1.T) * v1 + np.matmul(directions2, origin1.T - origin2.T) * v12) / (v1 * v2 - v12**2)
         return L
 
     @staticmethod
-    def triangulate( line1: Line, line2: Line ) -> np.ndarray:
+    def triangulate(line1_q: tuple | list | np.ndarray,
+                    line1_n: tuple | list | np.ndarray,
+                    line2_q: tuple | list | np.ndarray,
+                    line2_n: tuple | list | np.ndarray, ) -> np.ndarray:
         """
         TODO: discard function
 
         Parameters
         ----------
-        line1 : Line
-            line class containing a point and a direction vector.
-        line2 : Line
-            line class containing a point and a direction vector.
+        line1_q : array_like
+            point in line 1
+        line1_n : array_like
+            direction vector of line 1 (will be normalized in L-2 norm)
+        line2_q : array_like
+            point in line 2
+        line2_n : array_like
+            direction vector of line 2 (will be normalized in L-2 norm)
 
         Returns 
         ----------
         triangulated point of two lines.
         """
-        T1 = line1.q
-        T2 = line2.q
-        dir1 = line1.v
-        dir2 = line2.v
+        T1 = np.array(line1_q, dtype=np.float32).reshape((-1,1))
+        T2 = np.array(line2_q, dtype=np.float32).reshape((-1,1))
+        dir1 = normalize(np.array(line1_n, dtype=np.float32).reshape((-1,1)))
+        dir2 = normalize(np.array(line2_n, dtype=np.float32).reshape((-1,1)))
         
-        v12 = np.sum(np.multiply(dir1, dir2), axis=1)
+        v12 = np.einsum('ij,ij->i',dir1, dir2)
         v1 = np.linalg.norm(dir1, axis=1)
         v2 = np.linalg.norm(dir2, axis=1)
 
@@ -248,33 +321,19 @@ class ThreeDUtils:
         
         Returns 
         ----------
-        points3D_1
+        points3D
             numpy array (shape Nx3) of triangulated points viewed from camera 1
-        points3D_2
-            numpy array (shape Nx3) of triangulated points viewed from camera 2
 
         Notes
         -----
         pixels_1 and pixels_2 need to have the same shape. Additionally,
         pixels_1[i] and pixels_2[i] should be the corresponding 2D pixel
         coordinates of the same 3D object.
-        To find the midpoint between the two lines for every point you
-        want to triangulate, take the average between the tuple returned
         """
         
-        rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
-        rays2 = ThreeDUtils.camera_to_ray_world(pixels_2, R_2, T_2, K_2, dist_coeffs_2)
-
-        origin1 = rays1[0].q
-        origin2 = rays2[0].q
-        directions1 = np.vstack([line.v for line in rays1])
-        directions2 = np.vstack([line.v for line in rays2])
-
-        lambda1 = ThreeDUtils.find_lambda(origin1, directions1, origin2, directions2)
-        lambda2 = ThreeDUtils.find_lambda(origin2, directions2, origin1, directions1)
-
-        # to find the midpoint between the two lines for every point, take the average between the two
-        return origin1 + directions1 * lambda1, origin2 + directions2 * lambda2
+        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
+        origin2, rays2 = ThreeDUtils.camera_to_ray_world(pixels_2, R_2, T_2, K_2, dist_coeffs_2)
+        return ThreeDUtils.intersect_line_with_line(origin1, rays1, origin2, rays2)
     
     @staticmethod
     def intersect_pixels(
@@ -336,57 +395,54 @@ class ThreeDUtils:
         i.e. the line will have y going from 0 to height, while x stays constant.
         Otherwise, the line will have x going from 0 to width with y constant.
         """
-        rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
-        origin1 = rays1[0].q
-        directions1 = np.vstack([line.v for line in rays1])
-        height, width = shape_2
+        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
 
+        height, width = shape_2
         lines_index_1 = np.stack([pixels_2,
-                            np.zeros_like(pixels_2)], axis=1) if index=='x' else \
-                        np.stack([np.zeros_like(pixels_2), pixels_2], axis=1)
+                            np.zeros_like(pixels_2)], axis=-1) if index=='x' else \
+                        np.stack([np.zeros_like(pixels_2), pixels_2], axis=-1)
         lines_index_2 = np.stack([pixels_2,
-                            height * np.ones_like(pixels_2)], axis=1) if index=='x' else \
-                        np.stack([width * np.ones_like(pixels_2), pixels_2], axis=1)
-        rays_index_1 = ThreeDUtils.camera_to_ray_world(
+                            height * np.ones_like(pixels_2)], axis=-1) if index=='x' else \
+                        np.stack([width * np.ones_like(pixels_2), pixels_2], axis=-1)
+        lines_index_1 = lines_index_1.reshape((-1,2))
+        lines_index_2 = lines_index_2.reshape((-1,2))
+
+        _, rays_index_1 = ThreeDUtils.camera_to_ray_world(
             lines_index_1,
             R_2,
             T_2,
             K_2,
             dist_coeffs_2)
-        rays_index_2 = ThreeDUtils.camera_to_ray_world(
+        _, rays_index_2 = ThreeDUtils.camera_to_ray_world(
             lines_index_2,
             R_2,
             T_2,
             K_2,
             dist_coeffs_2)
-        directions_index_1 = np.vstack([line.v for line in rays_index_1])
-        directions_index_2 = np.vstack([line.v for line in rays_index_2])
-        normals = np.matmul(np.cross(directions_index_2, directions_index_1), R_2)
-        origin = np.matmul(R_2.T, T_2)
-                                
-        L = np.matmul(normals, origin) / np.sum(np.multiply(directions1, normals), axis=1)
+        
+        normals = np.cross(rays_index_2, rays_index_1)
 
-        return origin1 + directions1 * L[:, None]
-
+        return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2), normals)
     @staticmethod
-    def triangulate_lines( lines: np.ndarray[Line] ) -> np.ndarray:
+    def intersect_lines( lines: np.ndarray[tuple | list | np.ndarray] ) -> np.ndarray:
         """
-        TODO: vectorize operations to avoid using list comprehension.
-        This equation for the formula to find intersection of many lines 
+        This equation for the formula to find the single intersection of many lines 
         is described [here](https://en.wikipedia.org/wiki/Line–line_intersection#In_three_dimensions_2).
 
         Parameters
         ----------
         lines : array_like
             list of N > 1 lines, each containing a point and a direction vector.
+            This has shape Nx2, where at index i, lines[i][0] is the point and
+            lines[i][1] is the direction vector.
             
         Returns 
         ----------
-        closest point of intersection of all lines.
+        closest point (shape 1x3) of intersection of all lines
         """
         assert len(lines) > 1, "Need at least 2 lines to triangulate"
-        As = [np.outer(line.v, line.v) - np.eye(3) for line in lines]
-        Bs = [np.matmul(A, line.q.T).ravel() for A, line in zip(As, lines)]
+        As = [np.outer(line[0], line[0]) - np.eye(3) for line in lines]
+        Bs = [np.matmul(A, normalize(line[1]).T).ravel() for A, line in zip(As, lines)]
 
         A = np.sum(np.stack(As, axis=2), axis=2)
         B = np.sum(np.stack(Bs, axis=1), axis=1)
@@ -394,7 +450,9 @@ class ThreeDUtils:
         return (np.linalg.inv(A) @ B).reshape((1,3))
 
     @staticmethod
-    def point_line_distance(p: np.ndarray, line: Line):
+    def point_line_distance(p: tuple | list | np.ndarray,
+                            line_q: tuple | list | np.ndarray,
+                            line_n: tuple | list | np.ndarray,) -> np.ndarray:
         """
         Finds distance between a point and a line.
 
@@ -402,15 +460,17 @@ class ThreeDUtils:
         ----------
         p : array_like
             point of shape 1xN or Nx1. Function converts it to numpy array and to shape 1xN.
-        line : Line
-            line class containing a point and a direction vector.
+        line_q : array_like
+            point in line
+        line_n : array_like
+            direction vector of line (will be normalized in L-2 norm)
             
         Returns 
         ----------
-        distance between point and line
+        distance (in L-2 norm) between point and line
         """
         p = np.array(p, dtype=np.float32).reshape((1,-1))
-        return np.linalg.norm(np.cross(line.v, p - line.q)) / np.linalg.norm(line.v)
+        return np.linalg.norm(np.cross(line_n, p - line_q)) / np.linalg.norm(line_n)
 
     def camera_to_ray_world(
         points2D: np.ndarray,
@@ -418,7 +478,7 @@ class ThreeDUtils:
         T: np.ndarray,
         K: np.ndarray,
         dist_coeffs: np.ndarray
-        ) -> np.ndarray[Line]:
+        ) -> np.ndarray:
         """
         Converts camera pixel coordinates in x,y to rays into the world.
         It additionally performs rotation and translation so that rays
@@ -440,23 +500,26 @@ class ThreeDUtils:
         
         Returns
         ----------
-        lines
-            List of N lines in world coordinate system
+        origin
+            center of projection (shape 1x3) in world coordinates 
+        rays
+            numpy array (shape Nx3) of rays in world coordinates
         """
         R = np.array(R, dtype=np.float32)
         T = np.array(T, dtype=np.float32).reshape((3,1))
         if R.shape!=(3,3):
             R, _ = cv2.Rodrigues(R)
-        uv = ImageUtils.undistort_camera_points(points2D, K, dist_coeffs)
-        directions = ImageUtils.homogeneous_coordinates(uv)
-        lines = [Line(ThreeDUtils.get_origin(R, T), np.matmul(R.T, direction.reshape((3,1)))) for direction in directions]
-        return lines
+        rays = ThreeDUtils.camera_to_ray(points2D, K, dist_coeffs)
+        origin = ThreeDUtils.get_origin(R,T)
+
+        # R.T @ ray, where ray is (3x1)
+        return origin.reshape((1,3)), np.matmul(rays, R)
 
     def camera_to_ray(
         points2D: np.ndarray,
         K: np.ndarray,
         dist_coeffs: np.ndarray=None
-        ) -> np.ndarray[Line]:
+        ) -> np.ndarray:
         """
         Function provided for convenience.
         It differs from camera_to_ray_world() only in what argument(s) it accepts.
@@ -476,10 +539,12 @@ class ThreeDUtils:
 
         Returns
         ----------
-        list
-            List of N lines in camera coordinate system
+        rays
+            numpy array of shape 
         """
-        return ThreeDUtils.camera_to_ray_world(points2D, np.zeros(3), np.zeros(3), K, dist_coeffs)
+        uv = ImageUtils.undistort_camera_points(points2D, K, dist_coeffs)
+        rays = ImageUtils.homogeneous_coordinates(uv)
+        return rays
 
     def combine_transformations(
         R1: np.ndarray,

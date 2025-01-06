@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-from utils.three_d_utils import Plane, fit_plane, ThreeDUtils
+from utils.three_d_utils import ThreeDUtils
 from utils.file_io import save_json, load_json, get_all_paths
 from utils.plotter import Plotter
 from scanner.calibration import Charuco, CheckerBoard, Calibration
@@ -368,7 +368,7 @@ class Projector:
         return (self.height, self.width)
 
     # functions
-    def reconstruct_plane(self, image_path: str) -> Plane:
+    def reconstruct_plane(self, image_path: str) -> tuple[np.ndarray, np.ndarray]:
         """
         TODO: discard this function
         """
@@ -406,7 +406,7 @@ class Projector:
         world_points = np.matmul(obj_points, R_combined.T) + T_combined.reshape((1,3))
 
         # fit plane
-        return fit_plane(world_points)
+        return ThreeDUtils.fit_plane(world_points)
     
     def detect_markers(self):
         """
@@ -432,9 +432,7 @@ class Projector:
 
         for image_path in self.images:
             # plane = self.reconstruct_plane(image_path)
-
-            plane = Plane([0,0,0], [0,0,-1]) # set the plane to be on z=0 -- normal can be [0,0,+-1]
-
+            
             # detect plane/board markers with camera
             cam_img_points, obj_points, _ = \
                 self.plane_pattern.detect_markers(image_path)
@@ -464,15 +462,14 @@ class Projector:
 
             # undistort pixel coordinates -> normalized coordinates
             # project normalized coordinates onto Plane - X_3D
-            camera_rays = ThreeDUtils.camera_to_ray_world(cam_img_points,
+            origin, camera_rays = ThreeDUtils.camera_to_ray_world(cam_img_points,
                                               rvec,
                                               tvec,
                                               self.camera.K,
                                               self.camera.dist_coeffs)
             
             proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
-            obj = np.array([ThreeDUtils.plane_line_intersection(plane, camera_ray) 
-                            for camera_ray in camera_rays], dtype=np.float32).reshape((-1,3))
+            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1])
             # TODO: opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
             # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS

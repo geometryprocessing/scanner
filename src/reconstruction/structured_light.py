@@ -26,10 +26,11 @@ class StructuredLight:
         self.white_image = None
 
         # reconstruction utils
-        self.thr         = None
-        self.index_x     = None
-        self.index_y     = None
-        self.mask        = None
+        self.thr              = None
+        self.index_x          = None
+        self.index_y          = None
+        self.minimum_contrast = 0.1
+        self.mask             = None
         # reconstruction
         self.point_cloud = None
         self.depth_map   = None
@@ -174,6 +175,16 @@ class StructuredLight:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+    def set_minimum_contrast(self, contrast: float):
+        """
+        Set minimum contrast float value which can be used to generate a mask.
+        This will be used with the black and white pattern images to create a
+        per-pixel mask of pixels that pass the test
+        white-black > max_pixel * minimum_contrast,
+        where max_pixel is the maximum intensity a pixel can be assigned (that's 255 for uint8).
+        If the pixel does not pass that test, it will get masked out.
+        """
+        self.minimum_contrast = max(min(contrast, 1.), 0.)
     def set_mask(self, mask: np.ndarray):
         """
         Set mask of image to reduce 
@@ -186,6 +197,8 @@ class StructuredLight:
         self.mask = mask
 
     # getters
+    def get_minimum_contrast(self):
+        return self.minimun_contrast
     def get_mask(self):
         return self.mask
     def get_point_cloud(self):
@@ -202,7 +215,17 @@ class StructuredLight:
         if self.mask is not None:
             print("External mask provided")
             return
-        ImageUtils.generate_mask()
+        
+        white = ImageUtils.load_ldr('../data/david_gray_sl/01.bmp', make_gray=True)
+        black = ImageUtils.load_ldr('../data/david_gray_sl/02.bmp', make_gray=True)
+        try:   
+            max = np.iinfo(white.dtype).max
+        except:
+            max = np.finfo(white.dtype).max
+        self.mask = (abs(white-black) > max*self.minimum_contrast)
+
+        return
+        # TODO: discard this ImageUtils.generate_mask()
 
     def decode(self):
         """
@@ -267,11 +290,12 @@ class StructuredLight:
         cam_resolution = self.camera.get_image_shape()
         campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[1]),
                             np.arange(cam_resolution[0]))
-        campixels = np.stack([campixels_x, campixels_y], axis=-1)
+        
+        campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
 
         if self.index_x is not None and self.index_y is not None:
-            projpixels = np.vstack([self.index_x, self.index_y])#[self.mask]
-            point_cloud, _ = ThreeDUtils.triangulate_pixels(
+            projpixels = np.vstack([self.index_x, self.index_y]).reshape((-1,2))#[self.mask]
+            point_cloud = ThreeDUtils.triangulate_pixels(
                 campixels,
                 self.camera.K,
                 self.camera.dist_coeffs,
@@ -317,13 +341,34 @@ class StructuredLight:
         self.point_cloud = point_cloud
     
     def extract_colors(self):
+        """
+        Use black and white pattern images to extract the RGB values from the scene.
+        If save_point_cloud_as_ply is called and colors have been extracted, the
+        point cloud will be saved with the color values.
+        
+        Notes
+        -----
+        colors will be stored in [0., 1.[ range as a numpy array of type np.float32
+        """
         assert self.white_image is not None \
               and self.black_image is not None, "Need to set both black and white images"
         img_white = ImageUtils.load_ldr(self.white_image)
         img_black = ImageUtils.load_ldr(self.black_image)
 
-        img_clean = img_white - img_black
-        self.colors = img_clean#[self.mask]
+        # clip the values, so that none are negative
+        img = np.maximum(img_white - img_black, np.zeros_like(img_white))
+
+        # clip RGB range to [0., 1.[
+        try:
+            # first try with integer, np.iinfo for integer only
+            m = np.iinfo(img.dtype).max
+        except:
+            # then move to float, np.finfo for float only
+            m = np.finfo(img.dtype).max
+        img = img.astype(np.float32)
+        img /= m
+
+        self.colors = img#[self.mask]
     
     def extract_normals(self):
         assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"
@@ -334,7 +379,7 @@ class StructuredLight:
 
     def save_point_cloud_as_ply(self, filename: str):
         assert self.point_cloud is not None, "No reconstruction yet"
-        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors)
+        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors.reshape((-1,3)))
         
 
     def run(self, config: str | dict):

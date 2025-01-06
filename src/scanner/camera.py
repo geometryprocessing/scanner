@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-from utils.file_io import save_json, load_json
+from utils.file_io import save_json, load_json, get_all_paths
 from utils.plotter import Plotter
 from scanner.calibration import Calibration, Charuco, CheckerBoard
 
@@ -173,11 +173,7 @@ class Camera:
             List of strings containing image paths (or string for folder containing images).
             These images will be used for intrinsic calibration of Camera.
         """
-        if os.path.isdir(image_paths):
-            image_paths = [os.path.join(image_paths, f)
-                            for f in os.listdir(image_paths)
-                            if os.path.isfile(os.path.join(image_paths, f))]
-        self.intrinsic_images = image_paths
+        self.intrinsic_images = get_all_paths(image_paths)
     def set_extrinsic_image_path(self, image_path: str):
         """
         Parameters
@@ -339,14 +335,32 @@ class Camera:
     def get_errors(self) -> list[np.ndarray]:
         """
         Returns a list of the reprojection errors of every marker of every view.
+
+        Returns
+        -------
+        errors
+            list of numpy arrays, where each index of the list contains the
+            reprojection error (in pixels) for every detected marker in that index view
         """
         return self.errors
     def get_per_view_error(self) -> list[float]:        
         """
         Returns a list of the reprojection errors for every view.
+
+        Returns
+        -------
+        errors
+            list of floats, where each index is the average reprojection
+            error (in pixels) of detected markers in that index view
         """
         return [float(np.mean(errors)) for errors in self.errors]
     def get_mean_error(self) -> float:
+        """
+        Returns
+        -------
+        error
+            average error in pixels of all detected markers in all views
+        """
         return float(np.mean(np.concatenate(self.errors)))
     def get_error_threshold(self) -> float:
         """
@@ -361,6 +375,13 @@ class Camera:
     def get_image_shape(self) -> tuple[int, int]:
         """
         Returns image resolution in pixels as (height, width).
+
+        Returns
+        -------
+        height
+            camera height resolution in pixels
+        width 
+            camera width resolution in pixels.
         """
         return (self.height, self.width)
     

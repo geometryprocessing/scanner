@@ -1,6 +1,7 @@
 import cv2
 import Imath
 import numpy as np
+from PIL import Image, ExifTags
 import rawpy
 from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion
 import OpenEXR
@@ -181,7 +182,7 @@ class ImageUtils:
         return np.maximum(0, np.minimum(bayer, 1))
     
     @staticmethod
-    def load_ldr(filename: str, make_gray: bool=False, normalize: bool=False) -> np.ndarray:
+    def load_ldr_opencv(filename: str, make_gray: bool=False, normalize: bool=False) -> np.ndarray:
         """
         Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
         and/or normalize the value range from [0, 2**16[ to [0, 1[.
@@ -200,6 +201,7 @@ class ImageUtils:
         img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
         if img is None:
             print(filename, "does not exist!")
+            return img
 
         if len(img.shape) == 3:
             img = img[:, :, ::-1]  # BGR by default, so convert it to RGB
@@ -228,6 +230,79 @@ class ImageUtils:
         #         # plt.hist(img[:, :, i].ravel(), bins=2**12)
 
         return img
+    
+    @staticmethod
+    def load_ldr(filename: str, make_gray: bool = False, normalize: bool = False) -> np.ndarray:
+        """
+        Load LDR (low dynamic range) image using Pillow. Flags can be set to make it grayscale
+        and/or normalize the value range from [0, 2**16[ to [0, 1[.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the image file.  
+        make_gray : bool, optional
+            Flag to convert the image to grayscale (True) or keep all color channels intact (False).
+            Default is False.
+        normalize : bool, optional
+            Flag to normalize image range to single [0, 1[ (True) or keep as uint16 [0, 2**16[ (False).
+            Default is False.
+
+        Returns
+        -------
+        np.ndarray
+            Loaded image as a NumPy array, with optional grayscale conversion and normalization applied.
+
+        Notes
+        -----
+        This function ignores the EXIF orientation tags.
+        """
+        try:
+            # Open the image with Pillow
+            img = Image.open(filename)
+
+            # # Handle EXIF orientation
+            # try:
+            #     for orientation in ExifTags.TAGS.keys():
+            #         if ExifTags.TAGS[orientation] == "Orientation":
+            #             break
+
+            #     exif = img._getexif()
+            #     if exif is not None and orientation in exif:
+            #         if exif[orientation] == 3:
+            #             img = img.rotate(180, expand=True)
+            #         elif exif[orientation] == 6:
+            #             img = img.rotate(270, expand=True)
+            #         elif exif[orientation] == 8:
+            #             img = img.rotate(90, expand=True)
+            # except Exception as e:
+            #     print(f"Warning: Could not handle EXIF orientation: {e}")
+
+            # Convert image to grayscale if requested
+            if make_gray:
+                img = img.convert("L")  # 'L' mode is for grayscale
+
+            # Convert image to NumPy array
+            img_array = np.array(img)
+
+            # Normalize pixel values if requested
+            if normalize:
+                try:
+                    # first try with integer, np.iinfo for integer only
+                    img_array /= np.iinfo(img_array.dtype).max
+                except:
+                    # then move to float, np.finfo for float only
+                    img_array /= np.finfo(img_array.dtype).max
+
+            return img_array
+
+        except FileNotFoundError:
+            print(f"{filename} does not exist.")
+            return None
+        except Exception as e:
+            print(f"Error loading image: {e}")
+            return None
+
     
     @staticmethod
     def save_ldr(filename: str, image: np.ndarray, ensure_rgb: bool=False):

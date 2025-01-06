@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 from utils.three_d_utils import Plane, fit_plane, ThreeDUtils
-from utils.file_io import save_json, load_json
+from utils.file_io import save_json, load_json, get_all_paths
 from utils.plotter import Plotter
 from scanner.calibration import Charuco, CheckerBoard, Calibration
 from scanner.camera import Camera
@@ -210,7 +210,6 @@ class Projector:
             Path to calibration image projected by the projector onto a known
             plane.
         """
-        assert os.path.isfile(path), "No file found at specified path"
         self.calibration_image = path
     def set_image_paths(self, image_paths: list | str):
         """
@@ -220,11 +219,7 @@ class Projector:
             List of strings containing image paths (or string for folder containing images).
             These images will be used for calibration of Projector.
         """
-        if os.path.isdir(image_paths):
-            image_paths = [os.path.join(image_paths, f)
-                            for f in os.listdir(image_paths)
-                            if os.path.isfile(os.path.join(image_paths, f))]
-        self.images = image_paths
+        self.images = get_all_paths(image_paths)
     def set_error_threshold(self, error_thr: float):
         """
         Set the reprojection error threshold (in pixels, L2 norm).
@@ -350,11 +345,25 @@ class Projector:
     def get_image_shape(self):
         """
         Returns camera image resolution in pixels as (height, width).
+
+        Returns
+        -------
+        height
+            camera height resolution in pixels
+        width 
+            camera width resolution in pixels.
         """
         return (self.camera.height, self.camera.width)
     def get_projector_shape(self):
         """
         Returns projector image resolution in pixels as (height, width).
+
+        Returns
+        -------
+        height
+            projector height resolution in pixels
+        width 
+            projector width resolution in pixels.
         """
         return (self.height, self.width)
 

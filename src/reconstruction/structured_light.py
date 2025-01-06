@@ -299,7 +299,7 @@ class StructuredLight:
         campixels = np.stack([campixels_x, campixels_y], axis=-1)[self.mask].reshape((-1,2))
 
         if self.index_x is not None and self.index_y is not None:
-            projpixels = np.vstack([self.index_x, self.index_y])[self.mask].reshape((-1,2))
+            projpixels = np.stack([self.index_x, self.index_y], axis=-1)[self.mask].reshape((-1,2))
             point_cloud = ThreeDUtils.triangulate_pixels(
                 campixels,
                 self.camera.K,
@@ -357,8 +357,10 @@ class StructuredLight:
         """
         assert self.white_image is not None \
               and self.black_image is not None, "Need to set both black and white images"
+        
         if self.mask is None:
             self.generate_mask()
+
         img_white = ImageUtils.load_ldr(self.white_image)
         img_black = ImageUtils.load_ldr(self.black_image)
 

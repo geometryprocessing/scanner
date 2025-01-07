@@ -87,8 +87,7 @@ class ThreeDUtils:
                                   plane_n: np.ndarray) -> np.ndarray:
         """
         TODO: reconsider the normalization step here, since it costs
-        something and does not change the result (since the function
-        later calculates the norm and includes it into the equation)
+        something and does not change the result
 
         Finds the point of intersection of a line with a plane.
         This function can also find:
@@ -245,8 +244,8 @@ class ThreeDUtils:
         v1v1 = np.linalg.norm(v1, axis=1).reshape((-1,1))**2
         v2v2 = np.linalg.norm(v2, axis=1).reshape((-1,1))**2
 
-        L = (  np.einsum('ij,ij->i',v1, q2 - q1).reshape((-1,1)) * v2v2 \
-             + np.einsum('ij,ij->i',v2, q1 - q2).reshape((-1,1)) * v1v2) / (v1v1 * v2v2 - v1v2**2)
+        L = (  np.einsum('ij,ij->i', v1, q2 - q1).reshape((-1,1)) * v2v2 \
+             + np.einsum('ij,ij->i', v2, q1 - q2).reshape((-1,1)) * v1v2) / (v1v1 * v2v2 - v1v2**2)
         return L
     
     @staticmethod
@@ -342,10 +341,11 @@ class ThreeDUtils:
             rotation matrix (shape 3x3 or 3x1) of projector/camera 2.
         T_2 : array_like
             translation vector (shape 3x1) of projector/camera 2.
-        index : str
+        index : {'x', 'y'}, optional
             choice between 'x' and 'y' to say which coordinate from
             projector/camera 2 is avaialble, the other will be used
-            to draw the line which will become a plane in the world 
+            to draw the line which will become a plane in the world.
+            Default is 'x'. 
         
         Returns 
         ----------
@@ -365,29 +365,28 @@ class ThreeDUtils:
         origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
 
         height, width = shape_2
-        lines_index_1 = np.stack([pixels_2,
-                            np.zeros_like(pixels_2)], axis=-1) if index=='x' else \
-                        np.stack([np.zeros_like(pixels_2), pixels_2], axis=-1)
-        lines_index_2 = np.stack([pixels_2,
-                            height * np.ones_like(pixels_2)], axis=-1) if index=='x' else \
-                        np.stack([width * np.ones_like(pixels_2), pixels_2], axis=-1)
-        lines_index_1 = lines_index_1.reshape((-1,2))
-        lines_index_2 = lines_index_2.reshape((-1,2))
+        zeros = np.zeros_like(pixels_2)
+        ones = np.ones_like(pixels_2)
 
-        _, rays_index_1 = ThreeDUtils.camera_to_ray_world(
-            lines_index_1,
+        lines_index_0 = np.stack([pixels_2, zeros   ], axis=-1) if index=='x' else \
+                        np.stack([zeros   , pixels_2], axis=-1)
+        lines_index_1 = np.stack([pixels_2    , height * ones], axis=-1) if index=='x' else \
+                        np.stack([width * ones, pixels_2     ], axis=-1)
+
+        _, rays_index_0 = ThreeDUtils.camera_to_ray_world(
+            lines_index_0.reshape((-1,2)),
             R_2,
             T_2,
             K_2,
             dist_coeffs_2)
-        _, rays_index_2 = ThreeDUtils.camera_to_ray_world(
-            lines_index_2,
+        _, rays_index_1 = ThreeDUtils.camera_to_ray_world(
+            lines_index_1.reshape((-1,2)),
             R_2,
             T_2,
             K_2,
             dist_coeffs_2)
         
-        normals = np.cross(rays_index_2, rays_index_1)
+        normals = np.cross(rays_index_1, rays_index_0)
 
         return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2), normals)
     
@@ -491,12 +490,9 @@ class ThreeDUtils:
         dist_coeffs: np.ndarray=None
         ) -> np.ndarray:
         """
-        Function provided for convenience.
-        It differs from camera_to_ray_world() only in what argument(s) it accepts.
-
         Converts camera pixel coordinates in x,y to rays into the world.
         It does not perform rotation or translation, therefore it keeps the rays
-        in camera coordinates where camera is origin and looking at [0,0,-1].
+        in camera coordinates where camera is origin and looking at [0,0,1].
 
         Parameters
         ----------
@@ -510,7 +506,7 @@ class ThreeDUtils:
         Returns
         ----------
         rays
-            numpy array of shape 
+            numpy array (shape Nx3) of rays in local coordinates
         """
         uv = ImageUtils.undistort_camera_points(points2D, K, dist_coeffs)
         rays = ImageUtils.homogeneous_coordinates(uv)

@@ -264,7 +264,6 @@ class StructuredLight:
         
         """
         Plotter.plot_decoding(self.camera.get_image_shape(),
-                              self.projector.get_projector_shape(),
                               self.index_x,
                               self.index_y)
 
@@ -370,9 +369,9 @@ class StructuredLight:
     
     def extract_normals(self):
         assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"
-        if self.depth_map:
+        if self.depth_map is not None:
             self.normals = ThreeDUtils.normals_from_depth_map(self.depth_map)
-        elif self.point_cloud:
+        elif self.point_cloud is not None:
             self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
 
     def save_point_cloud_as_ply(self, filename: str):
@@ -389,7 +388,6 @@ class StructuredLight:
         self.set_threshold(config['threshold'])
         self.decode()
         self.reconstruct()
-        self.plot_decoding()
         self.extract_colors()
         self.extract_normals()
         self.save_point_cloud_as_ply(config['ply_filename'])

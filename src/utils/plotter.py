@@ -201,7 +201,6 @@ class Plotter:
 
         plt.show()
     def plot_decoding(camera_resolution: tuple,
-                      projector_resolution: tuple,
                       index_x: np.ndarray=None,
                       index_y: np.ndarray=None,
                       cmap: str='jet',

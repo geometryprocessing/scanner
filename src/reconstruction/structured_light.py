@@ -355,12 +355,7 @@ class StructuredLight:
         if self.mask is None:
             self.generate_mask()
 
-        img_white = ImageUtils.load_ldr(self.white_image)
-        img_black = ImageUtils.load_ldr(self.black_image)
-
-        # clip the values, so that none are negative
-        img = np.maximum(img_white - img_black, np.zeros_like(img_white))
-
+        img = ImageUtils.load_ldr(self.white_image)
         # clip RGB range to [0., 1.[
         try:
             # first try with integer, np.iinfo for integer only

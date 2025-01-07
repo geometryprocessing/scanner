@@ -86,6 +86,10 @@ class ThreeDUtils:
                                   plane_q: np.ndarray, 
                                   plane_n: np.ndarray) -> np.ndarray:
         """
+        TODO: reconsider the normalization step here, since it costs
+        something and does not change the result (since the function
+        later calculates the norm and includes it into the equation)
+
         Finds the point of intersection of a line with a plane.
         This function can also find:
         - the intersection of N lines with N planes, resulting in N points;
@@ -141,7 +145,7 @@ class ThreeDUtils:
             plane_n = np.tile(plane_n, (line_q.shape[0],1))
 
         # Intersect a line(s) with a plane(s) (in 3D).
-        L = np.einsum('ij,ij->i', (plane_q - line_q), plane_n) / np.einsum('ij,ij->i', plane_n, line_v)
+        L = np.einsum('ij,ij->i', plane_n, (plane_q - line_q)) / np.einsum('ij,ij->i', plane_n, line_v)
         points = line_q + L.reshape((-1,1)) * line_v
         return points
 
@@ -151,6 +155,10 @@ class ThreeDUtils:
                                  q2: np.ndarray,
                                  v2: np.ndarray) -> np.ndarray:
         """
+        TODO: reconsider the normalization step here, since it costs
+        something and does not change the result (since the function
+        later calculates the norm and includes it into the equation)
+
         Finds the point of intersection of a line with another line.
         This function can also find:
         - the intersection of N lines with N lines, resulting in N points;
@@ -209,7 +217,6 @@ class ThreeDUtils:
         points = q1 + L.reshape((-1,1)) * v1
         return points
 
-    @staticmethod
     def find_lambda(q1: np.ndarray,
                     v1: np.ndarray,
                     q2: np.ndarray,
@@ -238,49 +245,9 @@ class ThreeDUtils:
         v1v1 = np.linalg.norm(v1, axis=1).reshape((-1,1))**2
         v2v2 = np.linalg.norm(v2, axis=1).reshape((-1,1))**2
 
-        L = (  np.einsum('ij,ij->i',v1, q2 - q1).reshape((-1,1)) * v1v1 \
+        L = (  np.einsum('ij,ij->i',v1, q2 - q1).reshape((-1,1)) * v2v2 \
              + np.einsum('ij,ij->i',v2, q1 - q2).reshape((-1,1)) * v1v2) / (v1v1 * v2v2 - v1v2**2)
-
-        # L = (np.matmul(directions1, origin2.T - origin1.T) * v1 + np.matmul(directions2, origin1.T - origin2.T) * v12) / (v1 * v2 - v12**2)
         return L
-
-    @staticmethod
-    def triangulate(line1_q: tuple | list | np.ndarray,
-                    line1_n: tuple | list | np.ndarray,
-                    line2_q: tuple | list | np.ndarray,
-                    line2_n: tuple | list | np.ndarray, ) -> np.ndarray:
-        """
-        TODO: discard function
-
-        Parameters
-        ----------
-        line1_q : array_like
-            point in line 1
-        line1_n : array_like
-            direction vector of line 1 (will be normalized in L-2 norm)
-        line2_q : array_like
-            point in line 2
-        line2_n : array_like
-            direction vector of line 2 (will be normalized in L-2 norm)
-
-        Returns 
-        ----------
-        triangulated point of two lines.
-        """
-        T1 = np.array(line1_q, dtype=np.float32).reshape((-1,1))
-        T2 = np.array(line2_q, dtype=np.float32).reshape((-1,1))
-        dir1 = normalize(np.array(line1_n, dtype=np.float32).reshape((-1,1)))
-        dir2 = normalize(np.array(line2_n, dtype=np.float32).reshape((-1,1)))
-        
-        v12 = np.einsum('ij,ij->i',dir1, dir2)
-        v1 = np.linalg.norm(dir1, axis=1)
-        v2 = np.linalg.norm(dir2, axis=1)
-
-        lambda1 = (np.matmul(dir1, T2 - T1) * v1**2 + np.matmul(dir1, T1 - T2) * v12)   / (v1**2 * v2**2 - v12**2)
-        lambda2 = (np.matmul(dir1, T2 - T1) * v12.T + np.matmul(dir2, T1 - T2) * v2**2) / (v1**2 * v2**2 - v12**2)
-
-        # find the midpoint between the two lines for every point
-        return ( (T1 + dir2 * lambda1[:, None]) + (T2 + dir2 * lambda2[:, None]) ) / 2
     
     @staticmethod
     def triangulate_pixels(
@@ -423,6 +390,7 @@ class ThreeDUtils:
         normals = np.cross(rays_index_2, rays_index_1)
 
         return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2), normals)
+    
     @staticmethod
     def intersect_lines( lines: np.ndarray[tuple | list | np.ndarray] ) -> np.ndarray:
         """
@@ -472,6 +440,7 @@ class ThreeDUtils:
         p = np.array(p, dtype=np.float32).reshape((1,-1))
         return np.linalg.norm(np.cross(line_n, p - line_q)) / np.linalg.norm(line_n)
 
+    @staticmethod
     def camera_to_ray_world(
         points2D: np.ndarray,
         R: np.ndarray,
@@ -515,6 +484,7 @@ class ThreeDUtils:
         # R.T @ ray, where ray is (3x1)
         return origin.reshape((1,3)), np.matmul(rays, R)
 
+    @staticmethod
     def camera_to_ray(
         points2D: np.ndarray,
         K: np.ndarray,
@@ -546,6 +516,7 @@ class ThreeDUtils:
         rays = ImageUtils.homogeneous_coordinates(uv)
         return rays
 
+    @staticmethod
     def combine_transformations(
         R1: np.ndarray,
         T1: np.ndarray,
@@ -581,6 +552,7 @@ class ThreeDUtils:
 
         return R, T
     
+    @staticmethod
     def get_origin(R: np.ndarray, T: np.ndarray) -> np.ndarray:
         """
         Returns the origin of an object, which has tuple R and T, where

@@ -1,4 +1,5 @@
 import cv2
+from copy import deepcopy
 import Imath
 import numpy as np
 from PIL import Image, ExifTags
@@ -15,15 +16,59 @@ class ImageUtils:
         R: np.ndarray=None,
         P: np.ndarray=None ) -> np.ndarray:
         """
-        TODO: understand better the functionality of cv2.undistortPoints
-        In order to find where the points would be from undistortion, pass the same matrix K for P.
+        This function, by default, takes a array of 2D pixel coordinates (x,y)
+        and returns normalized, homogenous coordinates (u,v,1).
+
+        Parameters
+        ----------
+        points2D : array_like
+            array (Nx2) of 2D pixel coordinates
+        K : array_like
+            3x3 camera intrinsic matrix
+        dist_coeffs : array_like
+            distortion coefficients of camera
+        R : array_like, optional
+            rotation vector (3x1)
+        P : array_like, optional
+            new camera matrix (3x3) or new projection matrix (4x3).
+            If you pass P=K, this function returns the undistorted points back in 
+            (x,y) pixel coordinates
         """
         return cv2.undistortPoints(np.array(points2D, dtype=np.float32).reshape((-1, 1, 2)), K, dist_coeffs, R, P).reshape((-1, 2))
     
     @staticmethod
+    def undistort_image(
+        image: np.ndarray,
+        K: np.ndarray,
+        dist_coeffs: np.ndarray,
+        newK : np.ndarray=None
+        ) -> np.ndarray:
+        """
+        Take image as numpy array and undistort it using OpenCV.
+        Function creates a copy of image and returns the undistorted version.
+
+        Parameters
+        ----------
+        image : array_like
+            image array
+        K : array_like
+            3x3 camera intrinsic matrix
+        dist_coeffs : array_like
+            distortion coefficients of camera
+        newK : array_like, optional
+            3x3 new camera intrinsic matrix
+
+        Returns
+        ----------
+        undistorted copy of image
+        """
+        return cv2.undistort(deepcopy(image), K, dist_coeffs, newK)
+
+
+    @staticmethod
     def homogeneous_coordinates(
-            points2D: np.ndarray
-            ) -> np.ndarray:
+        points2D: np.ndarray
+        ) -> np.ndarray:
         """
         Converts coordinates into homogenous form, i.e.
         the point (u, v) becomes (u, v, 1)
@@ -56,7 +101,7 @@ class ImageUtils:
         ----------
         colorized copy of image
         """
-        img = image.deepcopy()
+        img = deepcopy(image)
         img = ((img / np.percentile(img, q=99.99)) * (2**16 - 1)).astype(np.uint16)
 
         return img
@@ -120,7 +165,7 @@ class ImageUtils:
         ----------
         blurred copy of image
         """
-        img = image.deepcopy()
+        img = deepcopy(image)
         for i in range(3):
             img[:, :, i] = gaussian_filter(image[:, :, i], sigma=sigmas[i])
 
@@ -144,7 +189,7 @@ class ImageUtils:
         ----------
         copy of image with hot pixels replaced
         """
-        img = image.deepcopy()
+        img = deepcopy(image)
         h, w = img.shape[:2]
         rr, cc = np.nonzero(dark > thr)
 

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import open3d as o3d
 
 from utils.image_utils import ImageUtils
 from utils.three_d_utils import ThreeDUtils
@@ -9,9 +10,9 @@ def line(ax, p1, p2, *args, **kwargs):
 
 def basis(ax, T, R, *args, length=1, **kwargs):
     T = T.flatten()
-    Rx = np.array(R[0]).flatten() # need array back to shape (3,)
-    Ry = np.array(R[1]).flatten() # need array back to shape (3,)
-    Rz = np.array(R[2]).flatten() # need array back to shape (3,)
+    Rx = np.array(R[:, 0]).flatten() # need array back to shape (3,)
+    Ry = np.array(R[:, 1]).flatten() # need array back to shape (3,)
+    Rz = np.array(R[:, 2]).flatten() # need array back to shape (3,)
     Tx = T + length * Rx
     Ty = T + length * Ry
     Tz = T + length * Rz
@@ -162,13 +163,15 @@ class Plotter:
     @staticmethod
     def plot_extrinsics(objects: list):
         """
+        TODO: plot with open3d instead.
+        
+        TODO: Draw cameras in red, projectors in green.
+              Show the focal length / FOV of objects 
+
         Plot (with matplotlib axes 3D) 3D position and orientation
         of a list of camera/projector objects.
         The objects need to be already calibrated, otherwise all
         of them will be plotted at the origin.
-
-        TODO: Draw cameras in red, projectors in green.
-              Show the focal length / FOV of objects 
         """
 
         fig = plt.figure('3D Position')

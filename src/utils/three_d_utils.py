@@ -588,8 +588,7 @@ class ThreeDUtils:
         dx = (np.roll(points, -1, axis=1) - np.roll(points, 1, axis=1)) / 1
         dy = (np.roll(points, -1, axis=0) - np.roll(points, 1, axis=0)) / 1
         normals = - np.cross(dx, dy)
-        # normals = normals / np.linalg.norm(normals, axis=1)[:, None]
-        return normals
+        return normalize(normals)
     
     @staticmethod
     def normals_from_depth_map(depth_map: np.ndarray) -> np.ndarray:
@@ -658,7 +657,7 @@ class ThreeDUtils:
         return result3D
 
     @staticmethod
-    def depth_map_from_point_cloud(points: np.ndarray) -> np.ndarray:
+    def depth_map_from_point_cloud(points: np.ndarray, mask: np.ndarray, origin: np.ndarray) -> np.ndarray:
         """
 
         Parameters
@@ -671,7 +670,9 @@ class ThreeDUtils:
         depth_map : array_like
             depth map (shape Nx1)
         """
-        pass
+        depth_map = np.zeros(shape=mask.shape)
+        depth_map[mask] = np.linalg.norm(points - origin.reshape((1,3)), axis=1)
+        return depth_map
 
     @staticmethod
     def save_ply(

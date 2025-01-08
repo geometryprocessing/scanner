@@ -1,3 +1,4 @@
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
@@ -205,7 +206,7 @@ class Plotter:
                       index_y: np.ndarray=None,
                       cmap: str='jet',
                       figsize: tuple = (16,12),
-                      filename: str=None):
+                      filename: str = None):
         """
         Plot (with matplotlib) an image of decoded row (y) and column (x)
         indices from structured light pattern.
@@ -219,13 +220,13 @@ class Plotter:
             tuple containing (height, width) of projector resolution.
         index_x : array_like
             numpy array of decoded column indices from structured light 
-        cmap : str
+        cmap : str, optional
             string for indicating which colormap to use from matplotlib.
             The default is 'jet'.
-        figsize : tuple
+        figsize : tuple, optional
             tuple containing (width, height) of figure to plot.
             The default is (16,12).
-        filename : str
+        filename : str, optional
             if passed, path to file where figure will be saved.  
         """
         cam_height, cam_width = camera_resolution
@@ -235,10 +236,9 @@ class Plotter:
             plt.figure(figsize=figsize)
             plt.title("Decoded X Indices")
             plt.imshow(index_x, cmap=cmap, extent=[0, cam_width, cam_height, 0])
-            plt.xlabel('x (pixels)')
-            plt.ylabel('y (pixels)')
             plt.xlim([0, cam_width])
             plt.ylim([cam_height, 0])
+            plt.axis('off')
 
             plt.show()
 
@@ -250,13 +250,101 @@ class Plotter:
             plt.figure(figsize=figsize)
             plt.title("Decoded Y Indices")
             plt.imshow(index_y, cmap=cmap, extent=[0, cam_width, cam_height, 0])
-            plt.xlabel('x (pixels)')
-            plt.ylabel('y (pixels)')
             plt.xlim([0, cam_width])
             plt.ylim([cam_height, 0])  # Reverse y-axis
+            plt.axis('off')
 
             plt.show()
 
             if filename:
                 plt.savefig(f"{filename}_row.png", transparent=True, bbox_inches='tight')
     
+    @staticmethod
+    def plot_normal_map(normals: np.ndarray,
+                        mask: np.ndarray,
+                        figsize: tuple = (16,12),
+                        filename: str = None):
+        """
+        Plot (with matplotlib) normals map as a 2D image.
+
+        Parameters
+        ----------
+        normals : array_like
+            array (shape Nx3) of normals
+        mask : array_like
+            array (shape HxW) of mask
+        figsize : tuple, optional
+            tuple containing (width, height) of figure to plot.
+            The default is (16,12).
+        filename : str, optional
+            if passed, path to file where figure will be saved.  
+
+        Notes
+        -----
+        Red encodes the X-component of the normal vector.
+        Green encodes the Y-component of the normal vector.
+        Blue encodes the Z-component of the normal vector.
+        """
+        image = np.repeat(np.zeros(shape=mask.shape)[:,:,np.newaxis], 3, axis=-1)
+        image[mask] = normals
+
+        image = .5 * (image + 1.)  # Convert from [-1, 1] to [0, 1]
+
+        plt.figure(figsize=figsize)
+        plt.title("Normals")
+        plt.imshow(image)
+        plt.axis('off')
+        plt.show()
+
+        if filename:
+            plt.savefig(filename, transparent=True, bbox_inches='tight')
+
+    @staticmethod
+    def plot_depth_map(depth_map: np.ndarray,
+                       cmap: str='turbo',
+                       max_percentile: int=95,
+                       min_percentile: int=5,
+                       figsize: tuple = (12,16),
+                       filename: str = None):
+        """
+        Plot (with matplotlib) depth map.
+        It uses jet colormap by default.
+
+        Parameters
+        ----------
+        depth_map : array_like
+            array of depth map
+        cmap : str, optional
+            string for indicating which colormap to use from matplotlib.
+            The default is 'turbo'. 
+        max_percentile : int, optional
+            top percentile at which to normalize the colormap
+            default is 95
+        min_percentile : int, optional
+            bottom percentile at which to normalize the colormap
+            default is 5
+        figsize : tuple, optional
+            tuple containing (width, height) of figure to plot.
+            The default is (16,12).
+        filename : str, optional
+            if passed, path to file where figure will be saved.  
+        """
+        mask = abs(depth_map) > 1e-8
+        disp_map = 1/depth_map
+        disp_map[~mask] = 0
+        print(disp_map)
+        vmax = np.percentile(disp_map[mask], max_percentile)
+        vmin = np.percentile(disp_map[mask], min_percentile)
+        normalizer = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+        mapper = mpl.cm.ScalarMappable(norm=normalizer, cmap=cmap)
+        mask = np.repeat(np.expand_dims(mask,-1), 3, -1)
+        image = (mapper.to_rgba(disp_map)[:, :, :3] * 255).astype(np.uint8)
+        
+        plt.figure(figsize=figsize)
+        plt.title("Depth Map")
+        plt.imshow(image)
+        plt.axis('off')
+        plt.show()
+
+        if filename:
+            plt.savefig(filename, transparent=True, bbox_inches='tight')

@@ -91,7 +91,7 @@ class Projector:
             r, _ = cv2.Rodrigues(r)
         self.R = r
     def load_camera(self, camera: str | dict | Camera):
-        if type(camera) is (str or dict):
+        if isinstance(camera, str) or isinstance(camera, dict):
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
@@ -383,7 +383,7 @@ class Projector:
         # although plane reconstruction requires 3 points,
         # OpenCV extrinsic calibration requires 6 points
         if len(img_points) < max(6, self.min_points):
-            return None
+            return None, None
         
         # find relative position of camera and board
         result = Calibration.calibrate_extrinsic(obj_points,
@@ -467,15 +467,17 @@ class Projector:
                                               tvec,
                                               self.camera.K,
                                               self.camera.dist_coeffs)
-            
-            proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
-            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1]).astype(np.float32)
-            # TODO: opencv calibration only works with PLANAR data, but where we are moving our
+            # opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
             # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS
+            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1]).astype(np.float32)
+            
             for o in obj:
                 o[2] = 0. # ENSURE THAT THESE ARE ZERO, OTHERWISE OPENCV WILL NOT ACCEPT THEM
             
+            proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
+
+            # save 2D coordinates for projector and camera and 3D points in the board coordinate system
             self.image_points.append(proj_img_points)
             self.object_points.append(obj)
             self.camera_image_points.append(cam_img_points)
@@ -490,8 +492,9 @@ class Projector:
             # to simplify:
             # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
             camera_obj =  np.matmul(obj, R_combined.T) + T_combined.reshape((1,3))
+
+            # save 3D points in the camera coordinate system
             self.camera_object_points.append(camera_obj)
-            # self.planes.append(plane)
         
         self.discard_intrinsic_images()
 
@@ -619,33 +622,33 @@ class Projector:
         assert self.K is not None, "Projector has not been calibrated yet"
         assert self.camera.K is not None, "Camera has not been defined"
         
-        # result = Calibration.stereo_calibrate(self.camera_object_points,
-        #                                       self.camera_image_points,
-        #                                       self.image_points,
-        #                                       self.camera.get_image_shape(),
-        #                                       self.camera.K,
-        #                                       self.camera.dist_coeffs,
-        #                                       self.K,
-        #                                       self.dist_coeffs,
-        #                                       self.camera.R,
-        #                                       self.camera.T)
+        result = Calibration.stereo_calibrate(self.camera_object_points,
+                                              self.camera_image_points,
+                                              self.image_points,
+                                              self.camera.get_image_shape(),
+                                              self.camera.K,
+                                              self.camera.dist_coeffs,
+                                              self.K,
+                                              self.dist_coeffs,
+                                              self.camera.R,
+                                              self.camera.T)
         
-        # self.R = result['R']
-        # self.T = result['T']
+        self.R = result['R']
+        self.T = result['T']
 
-        result = Calibration.calibrate_extrinsic(np.concatenate(self.camera_object_points),
-                                                 np.concatenate(self.image_points),
-                                                 self.K,
-                                                 self.dist_coeffs)
+        # result = Calibration.calibrate_extrinsic(np.concatenate(self.camera_object_points),
+        #                                          np.concatenate(self.image_points),
+        #                                          self.K,
+        #                                          self.dist_coeffs)
         
-        rvec = result['rvec']
-        tvec = result['tvec']
+        # rvec = result['rvec']
+        # tvec = result['tvec']
         
-        R, _ = cv2.Rodrigues(rvec)
-        T = tvec.reshape((3,1))
+        # R, _ = cv2.Rodrigues(rvec)
+        # T = tvec.reshape((3,1))
         
-        self.R = R
-        self.T = T
+        # self.R = R
+        # self.T = T
 
     # plotter
     def plot_distortion(self):

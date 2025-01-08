@@ -171,7 +171,7 @@ class StructuredLight:
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
-        if type(camera) is (str or dict):
+        if isinstance(camera, str) or isinstance(camera, dict):
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
@@ -366,6 +366,13 @@ class StructuredLight:
         img /= m
 
         self.colors = img[self.mask]
+
+    def extract_depth_map(self):
+        assert self.point_cloud is not None, "No reconstruction yet"
+        self.depth_map = \
+            ThreeDUtils.depth_map_from_point_cloud(self.point_cloud,
+                                                   self.mask,
+                                                   ThreeDUtils.get_origin(self.camera.R, self.camera.T))
     
     def extract_normals(self):
         assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"
@@ -377,7 +384,22 @@ class StructuredLight:
     def save_point_cloud_as_ply(self, filename: str):
         assert self.point_cloud is not None, "No reconstruction yet"
         ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors.reshape((-1,3)))
-        
+
+    def plot_normal_map(self, figsize: tuple=(12,16), filename: str=None):
+        Plotter.plot_normal_map(self.normals, self.mask, figsize=figsize, filename=filename)
+
+    def plot_depth_map(self,
+                       cmap: str='turbo',
+                       max_percentile: int=95,
+                       min_percentile: int=5,
+                       figsize: tuple=(12,16),
+                       filename: str=None):
+        Plotter.plot_depth_map(self.depth_map,
+                               cmap=cmap,
+                               max_percentile=max_percentile,
+                               min_percentile=min_percentile,
+                               figsize=figsize,
+                               filename=filename)
 
     def run(self, config: str | dict):
         if type(config) is str:

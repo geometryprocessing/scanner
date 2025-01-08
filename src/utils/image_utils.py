@@ -107,6 +107,45 @@ class ImageUtils:
         return img
     
     @staticmethod
+    def normalize_color(
+        color_image: str | np.ndarray,
+        white_image: str | np.ndarray
+        ) -> np.ndarray:
+        """
+        Take a color image and a white image, apply a Gaussian blur
+        on both and get color divided by white.
+        This function is relevant to LookUp reconstruction.
+
+        Parameters
+        ----------
+        color_image : array_like or string
+            image when color pattern is projected onto the scene
+        white_image : array_like or string
+            image when white flash is projected onto the scene
+
+        Returns
+        -------
+        normalized
+            numpy array of color_image / white_image
+        """
+        if isinstance(white_image, str):
+            white_image = ImageUtils.load_ldr(white_image)
+        if isinstance(color_image, str):
+            color_image = ImageUtils.load_ldr(color_image)
+
+        white_image = ImageUtils.blur_3(white_image, sigmas=np.ones(3) * 1.5)
+        color_image = ImageUtils.blur_3(color_image, sigmas=np.ones(3) * 1.5)
+
+        thr, s = 0.01, np.min(white_image, axis=2)
+        mask = s > thr * np.max(s)
+
+        normalized = np.zeros_like(color_image, dtype=np.float32)
+        normalized[mask] = color_image[mask] / white_image[mask]
+
+        return normalized
+
+    
+    @staticmethod
     def demosaic(bayer: np.ndarray, roll: bool=False) -> np.ndarray:
         """
         Take raw image and demosaic it, i.e. reconstruct full color image.

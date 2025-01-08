@@ -621,7 +621,7 @@ class ThreeDUtils:
         Parameters
         ----------
         depth_map : array_like
-            depth map (shape NxMx1) already undistorted
+            depth map (shape HxW) already undistorted
         R : array_like
             camera rotation in world coordinate system. If sent as a 3x1 or 1x3 vector,
             function uses Rodrigues to obtain 3x3 matrix
@@ -633,7 +633,8 @@ class ThreeDUtils:
         Returns
         -------
         point_cloud
-            numpy array (shape Sx3) of points, where S = N * M
+            numpy array (shape Sx3) of points, where S <= H * W from depth map.
+            It can be fewer points if there is no depth information at certain pixels.
 
         Notes
         -----

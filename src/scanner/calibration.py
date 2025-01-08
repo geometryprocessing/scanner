@@ -93,7 +93,7 @@ class CheckerBoard:
             numpy array of detected checker corner IDs
         """
 
-        if type(image) is str:
+        if isinstance(image, str):
             image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -216,7 +216,7 @@ class Charuco:
             - numpy array of detected ChArUco marker IDs
         """
 
-        if type(image) is str:
+        if isinstance(image, str):
             image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

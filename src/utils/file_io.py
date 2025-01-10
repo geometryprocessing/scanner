@@ -1,4 +1,5 @@
 import json
+from natsort import natsorted
 import numpy as np
 import os
 
@@ -24,7 +25,14 @@ def get_all_paths(paths: str | list[str]) -> list[str]:
     Returns
     -------
     list of str
-        A list of full paths to all files found in the input path(s).
+        A list of naturally sorted full paths to all files found in the input path(s).
+
+    Notes
+    -----
+    Naturally sorted means that the file
+    'hello_world_01.txt' will come before 'hello_world_10.txt', because 01 < 10.
+    For more information, read
+    https://github.com/SethMMorton/natsort/wiki/How-Does-Natsort-Work%3F-(1-%E2%80%90-Basics)
     """
     if isinstance(paths, str):
         paths = [paths]  # Convert a single path to a list for uniform processing
@@ -41,7 +49,7 @@ def get_all_paths(paths: str | list[str]) -> list[str]:
         else:
             print(f"The path '{path}' is neither a valid file nor a directory.")
 
-    return all_files
+    return natsorted(all_files)
 
 class NumpyEncoder(json.JSONEncoder):
     """

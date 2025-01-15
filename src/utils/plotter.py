@@ -101,9 +101,9 @@ class Plotter:
         plt.ylabel('y (pixels)')
         plt.ylim([height, 0])
         plt.grid(visible=True)
-        plt.show()
         if filename:
             plt.savefig(filename, transparent=True, bbox_inches='tight')
+        plt.show()
 
     @staticmethod
     def plot_markers(markers: np.ndarray,
@@ -153,9 +153,9 @@ class Plotter:
         plt.ylabel('y (pixels)')
         plt.ylim([height, 0])
         plt.grid(visible=True)
-        plt.show()
         if filename:
             plt.savefig(filename, transparent=True, bbox_inches='tight')
+        plt.show()
     
     @staticmethod
     def plot_errors():
@@ -239,11 +239,9 @@ class Plotter:
             plt.xlim([0, cam_width])
             plt.ylim([cam_height, 0])
             plt.axis('off')
-
-            plt.show()
-
             if filename:
                 plt.savefig(f"{filename}_column.png", transparent=True, bbox_inches='tight')
+            plt.show()
 
         # Plot index_y if provided
         if index_y is not None:
@@ -253,11 +251,9 @@ class Plotter:
             plt.xlim([0, cam_width])
             plt.ylim([cam_height, 0])  # Reverse y-axis
             plt.axis('off')
-
-            plt.show()
-
             if filename:
                 plt.savefig(f"{filename}_row.png", transparent=True, bbox_inches='tight')
+            plt.show()
     
     @staticmethod
     def plot_normal_map(normals: np.ndarray,
@@ -294,10 +290,9 @@ class Plotter:
         plt.title("Normals")
         plt.imshow(image)
         plt.axis('off')
-        plt.show()
-
         if filename:
             plt.savefig(filename, transparent=True, bbox_inches='tight')
+        plt.show()
 
     @staticmethod
     def plot_depth_map(depth_map: np.ndarray,
@@ -344,7 +339,6 @@ class Plotter:
         plt.title("Depth Map")
         plt.imshow(image)
         plt.axis('off')
-        plt.show()
-
         if filename:
             plt.savefig(filename, transparent=True, bbox_inches='tight')
+        plt.show()

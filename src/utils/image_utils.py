@@ -371,12 +371,8 @@ class ImageUtils:
 
             # Normalize pixel values if requested
             if normalize:
-                try:
-                    # first try with integer, np.iinfo for integer only
-                    m = np.iinfo(img_array.dtype).max
-                except:
-                    # then move to float, np.finfo for float only
-                    m = np.finfo(img_array.dtype).max
+                data_type = img_array.dtype
+                m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
                 img_array /= m
 
             return img_array

@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 
-from utils.image_utils import ImageUtils
+from src.utils.image_utils import ImageUtils
 
 def normalize(vector: np.ndarray) -> np.ndarray:
     """
@@ -259,7 +259,9 @@ class ThreeDUtils:
         K_2: np.ndarray,
         dist_coeffs_2: np.ndarray,
         R_2: np.ndarray,
-        T_2: np.ndarray
+        T_2: np.ndarray,
+        offset_1: float=0.5,
+        offset_2: float=0.5
         ) -> np.ndarray:
         """
         Parameters
@@ -297,8 +299,8 @@ class ThreeDUtils:
         coordinates of the same 3D object.
         """
         
-        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
-        origin2, rays2 = ThreeDUtils.camera_to_ray_world(pixels_2, R_2, T_2, K_2, dist_coeffs_2)
+        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1 + offset_1, R_1, T_1, K_1, dist_coeffs_1)
+        origin2, rays2 = ThreeDUtils.camera_to_ray_world(pixels_2 + offset_2, R_2, T_2, K_2, dist_coeffs_2)
         return ThreeDUtils.intersect_line_with_line(origin1, rays1, origin2, rays2)
     
     @staticmethod
@@ -314,7 +316,9 @@ class ThreeDUtils:
         dist_coeffs_2: np.ndarray,
         R_2: np.ndarray,
         T_2: np.ndarray,
-        index: str='x'
+        index: str='x',
+        offset_1: float=0.5,
+        offset_2: float=0.5
         ) -> np.ndarray:
         """
         Parameters
@@ -362,7 +366,7 @@ class ThreeDUtils:
         i.e. the line will have y going from 0 to height, while x stays constant.
         Otherwise, the line will have x going from 0 to width with y constant.
         """
-        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1, R_1, T_1, K_1, dist_coeffs_1)
+        origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1 + offset_1, R_1, T_1, K_1, dist_coeffs_1)
 
         height, width = shape_2
         zeros = np.zeros_like(pixels_2)
@@ -374,13 +378,13 @@ class ThreeDUtils:
                         np.stack([width * ones, pixels_2     ], axis=-1)
 
         _, rays_index_0 = ThreeDUtils.camera_to_ray_world(
-            lines_index_0.reshape((-1,2)),
+            lines_index_0.reshape((-1,2)) + offset_2,
             R_2,
             T_2,
             K_2,
             dist_coeffs_2)
         _, rays_index_1 = ThreeDUtils.camera_to_ray_world(
-            lines_index_1.reshape((-1,2)),
+            lines_index_1.reshape((-1,2)) + offset_2,
             R_2,
             T_2,
             K_2,
@@ -409,7 +413,7 @@ class ThreeDUtils:
         """
         assert len(lines) > 1, "Need at least 2 lines to triangulate"
         As = [np.outer(line[0], line[0]) - np.eye(3) for line in lines]
-        Bs = [np.matmul(A, normalize(line[1]).T).ravel() for A, line in zip(As, lines)]
+        Bs = [np.matmul(A, normalize(np.broadcast_to(line[1], shape=(3,1))).T).ravel() for A, line in zip(As, lines)]
 
         A = np.sum(np.stack(As, axis=2), axis=2)
         B = np.sum(np.stack(Bs, axis=1), axis=1)

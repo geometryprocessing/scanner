@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
 
-from utils.three_d_utils import ThreeDUtils
-from utils.image_utils import ImageUtils
+from src.utils.three_d_utils import ThreeDUtils
+from src.utils.image_utils import ImageUtils
 
 CHARUCO_DICTIONARY_ENUM = {
     "4X4_50"   : cv2.aruco.DICT_4X4_50,

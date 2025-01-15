@@ -2,11 +2,26 @@ import cv2
 import numpy as np
 from scipy import interpolate
 
-from utils.three_d_utils import ThreeDUtils
-from utils.file_io import save_json, load_json, get_all_paths
-from utils.image_utils import ImageUtils
-from scanner.camera import Camera
-from scanner.calibration import Calibration, CheckerBoard, Charuco
+from src.utils.three_d_utils import ThreeDUtils
+from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.image_utils import ImageUtils
+from src.scanner.camera import Camera
+from src.scanner.calibration import Calibration, CheckerBoard, Charuco
+
+def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
+        """
+        Create a lookup table (dictionary) of 2D pixel coordinates, RGB values for many patterns, and depth.
+        """
+        lookup_tables = [np.load(lut) for lut in lookup_tables]
+        result = [lut[:, :, :, :-1] for lut in lookup_tables]
+        # append the depth from the last lookup table
+        result.append(lookup_tables[-1][:, :, :, -1])
+
+        print("Concatenating...")
+        # these are all 4D arrays, so it makes sense we are concatenating on axis=3
+        # (hard to visualize, since we only see three dimensions)
+        result = np.concatenate(lookup_tables, axis=3)
+        np.save(filename, result)
 
 class LookUpCalibration:
     def __init__(self):
@@ -18,7 +33,7 @@ class LookUpCalibration:
     
         # calibration utils
         self.plane_pattern = None
-
+        self.num_frames = 0
         self.lookup_table = None
 
     # setters
@@ -48,7 +63,8 @@ class LookUpCalibration:
             These images will be normalized with the white images and then used to save the
             LookUp table.
         """
-        self.colort_images = get_all_paths(image_paths)
+        self.color_images = get_all_paths(image_paths)
+        self.num_frames = len(self.color_images)
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
         """
         Parameters
@@ -89,7 +105,7 @@ class LookUpCalibration:
         
         # although plane reconstruction requires 3 points,
         # OpenCV extrinsic calibration requires 6 points
-        if len(img_points) < max(6, self.min_points):
+        if len(img_points) < 6:
             return None, None
         
         # find relative position of camera and board
@@ -147,33 +163,16 @@ class LookUpCalibration:
         pass
 
     def calibrate(self):
+        # allocate memory for massive, single float precision numpy array
+        height, width = self.camera.get_image_shape()
+        lookup_table = np.full(shape=(height, width, self.num_frames, 4), fill_value=np.nan, dtype=np.float32)
 
-        for (white_image, color_image) in zip(self.white_images, self.color_images):
-            normalized = ImageUtils.normalize_color(white_image, color_image)
+        for idx, (color_image, white_image) in enumerate(zip(self.color_images, self.white_images)):
+            normalized = ImageUtils.normalize_color(color_image, white_image)
             depth = self.find_depth(white_image)
-            result = np.concatenate([normalized, depth[:, :, np.newaxis]], axis=2)
-            # save result in tmp/ folder
+            lookup_table[:,:,idx,:] = np.concatenate([normalized, depth[:, :, np.newaxis]], axis=2)
 
-        # load all results from tmp/ folder
-        lookup_table = self.stack_results()
-        self.save_lookup_table(lookup_table, self.lookup_table)
-
-        # delete tmp/ folder
-
-    def concatenate_lookup_tables(self):
-        """
-        Create a lookup table (dictionary) of 2D pixel coordinates, RGB values for many patterns, and depth.
-        """
-        lookup_tables = [np.load(f'{self.lookup_tables_directory}/{pattern_name}.npy') for pattern_name in self.concatenate]
-        lookup_tables = [lookup_table[:, :, :, :-1] for lookup_table in lookup_tables]
-        # append the depth from the last lookup table
-        lookup_tables.append(lookup_tables[-1][:, :, :, -1])
-
-        print("Concatenating...")
-        # these are all 4D arrays, so it makes sense we are concatenating on axis=3
-        # (hard to visualize, since we only see three dimensions)
-        concatenated_lookup_table = np.concatenate(lookup_tables, axis=3)
-        self.save_lookup_table(concatenated_lookup_table, 'concatenated')
+        return lookup_table
 
     def save_lookup_table(self,
                           lookup_table: np.ndarray,
@@ -192,7 +191,8 @@ class LookUpCalibration:
         self.set_camera(config['camera_calibration'])
         self.set_white_images(config['white_images'])
         self.set_color_images(config['color_images'])
-
+        lookup_table = self.calibrate()
+        self.save_lookup_table(lookup_table, config['lookup_table'])
 
     
 class LookUpReconstruction:
@@ -243,7 +243,7 @@ class LookUpReconstruction:
             These images will be normalized with the white images and then used for finding
             the depth stored in the tables saved from LookUpCalibration.
         """
-        self.colort_images = get_all_paths(image_paths)
+        self.color_images = get_all_paths(image_paths)
     def set_lookup_table(self, lookup_table_path: str):
         """
         Path to .npy file where LookUp table is stored.
@@ -273,14 +273,6 @@ class LookUpReconstruction:
     # getters
     def get_mask(self):
         return self.mask
-    def get_point_cloud(self):
-        return self.point_cloud
-    def get_depth_map(self):
-        return self.depth_map
-    def get_colors(self):
-        return self.colors
-    def get_normals(self):
-        return self.normals
 
     def generate_mask(self, image, ):
         """
@@ -294,6 +286,11 @@ class LookUpReconstruction:
 
     # reconstruction functions
     def extract_depth(self, pixel, lookup):
+        """
+        TODO: replace slow np.argmin with some form of gradient descent
+        Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
+        second order derivatives of the splines with scipy.interpolate.BSpline.derivative
+        """
         fits = []
         color = lookup[:, :-1]
         depth = lookup[:, -1]
@@ -307,7 +304,7 @@ class LookUpReconstruction:
 
         d_samples = np.linspace(depth[0], depth[-1], self.samples)
         fitted_color = np.array([fits[i](d_samples) for i in range(len(fits))])
-        loss = np.linalg.norm(fitted_color - pixel, axis=0)
+        loss = np.linalg.norm(fitted_color - pixel, axis=0) # I think it's axis=1
         argmin = np.argmin(loss)
         return d_samples[argmin]
     
@@ -373,17 +370,6 @@ class LookUpReconstruction:
         """
         ThreeDUtils.save_ply(filename, point_cloud, normals, colors)
 
-    def extract_normals(self):
-        assert self.depth_map is not None or self.point_cloud is not None, "No reconstruction yet"
-        if self.depth_map is not None:
-            self.normals = ThreeDUtils.normals_from_depth_map(self.depth_map)
-        elif self.point_cloud is not None:
-            self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
-
-    def save_point_cloud_as_ply(self, filename: str):
-        assert self.point_cloud is not None, "No reconstruction yet"
-        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors.reshape((-1,3)))
-
     def run(self, config: str | dict):
         if type(config) is str:
             config = load_json(config)
@@ -391,4 +377,7 @@ class LookUpReconstruction:
         self.set_camera(config['camera_calibration'])
         self.set_white_images(config['white_images'])
         self.set_color_images(config['color_images'])
+        self.set_lookup_table(config['lookup_table'])
+        self.set_knots(config['knots'])
+        self.set_samples(config['samples'])
         self.reconstruct()

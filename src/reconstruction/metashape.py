@@ -4,8 +4,8 @@ import numpy as np
 import os
 import xml.etree.ElementTree as ET
 
-from scanner.calibration import Calibration, Charuco, CheckerBoard
-from utils.file_io import ensure_exists, load_json, save_json, get_all_paths
+from src.utils.file_io import ensure_exists, load_json, save_json, get_all_paths
+from src.scanner.calibration import Calibration, Charuco, CheckerBoard
 
 class MetashapeReconstruction:
     def __init__(self):

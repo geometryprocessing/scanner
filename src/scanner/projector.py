@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-from utils.three_d_utils import ThreeDUtils
-from utils.file_io import save_json, load_json, get_all_paths
-from utils.plotter import Plotter
-from scanner.calibration import Charuco, CheckerBoard, Calibration
-from scanner.camera import Camera
+from src.utils.three_d_utils import ThreeDUtils
+from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.plotter import Plotter
+from src.scanner.calibration import Charuco, CheckerBoard, Calibration
+from src.scanner.camera import Camera
 
 
 # camera detects all the points and has 2D image points and 3D object points

@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-from utils.file_io import save_json, load_json, get_all_paths
-from utils.plotter import Plotter
-from scanner.calibration import Calibration, Charuco, CheckerBoard
+from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.plotter import Plotter
+from src.scanner.calibration import Calibration, Charuco, CheckerBoard
 
 class CameraModel(Enum):
         """

@@ -3,12 +3,12 @@ import numpy as np
 import structuredlight as sl
 import os
 
-from utils.three_d_utils import ThreeDUtils
-from utils.file_io import save_json, load_json, get_all_paths
-from utils.image_utils import ImageUtils
-from utils.plotter import Plotter
-from scanner.camera import Camera
-from scanner.projector import Projector
+from src.utils.three_d_utils import ThreeDUtils
+from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.image_utils import ImageUtils
+from src.utils.plotter import Plotter
+from src.scanner.camera import Camera
+from src.scanner.projector import Projector
 
 class StructuredLight:
     def __init__(self):
@@ -217,11 +217,9 @@ class StructuredLight:
 
         white = ImageUtils.load_ldr(self.white_image, make_gray=True)
         black = ImageUtils.load_ldr(self.black_image, make_gray=True)
-        try:   
-            max = np.iinfo(white.dtype).max
-        except:
-            max = np.finfo(white.dtype).max
-        self.mask = (abs(white-black) > max*self.minimum_contrast)
+        data_type = white.dtype
+        m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
+        self.mask = (abs(white-black) > m*self.minimum_contrast)
 
     def decode(self):
         """
@@ -356,13 +354,8 @@ class StructuredLight:
 
         img = ImageUtils.load_ldr(self.white_image)
         # clip RGB range to [0., 1.[
-        try:
-            # first try with integer, np.iinfo for integer only
-            m = np.iinfo(img.dtype).max
-        except:
-            # then move to float, np.finfo for float only
-            m = np.finfo(img.dtype).max
-        img = img.astype(np.float32)
+        data_type = img.dtype
+        m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
         img /= m
 
         self.colors = img[self.mask]

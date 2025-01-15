@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
-from utils.image_utils import ImageUtils
-from utils.three_d_utils import ThreeDUtils
+from src.utils.image_utils import ImageUtils
+from src.utils.three_d_utils import ThreeDUtils
 
 def line(ax, p1, p2, *args, **kwargs):
     ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)

@@ -268,7 +268,7 @@ class Calibration:
             }
         """
 
-        rms, cameraMatrix, distCoeffs, = \
+        rms, cameraMatrix, distCoeffs = \
             cv2.initCameraMatrix2D(object_points, image_points, image_shape)
         
         if not rms:
@@ -285,8 +285,9 @@ class Calibration:
     def calibrate(object_points: list,
                   image_points: list,
                   image_shape: tuple,
-                  K=None,
-                  dist_coeffs=None
+                  K: np.ndarray=None,
+                  dist_coeffs: np.ndarray=None,
+                  flags: int=0
                   ) -> dict:
         """
         TODO: explain function
@@ -305,6 +306,10 @@ class Calibration:
         dist_coeffs : array_like, optional
             Distortion coefficients. Default is None, i.e. 
             call to OpenCV will not use any initial guess.
+        flags : int
+            flags to pass to OpenCV function. For more information, read here
+            https://docs.opencv.org/4.5.5/d9/d0c/group__calib3d.html
+            Default is set to 0
 
         Returns
         -------
@@ -319,7 +324,7 @@ class Calibration:
             }
         """
         rms, cameraMatrix, distCoeffs, rvecs, tvecs = \
-            cv2.calibrateCamera(object_points, image_points, image_shape, K, dist_coeffs)
+            cv2.calibrateCamera(object_points, image_points, image_shape, K, dist_coeffs, flags=flags)
         
         if not rms:
             raise RuntimeError("Calibration failed")
@@ -336,8 +341,9 @@ class Calibration:
     def calibrate_extended(object_points: list,
                            image_points: list,
                            image_shape: tuple,
-                           K=None,
-                           dist_coeffs=None
+                           K: np.ndarray=None,
+                           dist_coeffs: np.ndarray=None,
+                           flags: int=0
                            ) -> dict:
         """
         TODO: explain function
@@ -356,6 +362,10 @@ class Calibration:
         dist_coeffs : array_like, optional
             Distortion coefficients. Default is None, i.e. 
             call to OpenCV will not use any initial guess.
+        flags : int
+            flags to pass to OpenCV function. For more information, read here
+            https://docs.opencv.org/4.5.5/d9/d0c/group__calib3d.html
+            Default is set to 0
 
         Returns
         -------
@@ -371,7 +381,7 @@ class Calibration:
             }
         """
         rms, cameraMatrix, distCoeffs, rvecs, tvecs, stdDeviationsIntrinsics, stdDeviationsExtrinsics, perViewErrors = \
-            cv2.calibrateCameraExtended(object_points, image_points, image_shape, K, dist_coeffs)
+            cv2.calibrateCameraExtended(object_points, image_points, image_shape, K, dist_coeffs, flags=flags)
 
         if not rms:
             raise RuntimeError("Extended calibration failed")
@@ -473,7 +483,8 @@ class Calibration:
     def calibrate_extrinsic(object_points: list,
                            image_points: list,
                            K: np.ndarray,
-                           dist_coeffs: np.ndarray
+                           dist_coeffs: np.ndarray,
+                           flags: int=cv2.SOLVEPNP_ITERATIVE
                            ) -> dict:
         """
         TODO: function explanation
@@ -492,6 +503,10 @@ class Calibration:
         dist_coeffs : array_like, optional
             Distortion coefficients. Default is None, i.e. 
             call to OpenCV will not use any initial guess.
+        flags : int
+            flags to pass to OpenCV function. For more information, read here
+            https://docs.opencv.org/4.5.5/d9/d0c/group__calib3d.html
+            Default is set to cv2.SOLVEPNP_ITERATIVE
 
         Returns
         -------
@@ -505,7 +520,7 @@ class Calibration:
 
         """
         rms, rvec, tvec = \
-            cv2.solvePnP(object_points, image_points, K, dist_coeffs)
+            cv2.solvePnP(object_points, image_points, K, dist_coeffs, flags=flags)
 
         if not rms:
             raise RuntimeError("Extrinsic calibration failed")
@@ -526,7 +541,8 @@ class Calibration:
                          K_2: np.ndarray,
                          dist_coeffs_2: np.ndarray,
                          R_1: np.ndarray=np.identity(3),
-                         T_1: np.ndarray=np.zeros((3,1))
+                         T_1: np.ndarray=np.zeros((3,1)),
+                         flags: int=cv2.CALIB_FIX_INTRINSIC
                          ) -> dict:
         """
         TODO: function explanation
@@ -561,6 +577,10 @@ class Calibration:
         T_1 : array_like, optional
             Translation vector from camera 1.
             If not given, assumes origin.
+        flags : int
+            flags to pass to OpenCV function. For more information, read here
+            https://docs.opencv.org/4.5.5/d9/d0c/group__calib3d.html
+            Default is set to cv2.CALIB_FIX_INTRINSIC
 
         Returns
         -------
@@ -576,7 +596,7 @@ class Calibration:
         rms, _, _, _, _, R, T, _, _ = \
             cv2.stereoCalibrate(object_points, image_points_1, image_points_2,
                                 K_1, dist_coeffs_1, K_2, dist_coeffs_2, image_size,
-                                flags=cv2.CALIB_FIX_INTRINSIC)
+                                flags=flags)
     
         if not rms:
             raise RuntimeError("Stereo calibration failed")
@@ -596,4 +616,3 @@ class Calibration:
             'R': R_combined,
             'T': T_combined
         }
-        

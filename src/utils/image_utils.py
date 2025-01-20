@@ -319,7 +319,7 @@ class ImageUtils:
     def load_ldr(filename: str, make_gray: bool = False, normalize: bool = False) -> np.ndarray:
         """
         Load LDR (low dynamic range) image using Pillow. Flags can be set to make it grayscale
-        and/or normalize the value range from [0, 2**16[ to [0, 1[.
+        and/or normalize the value range to [0, 1.0) as np.float64.
 
         Parameters
         ----------
@@ -362,18 +362,26 @@ class ImageUtils:
             # except Exception as e:
             #     print(f"Warning: Could not handle EXIF orientation: {e}")
 
-            # Convert image to grayscale if requested
-            if make_gray:
-                img = img.convert("L")  # 'L' mode is for grayscale
-
-            # Convert image to NumPy array
             img_array = np.array(img)
+            # save the data type for future operations
+            dtype = img_array.dtype
+
+            # collect the number of channels
+            try:
+                channels = img_array.shape[2]
+            except:
+                channels = 1
+
+            # Convert image to grayscale if requested using the first three channels
+            if make_gray and channels >= 3:
+                # img = img.convert("L")  # 'L' mode is for grayscale
+                gray = .2989 * img_array[:,:,0] + .5870 * img_array[:,:,1] + .1140 * img_array[:,:,2]
+                img_array = (gray).astype(dtype)
 
             # Normalize pixel values if requested
             if normalize:
-                data_type = img_array.dtype
-                m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
-                img_array /= m
+                m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
+                img_array = (img_array / m).astype(np.float64)
 
             return img_array
 

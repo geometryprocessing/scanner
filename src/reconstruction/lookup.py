@@ -371,7 +371,7 @@ class LookUpReconstruction:
         ThreeDUtils.save_ply(filename, point_cloud, normals, colors)
 
     def run(self, config: str | dict):
-        if type(config) is str:
+        if isinstance(config, str):
             config = load_json(config)
 
         self.set_camera(config['camera_calibration'])

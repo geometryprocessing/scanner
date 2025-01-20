@@ -250,7 +250,7 @@ class MetashapeReconstruction:
 
 
     def run(self, config: str | dict):
-        if type(config) is str:
+        if isinstance(config, str):
             config = load_json(config)
 
         # paths

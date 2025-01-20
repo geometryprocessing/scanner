@@ -156,7 +156,7 @@ class Camera:
             Calibration pattern used for all camera calibration procedures.
             Function only aceppts ChArUco and Checkerboard/Chessboard.
         """
-        if type(pattern) is dict:
+        if isinstance(pattern, dict):
             try: 
                 if pattern["type"] == "charuco":
                     pattern = Charuco(board_config=pattern)
@@ -619,7 +619,7 @@ class Camera:
         self.set_translation(calibration['T'])
 
     def run(self, config: str | dict):
-        if type(config) is str:
+        if isinstance(config, str):
             config = load_json(config)
 
         self.set_intrinsic_image_paths(config['intrinsic_folder_path'])

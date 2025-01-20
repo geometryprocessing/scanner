@@ -164,7 +164,7 @@ class StructuredLight:
     def set_projector(self, projector: str | dict |Projector):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
-        if type(projector) is (str or dict):
+        if isinstance(projector, str) or isinstance(projector, dict):
             self.projector.load_calibration(projector)
         else:
             self.projector = projector
@@ -356,9 +356,8 @@ class StructuredLight:
         # clip RGB range to [0., 1.[
         data_type = img.dtype
         m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
-        img /= m
 
-        self.colors = img[self.mask]
+        self.colors = img[self.mask] / m
 
     def extract_depth_map(self):
         assert self.point_cloud is not None, "No reconstruction yet"
@@ -395,7 +394,7 @@ class StructuredLight:
                                filename=filename)
 
     def run(self, config: str | dict):
-        if type(config) is str:
+        if isinstance(config, str):
             config = load_json(config)
 
         self.set_black_pattern_image(config['black_image'])

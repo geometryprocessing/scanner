@@ -86,9 +86,6 @@ class ThreeDUtils:
                                   plane_q: np.ndarray, 
                                   plane_n: np.ndarray) -> np.ndarray:
         """
-        TODO: reconsider the normalization step here, since it costs
-        something and does not change the result
-
         Finds the point of intersection of a line with a plane.
         This function can also find:
         - the intersection of N lines with N planes, resulting in N points;
@@ -119,33 +116,36 @@ class ThreeDUtils:
         with a single plane, then you should take the average of the N
         points returned from this function to get back a singular point.
         """
-        line_q = np.array(line_q).reshape((-1,3))
-        line_v = normalize(np.array(line_v).reshape((-1,3)))
-        plane_q = np.array(plane_q).reshape((-1,3))
-        plane_n = normalize(np.array(plane_n).reshape((-1,3)))
+        # line_q = np.array(line_q).reshape((-1,3))
+        # line_v = normalize(np.array(line_v).reshape((-1,3)))
+        # plane_q = np.array(plane_q).reshape((-1,3))
+        # plane_n = normalize(np.array(plane_n).reshape((-1,3)))
 
         # if only one line point is passed but multiple line directions,
         # this function assumes that they all pass through that same point
         if line_q.shape[0] != line_v.shape[0]:
             print('line_q and line_v different shapes... tiling')
-            line_q = np.tile(line_q, (line_v.shape[0],1))
+            line_q = np.broadcast_to(line_q, (line_v.shape[0],3))
 
         # if only one plane point is passed but multiple normal vectors,
         # this function assumes that the planes all pass through that same point
         if plane_q.shape[0] != plane_n.shape[0]:
             print('plane_q and plane_n different shapes... tiling')
-            plane_q = np.tile(plane_q, (plane_n.shape[0],1))
+            plane_q = np.broadcast_to(plane_q, (plane_n.shape[0],3))
 
         # if only one plane is passed, repeat it to have the same shape of
         # the input lines
         if plane_q.shape[0] != line_q.shape[0]:
             print('line_q and plane_q different shapes... tiling plane_q and plane_n')
-            plane_q = np.tile(plane_q, (line_q.shape[0],1))
-            plane_n = np.tile(plane_n, (line_q.shape[0],1))
+            plane_q = np.broadcast_to(plane_q, (line_q.shape[0],3))
+            plane_n = np.broadcast_to(plane_n, (line_q.shape[0],3))
+
+        # allocate memory for result
+        points = np.empty_like(plane_n)
 
         # Intersect a line(s) with a plane(s) (in 3D).
-        L = np.einsum('ij,ij->i', plane_n, (plane_q - line_q)) / np.einsum('ij,ij->i', plane_n, line_v)
-        points = line_q + L.reshape((-1,1)) * line_v
+        L = np.divide(np.einsum('ij,ij->i', plane_n, (plane_q - line_q)), np.einsum('ij,ij->i', plane_n, line_v))
+        np.add(line_q, np.multiply(L.reshape((-1,1)), line_v), out=points)
         return points
 
     @staticmethod
@@ -154,10 +154,6 @@ class ThreeDUtils:
                                  q2: np.ndarray,
                                  v2: np.ndarray) -> np.ndarray:
         """
-        TODO: reconsider the normalization step here, since it costs
-        something and does not change the result (since the function
-        later calculates the norm and includes it into the equation)
-
         Finds the point of intersection of a line with another line.
         This function can also find:
         - the intersection of N lines with N lines, resulting in N points;
@@ -188,32 +184,32 @@ class ThreeDUtils:
         do not use this function. Use instead intersect_lines(), which
         will return a single point for N lines.
         """
-        q1 = np.array(q1).reshape((-1,3))
-        v1 = normalize(np.array(v1).reshape((-1,3)))
-        q2 = np.array(q2).reshape((-1,3))
-        v2 = normalize(np.array(v2).reshape((-1,3)))
+        # q1 = np.array(q1).reshape((-1,3))
+        # v1 = normalize(np.array(v1).reshape((-1,3)))
+        # q2 = np.array(q2).reshape((-1,3))
+        # v2 = normalize(np.array(v2).reshape((-1,3)))
 
         # if only one line point is passed but multiple line directions,
         # this function assumes that they all pass through that same point
         if q1.shape[0] != v1.shape[0]:
             print('q1 and v1 different shapes... tiling')
-            q1 = np.tile(q1, (v1.shape[0],1))
+            q1 = np.broadcast_to(q1, (v1.shape[0],3))
 
         # if only one plane point is passed but multiple normal vectors,
         # this function assumes that the planes all pass through that same point
         if q2.shape[0] != v2.shape[0]:
             print('q2 and v2 different shapes... tiling')
-            q2 = np.tile(q2, (v2.shape[0],1))
+            q2 = np.broadcast_to(q2, (v2.shape[0],3))
 
         # if only one second line is passed, repeat it to have the same shape of
         # the input lines
         if q2.shape[0] != q1.shape[0]:
             print('q1 and q2 different shapes... tiling q2 and v2')
-            q2 = np.tile(q2,(q1.shape[0], 1))
-            v2 = np.tile(v2,(q1.shape[0], 1))
+            q2 = np.broadcast_to(q2,(q1.shape[0], 3))
+            v2 = np.broadcast_to(v2,(q1.shape[0], 3))
 
         L = ThreeDUtils.find_lambda(q1,v1,q2,v2)
-        points = q1 + L.reshape((-1,1)) * v1
+        points = np.add(q1, np.multiply(L.reshape((-1,1)), v1))
         return points
 
     def find_lambda(q1: np.ndarray,
@@ -221,6 +217,7 @@ class ThreeDUtils:
                     q2: np.ndarray,
                     v2: np.ndarray) -> np.ndarray:
         """
+        TODO: memory inefficient
         Finds the length/depth (lambda) along the N lines
 
         Parameters
@@ -244,8 +241,12 @@ class ThreeDUtils:
         v1v1 = np.linalg.norm(v1, axis=1).reshape((-1,1))**2
         v2v2 = np.linalg.norm(v2, axis=1).reshape((-1,1))**2
 
-        L = (  np.einsum('ij,ij->i', v1, q2 - q1).reshape((-1,1)) * v2v2 \
-             + np.einsum('ij,ij->i', v2, q1 - q2).reshape((-1,1)) * v1v2) / (v1v1 * v2v2 - v1v2**2)
+        # allocate memory for result
+        L = np.empty_like(v1v2)
+
+        np.add(np.einsum('ij,ij->i', v1, q2 - q1).reshape((-1,1)) * v2v2,
+               np.einsum('ij,ij->i', v2, q1 - q2).reshape((-1,1)) * v1v2, out=L)
+        np.divide(L, v1v1 * v2v2 - v1v2**2, out=L)
         return L
     
     @staticmethod
@@ -369,13 +370,11 @@ class ThreeDUtils:
         origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1 + offset_1, R_1, T_1, K_1, dist_coeffs_1)
 
         height, width = shape_2
-        zeros = np.zeros_like(pixels_2)
-        ones = np.ones_like(pixels_2)
 
-        lines_index_0 = np.stack([pixels_2, zeros   ], axis=-1) if index=='x' else \
-                        np.stack([zeros   , pixels_2], axis=-1)
-        lines_index_1 = np.stack([pixels_2    , height * ones], axis=-1) if index=='x' else \
-                        np.stack([width * ones, pixels_2     ], axis=-1)
+        lines_index_0 = np.stack([pixels_2, np.zeros_like(pixels_2)   ], axis=-1) if index=='x' else \
+                        np.stack([np.zeros_like(pixels_2)   , pixels_2], axis=-1)
+        lines_index_1 = np.stack([pixels_2    , height * np.ones_like(pixels_2)], axis=-1) if index=='x' else \
+                        np.stack([width * np.ones_like(pixels_2), pixels_2     ], axis=-1)
 
         _, rays_index_0 = ThreeDUtils.camera_to_ray_world(
             lines_index_0.reshape((-1,2)) + offset_2,
@@ -390,9 +389,9 @@ class ThreeDUtils:
             K_2,
             dist_coeffs_2)
         
-        normals = np.cross(rays_index_1, rays_index_0)
+        normals = normalize(np.cross(rays_index_1, rays_index_0))
 
-        return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2), normals)
+        return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2).reshape((-1,3)), normals)
     
     @staticmethod
     def intersect_lines( lines: np.ndarray[tuple | list | np.ndarray] ) -> np.ndarray:
@@ -514,6 +513,8 @@ class ThreeDUtils:
         """
         uv = ImageUtils.undistort_camera_points(points2D, K, dist_coeffs)
         rays = ImageUtils.homogeneous_coordinates(uv)
+        # normalize before returning?
+        # return normalize(rays)
         return rays
 
     @staticmethod
@@ -578,6 +579,7 @@ class ThreeDUtils:
     @staticmethod
     def normals_from_point_cloud(points: np.ndarray) -> np.ndarray:
         """
+        TODO: use open3d estimate normal function, seems better than this patchwork
         
         Parameters
         ----------
@@ -596,7 +598,7 @@ class ThreeDUtils:
     
     @staticmethod
     def normals_from_depth_map(depth_map: np.ndarray) -> np.ndarray:
-        """       
+        """
 
         Parameters
         ----------
@@ -637,7 +639,7 @@ class ThreeDUtils:
         Returns
         -------
         point_cloud
-            numpy array (shape Sx3) of points, where S <= H * W from depth map.
+            numpy array (shape Sx3) of points, where S = H * W from depth map.
             It can be fewer points if there is no depth information at certain pixels.
 
         Notes
@@ -649,31 +651,37 @@ class ThreeDUtils:
         if R.shape!=(3,3):
             R, _ = cv2.Rodrigues(R)
 
-        pixel_x, pixel_y = pixel[0], pixel[1]
-
-        depth = depth_map[pixel_y, pixel_x]
+        shape = depth_map.shape
+        mask = depth_map[depth_map > 0]
+        campixels_x, campixels_y = np.meshgrid(np.arange(shape[1]),
+                                               np.arange(shape[0]))
+        campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
         
-        result3D = np.matmul(np.linalg.inv(K), np.array([pixel_x, pixel_y, 1]))
+        result3D = np.matmul(ImageUtils.homogeneous_coordinates(campixels), np.linalg.inv(K).T) * depth_map
+        result3D = np.matmul(result3D, R.T) + T
 
-        result3D *= depth
-
-        result3D = np.matmul(R, result3D) + T
-
-        return result3D
+        return result3D[mask]
 
     @staticmethod
-    def depth_map_from_point_cloud(points: np.ndarray, mask: np.ndarray, origin: np.ndarray) -> np.ndarray:
+    def depth_map_from_point_cloud(
+        points: np.ndarray,
+        mask: np.ndarray,
+        origin: np.ndarray) -> np.ndarray:
         """
 
         Parameters
         ----------
-        point_cloud
+        points
             numpy array (shape Nx3) of points
+        mask
+            numpy array (shape HxW)
+        origin
+            numpy array (shape 1x3 or 3x1) of camera origin
             
         Returns
         -------
         depth_map : array_like
-            depth map (shape Nx1)
+            depth map (shape HxW, same from mask)
         """
         depth_map = np.zeros(shape=mask.shape)
         depth_map[mask] = np.linalg.norm(points - origin.reshape((1,3)), axis=1)
@@ -686,12 +694,19 @@ class ThreeDUtils:
         normals: np.ndarray=None,
         colors: np.ndarray=None):
         """
-        
+        Parameters
+        ----------
+        filename : str
+            path to ply file  
+        points : array_like
+            numpy array (Nx3) of points
+        normals : array_like, optional
+            numpy array (Nx3) of normals            
+        colors : array_like, optional
+            numpy array (Nx3) of colors
         """
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points.astype(np.float32))
-
-        #print(colors.shape, normals.shape, colors.dtype, normals.dtype)
         if normals is not None:
             pcd.normals = o3d.utility.Vector3dVector(normals.astype(np.float32))
         if colors is not None:
@@ -699,6 +714,21 @@ class ThreeDUtils:
         o3d.io.write_point_cloud(filename, pcd, compressed=False, print_progress=True)
 
     @staticmethod
-    def load_ply(filename: str) -> np.ndarray:
+    def load_ply(filename: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Parameters
+        ----------
+        filename : str
+            path to ply file  
+
+        Returns
+        -------
+        points : np.ndarray
+            numpy array (Nx3) of points
+        normals : np.ndarray
+            numpy array (Nx3) of normals            
+        colors : np.ndarray
+            numpy array (Nx3) of colors
+        """
         pc = o3d.io.read_point_cloud(filename, print_progress=True)
         return np.asarray(pc.points), np.asarray(pc.normals), np.asarray(pc.colors)

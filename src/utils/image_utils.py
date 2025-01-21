@@ -254,7 +254,7 @@ class ImageUtils:
     
     @staticmethod
     def load_arw(source):
-        if type(source) is str:
+        if isinstance(source, str):
             with open(source, 'rb') as f:
                 raw = rawpy.imread(f)
         else:
@@ -264,56 +264,6 @@ class ImageUtils:
         bayer -= 512
         bayer /= 16372-512
         return np.maximum(0, np.minimum(bayer, 1))
-    
-    @staticmethod
-    def load_ldr_opencv(filename: str, make_gray: bool=False, normalize: bool=False) -> np.ndarray:
-        """
-        Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
-        and/or normalize the value range from [0, 2**16[ to [0, 1[.
-
-        Parameters
-        ----------
-        filename : str
-            path to image file.  
-        make_gray : boolean, optional
-            Flag to convert image to grayscale (True) or keep all three color channels intact (False).
-            Default is False.
-        normalize : boolean, optional
-            Flag to normalize image range to single [0, 1[ (True) or keep as uint16 [0, 2**16[ (False).
-            Default is False.
-        """
-        img = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            print(filename, "does not exist!")
-            return img
-
-        if len(img.shape) == 3:
-            img = img[:, :, ::-1]  # BGR by default, so convert it to RGB
-
-        if make_gray:
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-        # if normalize:
-            ## why do we divide by 2**16?
-            # img = img / 2**16
-
-        # if chronos_raw:
-        #     if len(img.shape) == 2:
-        #         # if np.max(img) >= 2**15:
-        #         #     print(np.max(img))
-        #         img = img / 2**16
-        #         img = self.demosaic(img, roll=True)
-        #         if wb is not None:
-        #             img[:, :, 0] *= wb[0]
-        #             img[:, :, 2] *= wb[2]
-        #     # print(img.shape, img.dtype)
-        #     for i in range(3):
-        #         pass
-        #         # print(i, np.min(img[:, :, i]), np.max(img[:, :, i]))
-        #         # plt.figure(str(i))
-        #         # plt.hist(img[:, :, i].ravel(), bins=2**12)
-
-        return img
     
     @staticmethod
     def load_ldr(filename: str, make_gray: bool = False, normalize: bool = False) -> np.ndarray:
@@ -363,20 +313,15 @@ class ImageUtils:
             #     print(f"Warning: Could not handle EXIF orientation: {e}")
 
             img_array = np.array(img)
-            # save the data type for future operations
+            # save the data type and shape for future operations
             dtype = img_array.dtype
-
-            # collect the number of channels
-            try:
-                channels = img_array.shape[2]
-            except:
-                channels = 1
+            shape = img_array.shape
 
             # Convert image to grayscale if requested using the first three channels
-            if make_gray and channels >= 3:
-                # img = img.convert("L")  # 'L' mode is for grayscale
-                gray = .2989 * img_array[:,:,0] + .5870 * img_array[:,:,1] + .1140 * img_array[:,:,2]
-                img_array = (gray).astype(dtype)
+            if make_gray and len(shape) > 2 and shape[2] >= 3:
+                img_array = (.2989 * img_array[:,:,0] \
+                             + .5870 * img_array[:,:,1] \
+                                + .1140 * img_array[:,:,2]).astype(dtype)
 
             # Normalize pixel values if requested
             if normalize:

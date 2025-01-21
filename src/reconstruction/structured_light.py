@@ -192,7 +192,7 @@ class StructuredLight:
 
     # getters
     def get_minimum_contrast(self):
-        return self.minimun_contrast
+        return self.minimum_contrast
     def get_mask(self):
         return self.mask
     def get_point_cloud(self):

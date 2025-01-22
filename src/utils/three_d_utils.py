@@ -208,8 +208,11 @@ class ThreeDUtils:
             q2 = np.broadcast_to(q2,(q1.shape[0], 3))
             v2 = np.broadcast_to(v2,(q1.shape[0], 3))
 
+        # allocate memory for result
+        points = np.empty_like(q1)
+        
         L = ThreeDUtils.find_lambda(q1,v1,q2,v2)
-        points = np.add(q1, np.multiply(L.reshape((-1,1)), v1))
+        np.add(q1, np.multiply(L.reshape((-1,1)), v1, out=points), out=points)
         return points
 
     def find_lambda(q1: np.ndarray,
@@ -217,7 +220,6 @@ class ThreeDUtils:
                     q2: np.ndarray,
                     v2: np.ndarray) -> np.ndarray:
         """
-        TODO: memory inefficient
         Finds the length/depth (lambda) along the N lines
 
         Parameters
@@ -337,7 +339,7 @@ class ThreeDUtils:
         pixels_2 : array_like
             list of N pixel coordinates (shape Nx1) of projector/camera 2.
         shape_2 : tuple
-            resolution of projector/camera 2 given as (height, width)
+            resolution of projector/camera 2 given as (width, height)
         K_2 : array_like
             intrinsic matrix of projector/camera 2.
         dist_coeffs_2 : array_like
@@ -369,7 +371,7 @@ class ThreeDUtils:
         """
         origin1, rays1 = ThreeDUtils.camera_to_ray_world(pixels_1 + offset_1, R_1, T_1, K_1, dist_coeffs_1)
 
-        height, width = shape_2
+        width, height = shape_2
 
         lines_index_0 = np.stack([pixels_2, np.zeros_like(pixels_2)   ], axis=-1) if index=='x' else \
                         np.stack([np.zeros_like(pixels_2)   , pixels_2], axis=-1)
@@ -391,7 +393,7 @@ class ThreeDUtils:
         
         normals = normalize(np.cross(rays_index_1, rays_index_0))
 
-        return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2).reshape((-1,3)), normals)
+        return ThreeDUtils.intersect_line_with_plane(origin1, rays1, ThreeDUtils.get_origin(R_2, T_2), normals)
     
     @staticmethod
     def intersect_lines( lines: np.ndarray[tuple | list | np.ndarray] ) -> np.ndarray:
@@ -570,11 +572,11 @@ class ThreeDUtils:
         Returns
         ----------
         origin
-            origin vector (shape 3x1) of object
+            origin vector (shape 1x3) of object
         """
         R = np.array(R, dtype=np.float32).reshape((3,3))
         T = np.array(T, dtype=np.float32).reshape((3,1))
-        return -np.matmul(R.T, T)
+        return -np.matmul(R.T, T).reshape((1,3))
     
     @staticmethod
     def normals_from_point_cloud(points: np.ndarray) -> np.ndarray:

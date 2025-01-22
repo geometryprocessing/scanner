@@ -1,17 +1,29 @@
 import cv2
 import numpy as np
+import os
 
-from src.utils.file_io import save_json
+from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.image_utils import ImageUtils
 from src.scanner.calibration import Charuco, CheckerBoard, Calibration
 from src.reconstruction.structured_light import StructuredLight
 
 class LocalHomographyCalibration:
     def __init__(self):
-        self.structured_light = StructuredLight()
         self.plane_pattern    = None
 
-        self.window_size = 30
+        self.structured_light         = StructuredLight()
+        self.structured_light.set_pattern('gray')
+
+        self.calibration_directory    = None
+        self.num_directories          = 0
+        # this is determined from necessary images of gray patterns for the projector resolution
+        self.num_vertical_images      = 0 
+        self.num_horizontal_images    = 0 
         
+        self.window_size = 30
+
+        self.index_x                = []
+        self.index_y                = []
         self.object_points          = []
         self.camera_image_points    = []
         self.projector_image_points = []
@@ -36,7 +48,7 @@ class LocalHomographyCalibration:
             of the calibration plane, where the projected pattern lies.
             Function only aceppts ChArUco and Checkerboard/Chessboard.
         """
-        if type(pattern) is dict:
+        if isinstance(pattern, dict):
             try: 
                 if pattern["type"] == "charuco":
                     pattern = Charuco(board_config=pattern)
@@ -45,6 +57,19 @@ class LocalHomographyCalibration:
             except:
                 pattern = Charuco(board_config=pattern)
         self.plane_pattern = pattern
+    def set_calibration_directory(self, path: str):
+        """
+        TODO: collect the number of directories
+
+        Parameters
+        ----------
+        path : str
+            path to directory containing multiple calibration folders,
+            each with the same structured light capture of a calibration board
+        """
+        assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
+        dirs = [f.path for f in os.scandir(path) if f.is_dir()]
+        self.calibration_directory = [get_all_paths(dir) for dir in dirs]
     def set_camera_height(self, height: int):
         """
         Set image resolution height in pixels.
@@ -75,10 +100,10 @@ class LocalHomographyCalibration:
         Parameters
         ----------
         shape : tuple
-            Image resolution in (height: int, width: int).
+            Image resolution in (width: int, height: int).
         """
-        self.set_camera_height(shape[0])
-        self.set_camera_width (shape[1])
+        self.set_camera_width (shape[0])
+        self.set_camera_height(shape[1])
     def set_projector_height(self, height: int):
         """
         Set projector resolution height in pixels.
@@ -106,127 +131,18 @@ class LocalHomographyCalibration:
         Set projector resolution in pixels.
         Both numbers have to be integers and nonnegative.
 
+        This will determine the number of images needed from the gray structured light pattern.
+        num_images = 4 * (round(log2(max_resolution))) + 2
+
         Parameters
         ----------
         shape : tuple
-            Image resolution in (height: int, width: int).
+            Image resolution in (width: int, height: int).
         """
-        self.set_projector_height(shape[0])
-        self.set_projector_width (shape[1])
-    # def set_structured_light_pattern(self, pattern: str):
-    #     """
-    #     Currently supported structured light patterns: Gray, Binary, and XOR.
-    #     """
-    #     self.structured_light.set_pattern(pattern)
-    # def set_horizontal_pattern_image_paths(self, image_paths: list | str):
-    #     """
-    #     Parameters
-    #     ----------
-    #     image_paths : list | string
-    #         List of strings containing image paths (or string for folder containing images).
-    #         These images will be used for decoding horizontal structured light patterns.
-    #     """
-    #     self.structured_light.set_horizontal_pattern_image_paths(image_paths)
-    # def set_vertical_pattern_image_paths(self, image_paths: list | str):
-    #     """
-    #     Parameters
-    #     ----------
-    #     image_paths : list | string
-    #         List of strings containing image paths (or string for folder containing images).
-    #         These images will be used for decoding vertical structure light patterns.
-    #     """
-    #     self.structured_light.set_vertical_pattern_image_paths(image_paths)
-    # def set_inverse_horizontal_image_paths(self, image_paths: list | str):
-    #     """
-    #     Inverse horizontal structured light pattern images will be used for 
-    #     setting a threshold value for pixel intensity when decoding horizontal patterns.
-    #     Read the self.structured_light docs for more information:
-    #     https://github.com/elerac/self.structured_light/wiki#how-to-binarize-a-grayscale-image
-
-    #     Parameters
-    #     ----------
-    #     image_paths : list | string
-    #         List of strings containing image paths (or string for folder containing images).
-    #     """
-    #     self.structured_light.set_inverse_horizontal_image_paths(image_paths)
-    # def set_inverse_vertical_image_paths(self, image_paths: list | str):
-    #     """
-    #     Inverse vertical structured light pattern images will be used for 
-    #     setting a threshold value for pixel intensity when decoding vertical patterns.
-    #     Read the self.structured_light docs for more information:
-    #     https://github.com/elerac/self.structured_light/wiki#how-to-binarize-a-grayscale-image
-
-    #     Parameters
-    #     ----------
-    #     image_paths : list | string
-    #         List of strings containing image paths (or string for folder containing images).
-    #     """
-    #     self.structured_light.set_inverse_vertical_image_paths(image_paths)
-    def set_white_pattern_image(self, image_path: str):
-        """
-        Set the path of captured image of scene with an all-white pattern projected.
-        The white image will be used to extract the calibration pattern corners.
-
-        Parameters
-        ----------
-        image_path : str
-            path to white pattern image
-        """
-        self.white_image = image_path
-    # def set_black_pattern_image(self, image_path: str):
-    #     """
-    #     Set the path of captured image of scene with an all-black pattern projected.
-    #     The black image can be used to extract colors for the reconstructed point cloud.
-    #     The black image can also be used for setting a threshold value when decoding
-    #     structured light patterns.
-    #     Read the self.structured_light docs for more information:
-    #     https://github.com/elerac/self.structured_light/wiki#how-to-binarize-a-grayscale-image
-
-    #     Parameters
-    #     ----------
-    #     image_path : str
-    #         path to black pattern image
-
-    #     Notes
-    #     -----
-    #     This has to be used in combination with set_white_pattern_image, since the 
-    #     threshold for ON or OFF will be set per pixel as:
-    #     thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image.
-    #     If negative/inverse structured light patterns are passed,
-    #     black and white pattern images will be ignored for threshold setting.
-    #     """
-    #     self.structured_light.set_black_pattern_image(image_path)
-    # def set_threshold(self, thr: float):
-    #     """
-    #     Set the threshold value for considering a pixel ON or OFF
-    #     based on its intensity.
-
-    #     Parameters
-    #     ----------
-    #     thr : float
-    #         threshold value for considering a pixel ON or OFF
-
-    #     Notes
-    #     -----
-    #     If black and white pattern images are set, or if negative/inverse
-    #     patterns are passed, this threshold value will be ignored.
-    #     """
-    #     self.structured_light.set_threshold(thr)
-    # def set_minimum_contrast(self, contrast: float):
-    #     """
-    #     Set minimum contrast float value which can be used to generate a mask.
-    #     This will be used with the black and white pattern images to create a
-    #     per-pixel mask of pixels that pass the test
-    #     white-black > max_pixel * minimum_contrast,
-    #     where max_pixel is the maximum intensity a pixel can be assigned (that's 255 for uint8).
-    #     If the pixel does not pass that test, it will get masked out.
-    #     """
-    #     self.structured_light.set_minimum_contrast(contrast)
-    # def set_mask(self, mask: np.ndarray):
-    #     """
-    #     """
-    #     self.mask = mask
-
+        self.set_projector_width (shape[0])
+        self.set_projector_height(shape[1])
+        self.num_vertical_images = 2*int(np.ceil(np.log2(shape[0])))
+        self.num_horizontal_images = 2*int(np.ceil(np.log2(shape[1])))
     def set_window_size(self, window: int):
         """
         Set the window (in pixels) of the neighborhood of each calibration corner to calculate the Homography.
@@ -245,7 +161,7 @@ class LocalHomographyCalibration:
         width 
             camera width resolution in pixels.
         """
-        return (self.camera_height, self.camera_width)
+        return (self.camera_width, self.camera_height)
     def get_projector_shape(self) -> tuple[int, int]:
         """
         Returns projector resolution in pixels as (height, width).
@@ -257,36 +173,90 @@ class LocalHomographyCalibration:
         width 
             projector width resolution in pixels.
         """
-        return (self.projector_height, self.projector_width)
+        return (self.projector_width, self.projector_height)
 
     # functions
     def decode(self):
         """
         
         """
-        self.structured_light.decode()
-        self.index_x = self.structured_light.index_x
-        self.index_y = self.structured_light.index_y
+        for folder in self.calibration_directory:
+            self.structured_light.set_vertical_pattern_image_paths(folder[slice(2, 2 + self.num_vertical_images, 2)])
+            self.structured_light.set_inverse_vertical_image_paths(folder[slice(3, 2 + self.num_vertical_images, 2)])
+            self.structured_light.set_horizontal_pattern_image_paths(folder[slice(2 + self.num_vertical_images, 2 + self.num_vertical_images + self.num_horizontal_images, 2)])
+            self.structured_light.set_inverse_horizontal_image_paths(folder[slice(2 + self.num_vertical_images + 1, 2 + self.num_vertical_images + self.num_horizontal_images, 2)])
+            self.structured_light.decode()
+            self.index_x.append(self.structured_light.index_x)
+            self.index_y.append(self.structured_light.index_y)
 
-    def detect_markers(self):
-        img_points, obj_points, _ = self.calibration_pattern.detect_markers(self.white_image)
-        self.camera_image_points = img_points
-        self.object_points = obj_points
+    def detect_markers_and_homographies(self):
+        for index_x, index_y, folder in zip(self.index_x, self.index_y, self.calibration_directory):
+            white_image = folder[0]
+            img_points, obj_points, _ = self.plane_pattern.detect_markers(white_image)
+            proj_img_points = np.empty_like(img_points)
+        
+            # this happens PER NEIGHBORHOOD, hence the for loop
+            for idx,  camera_image_point in enumerate(img_points):
 
-    def findHomography(self):
+                minX = round(camera_image_point[0]-self.window_size)
+                maxX = round(camera_image_point[0]+self.window_size)
+                minY = round(camera_image_point[1]-self.window_size)
+                maxY = round(camera_image_point[1]+self.window_size)
+
+                campixels_x, campixels_y = np.meshgrid(np.arange(minX, maxX),
+                                                       np.arange(minY, maxY))
+                image_points = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
+                proj_points = np.stack([index_x[minY:maxY, minX:maxX],
+                                        index_y[minY:maxY, minX:maxX],
+                                        ], axis=-1).reshape((-1,2))
+            
+                # image_points is the list of points in the neighborhood seen by the camera
+                # proj_points is the list of points in the neighborhood that we extract from the index_x index_y after decoding
+                H, mask = cv2.findHomography(image_points, proj_points)
+
+                # p is corner in camera image
+                p = ImageUtils.homogeneous_coordinates(camera_image_point) # I think it's supposed to be camera_image_point
+                Q = np.matmul(p, H.T)
+                # q is corner in projector image
+                q = Q[:,0:-1] / Q[:,-1]
+                proj_img_points[idx] = q
+
+            self.camera_image_points.append(img_points)
+            self.object_points.append(obj_points)
+            self.projector_image_points.append(proj_img_points)
+
+    def findHomographies(self):
+        """
+        TODO: discard function
+        """
+        # clear projector image points
+        self.projector_image_points = np.empty_like(self.camera_image_points)
+        
         # this happens PER NEIGHBORHOOD, hence the for loop
-        for i in range(count):
+        for idx, camera_image_point in enumerate(self.camera_image_points):
+
+            minY = round(camera_image_point[1]-self.window_size)
+            maxY = round(camera_image_point[1]+self.window_size)
+            minX = round(camera_image_point[0]-self.window_size)
+            maxX = round(camera_image_point[0]+self.window_size)
+
+            campixels_x, campixels_y = np.meshgrid(np.arange(minX, maxX),
+                                                   np.arange(minY, maxY))
+            image_points = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
+            proj_points = np.stack([self.index_x[minY:maxY, minX:maxX],
+                                    self.index_y[minY:maxY, minX:maxX],
+                                    ], axis=-1).reshape((-1,2))
         
             # image_points is the list of points in the neighborhood seen by the camera
             # proj_points is the list of points in the neighborhood that we extract from the index_x index_y after decoding
-            H = cv2.findHomography(image_points, proj_points)
-            
+            H, mask = cv2.findHomography(image_points, proj_points)
+
             # p is corner in camera image
-            Q = np.matmul(H, [p[0], p[1], 1.0])
+            p = ImageUtils.homogeneous_coordinates(camera_image_point) # I think it's supposed to be camera_image_point
+            Q = np.matmul(p, H.T)
             # q is corner in projector image
-            q = Q[0:2] / Q[2]
-            self.projector_image_points.append(q)
-        
+            q = Q[:,0:-1] / Q[:,-1]
+            self.projector_image_points[idx] = q
 
     def calibrate_stereo_system(self):
         cam_result = Calibration.calibrate(self.object_points, self.camera_image_points, self.get_camera_shape())
@@ -305,7 +275,7 @@ class LocalHomographyCalibration:
         self.projector_T = stereo_result['T']
         self.stereo_error = stereo_result['rms']
 
-    def save_calibration(self, filename: str):
+    def save_calibration(self):
         """
         Save calibration into a JSON file.
 
@@ -324,7 +294,19 @@ class LocalHomographyCalibration:
             "camera_error": self.camera_error,
             "projector_error": self.projector_error,
             "stereo_error": self.stereo_error
-        }, filename)
+        }, os.path.join(self.calibration_directory, 'calibration.json'))
 
-    def run(self):
-        pass
+    def run(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.set_camera_shape(config['camera_shape'])
+        self.set_projector_shape(config['projector_shape'])
+        self.set_plane_pattern(config['plane_pattern'])
+        self.set_calibration_directory(config['calibration_directory'])
+
+        self.decode()
+        self.detect_markers_and_homographies()
+
+        self.calibrate_stereo_system()
+        self.save_calibration()

@@ -236,10 +236,10 @@ class Camera:
         Parameters
         ----------
         shape : tuple
-            Image resolution in (height: int, width: int).
+            Image resolution in (width: int, height: int).
         """
-        self.set_height(shape[0])
-        self.set_width (shape[1])
+        self.set_width (shape[0])
+        self.set_height(shape[1])
     def discard_intrinsic_images(self):
         self.intrinsic_images = [image for image in self.intrinsic_images if image not in self.discarded_images]
     def add_intrinsic_image_points(self, image_points: np.ndarray):
@@ -374,16 +374,16 @@ class Camera:
         return self.min_points
     def get_image_shape(self) -> tuple[int, int]:
         """
-        Returns image resolution in pixels as (height, width).
+        Returns image resolution in pixels as (width, height).
 
         Returns
         -------
-        height
-            camera height resolution in pixels
         width 
             camera width resolution in pixels.
+        height
+            camera height resolution in pixels
         """
-        return (self.height, self.width)
+        return (self.width, self.height)
     
     # functions
     def detect_markers_for_intrinsic(self):

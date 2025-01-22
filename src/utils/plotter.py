@@ -48,7 +48,7 @@ class Plotter:
         Parameters
         ----------
         image_shape : tuple
-            tuple containing (height, width) of image resolution.
+            tuple containing (width, height) of image resolution.
         K : np.ndarray
             Intrinsic matrix of camera/projector.
         dist_coeffs : np.ndarray
@@ -59,7 +59,7 @@ class Plotter:
         filename : str
             if passed, path to file where figure will be saved.  
         """
-        height, width = image_shape
+        width, height = image_shape
         # Create a grid of points (pixel coordinates)
         x = np.linspace(0, width, 25)
         y = np.linspace(0, height, 25)
@@ -120,7 +120,7 @@ class Plotter:
         markers : array_like
             list of 2D markers in pixel coordinates.
         image_shape : tuple
-            tuple containing (height, width) of image resolution.
+            tuple containing (width, height) of image resolution.
         K : np.ndarray
             Intrinsic matrix of camera/projector.
         figsize : tuple
@@ -129,7 +129,7 @@ class Plotter:
         filename : str
             if passed, path to file where figure will be saved.  
         """
-        height, width = image_shape
+        width, height = image_shape
 
         plt.figure(figsize=figsize)
         plt.title('Intrinsic Markers')
@@ -201,7 +201,7 @@ class Plotter:
         return ax
 
         plt.show()
-    def plot_decoding(camera_resolution: tuple,
+    def plot_decoding(camera_shape: tuple,
                       index_x: np.ndarray=None,
                       index_y: np.ndarray=None,
                       cmap: str='jet',
@@ -214,10 +214,8 @@ class Plotter:
 
         Parameters
         ----------
-        camera_resolution : tuple
-            tuple containing (height, width) of image resolution.
-        projector_resolution : tuple
-            tuple containing (height, width) of projector resolution.
+        camera_shape : tuple
+            tuple containing (width, height) of image resolution.
         index_x : array_like
             numpy array of decoded column indices from structured light 
         cmap : str, optional
@@ -229,7 +227,7 @@ class Plotter:
         filename : str, optional
             if passed, path to file where figure will be saved.  
         """
-        cam_height, cam_width = camera_resolution
+        cam_width, cam_height = camera_shape
 
         # Plot index_x if provided
         if index_x is not None:
@@ -327,7 +325,6 @@ class Plotter:
         mask = abs(depth_map) > 1e-8
         disp_map = 1/depth_map
         disp_map[~mask] = 0
-        print(disp_map)
         vmax = np.percentile(disp_map[mask], max_percentile)
         vmin = np.percentile(disp_map[mask], min_percentile)
         normalizer = mpl.colors.Normalize(vmin=vmin, vmax=vmax)

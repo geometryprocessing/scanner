@@ -123,7 +123,7 @@ class Projector:
         Parameters
         ----------
         shape : tuple
-            Image resolution in (height: int, width: int).
+            Image resolution in (width: int, height: int).
         """
         self.camera.set_image_shape(shape)
     def set_camera_matrix(self, K):
@@ -272,10 +272,10 @@ class Projector:
         Parameters
         ----------
         shape : tuple
-            Image resolution in (height: int, width: int).
+            Image resolution in (width: int, height: int).
         """
-        self.set_projector_height(shape[0])
-        self.set_projector_width (shape[1])
+        self.set_projector_width (shape[0])
+        self.set_projector_height(shape[1])
     def discard_intrinsic_images(self):
         self.images = [image for image in self.images if image not in self.discarded_images]
     
@@ -348,15 +348,15 @@ class Projector:
 
         Returns
         -------
-        height
-            camera height resolution in pixels
         width 
             camera width resolution in pixels.
+        height
+            camera height resolution in pixels
         """
-        return (self.camera.height, self.camera.width)
+        return (self.camera.width, self.camera.height)
     def get_projector_shape(self):
         """
-        Returns projector image resolution in pixels as (height, width).
+        Returns projector image resolution in pixels as (width, height).
 
         Returns
         -------
@@ -365,7 +365,7 @@ class Projector:
         width 
             projector width resolution in pixels.
         """
-        return (self.height, self.width)
+        return (self.width, self.height)
 
     # functions
     def reconstruct_plane(self, image_path: str) -> tuple[np.ndarray, np.ndarray]:

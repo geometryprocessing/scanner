@@ -284,8 +284,8 @@ class StructuredLight:
             self.generate_mask()
 
         cam_resolution = self.camera.get_image_shape()
-        campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[1]),
-                            np.arange(cam_resolution[0]))
+        campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[0]),
+                                               np.arange(cam_resolution[1]))
         
         campixels = np.stack([campixels_x, campixels_y], axis=-1)[self.mask].reshape((-1,2))
 

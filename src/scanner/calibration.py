@@ -59,6 +59,9 @@ class CheckerBoard:
         self.columns=columns
         self.checker_size=checker_size
 
+        self.criteria = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 0.001)
+        self.flags = cv2.CALIB_CB_FAST_CHECK | cv2.CALIB_CB_ADAPTIVE_THRESH
+
         self.object_points = self.create_object_points()
             
         self.ids = np.arange(self.rows*self.columns)
@@ -104,11 +107,10 @@ class CheckerBoard:
             image = (image / m * 255).astype(np.uint8)
 
 
-        ret, corners = cv2.findChessboardCorners(image, (self.rows, self.columns))
+        ret, corners = cv2.findChessboardCorners(image, (self.rows, self.columns), flags=self.flags)
 
         if ret:
-            criteria = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 0.001)
-            corners = cv2.cornerSubPix(image, corners, (self.rows, self.columns), (-1, -1), criteria)
+            corners = cv2.cornerSubPix(image, corners, (self.rows, self.columns), (-1, -1), self.criteria)
         else:
             corners = None
 
@@ -164,6 +166,25 @@ class Charuco:
                                                            self.checker_size,
                                                            self.marker_size,
                                                            self.aruco_dict)
+        self.parameters = cv2.aruco.DetectorParameters_create()
+
+    def adjust_parameters(self, **kwargs):
+        """
+        Pass keyword arguments from OpenCV aruco library, such as
+            adaptiveThreshWinSizeMin,
+            adaptiveThreshWinSizeMax,
+            adaptiveThreshWinSizeStep,
+            adaptiveThreshConstant,
+            minMarkerPerimeterRate,
+            maxMarkerPerimeterRate,
+            minMarkerDistanceRate,
+            polygonalApproxAccuracyRate
+        with their respective values.
+
+        For more information, visit https://docs.opencv.org/4.5.5/d1/dcd/structcv_1_1aruco_1_1DetectorParameters.html
+        """
+        for key, value in kwargs.items():
+            setattr(self.parameters, key, value)
     
     def create_image(self, resolution: tuple[int, int]):
         """
@@ -232,7 +253,7 @@ class Charuco:
             m = np.iinfo(image.dtype).max
             image = (image / m * 255).astype(np.uint8)
 
-        m_pos, m_ids, _ = cv2.aruco.detectMarkers(image, self.aruco_dict)
+        m_pos, m_ids, _ = cv2.aruco.detectMarkers(image, self.aruco_dict, parameters=self.parameters)
 
         if len(m_pos) > 0:
             count, c_pos, c_ids = cv2.aruco.interpolateCornersCharuco(m_pos, m_ids, image, self.charuco_board)

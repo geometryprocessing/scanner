@@ -346,8 +346,7 @@ class StructuredLight:
         -----
         colors will be stored in [0., 1.[ range as a numpy array of type np.float32
         """
-        assert self.white_image is not None \
-              and self.black_image is not None, "Need to set both black and white images"
+        assert self.white_image is not None, "Need to set white image"
         
         if self.mask is None:
             self.generate_mask()
@@ -375,7 +374,7 @@ class StructuredLight:
 
     def save_point_cloud_as_ply(self, filename: str):
         assert self.point_cloud is not None, "No reconstruction yet"
-        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors.reshape((-1,3)))
+        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors)
 
     def plot_normal_map(self, figsize: tuple=(12,16), filename: str=None):
         Plotter.plot_normal_map(self.normals, self.mask, figsize=figsize, filename=filename)

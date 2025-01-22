@@ -134,6 +134,11 @@ class Plotter:
         plt.figure(figsize=figsize)
         plt.title('Intrinsic Markers')
 
+        # scatter intrinsic image points on the image
+        points = np.concatenate(markers)
+        plt.scatter(x=points[:,0], y=points[:,1],
+                    s=min(width,height)/10, c='tab:green', alpha=0.5, edgecolors='k')
+
         # center of image resolution
         plt.scatter(x=width/2, y=height/2,
                     s=min(width,height)/20, c='royalblue', marker='+')
@@ -141,11 +146,6 @@ class Plotter:
         # central point found after calibration
         plt.scatter(x=K[0,2], y=K[1,2],
                     s=min(width,height)/20, c='royalblue', marker='o')
-        
-        # scatter intrinsic image points on the image
-        points = np.concatenate(markers)
-        plt.scatter(x=points[:,0], y=points[:,1],
-                    s=min(width,height)/10, c='tab:green', alpha=0.5, edgecolors='k')
         
         # labels
         plt.xlabel('x (pixels)')

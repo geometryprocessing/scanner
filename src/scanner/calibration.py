@@ -70,6 +70,9 @@ class CheckerBoard:
         obj_points = np.zeros((self.rows * self.columns, 3), np.float32)
         obj_points[:, :2] = np.mgrid[0:self.rows, 0:self.columns].T.reshape(-1, 2) * self.checker_size
         return obj_points
+    
+    def change_criteria(self, criteria: tuple[int, int, float]):
+        self.criteria = criteria
 
     def create_image(self, resolution: tuple):
         pass
@@ -105,7 +108,6 @@ class CheckerBoard:
         if image.dtype != np.uint8:
             m = np.iinfo(image.dtype).max
             image = (image / m * 255).astype(np.uint8)
-
 
         ret, corners = cv2.findChessboardCorners(image, (self.rows, self.columns), flags=self.flags)
 

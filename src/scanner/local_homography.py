@@ -5,6 +5,8 @@ import os
 from src.utils.file_io import save_json, load_json, get_all_paths
 from src.utils.image_utils import ImageUtils
 from src.scanner.calibration import Charuco, CheckerBoard, Calibration
+from src.scanner.camera import Camera
+from src.scanner.projector import Projector
 from src.reconstruction.structured_light import StructuredLight
 
 class LocalHomographyCalibration:
@@ -28,14 +30,8 @@ class LocalHomographyCalibration:
         self.camera_image_points    = []
         self.projector_image_points = []
 
-        self.camera_K              = None
-        self.camera_dist_coeffs    = None
-        self.camera_width          = None
-        self.camera_height         = None
-        self.projector_K           = None
-        self.projector_dist_coeffs = None
-        self.projector_width       = None
-        self.projector_height      = None
+        self.camera                = Camera()
+        self.projector             = Projector()
 
     # setters
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
@@ -59,7 +55,6 @@ class LocalHomographyCalibration:
         self.plane_pattern = pattern
     def set_calibration_directory(self, path: str):
         """
-        TODO: collect the number of directories
 
         Parameters
         ----------
@@ -69,111 +64,21 @@ class LocalHomographyCalibration:
         """
         assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
         dirs = [f.path for f in os.scandir(path) if f.is_dir()]
+        self.num_directories = len(dirs)
         self.calibration_directory = [get_all_paths(dir) for dir in dirs]
-    def set_camera_height(self, height: int):
-        """
-        Set image resolution height in pixels.
 
-        Parameters
-        ----------
-        height : int
-            Image resolution height in pixels.
-        """
-        assert height > 0, "Incorrect value for height, has to be nonnegative"
-        self.camera_height = int(height)
-    def set_camera_width(self, width: int):
-        """
-        Set image resolution width in pixels.
-
-        Parameters
-        ----------
-        width : int
-            Image resolution width in pixels.
-        """
-        assert width > 0, "Incorrect value for width, has to be nonnegative"
-        self.camera_width = int(width)
-    def set_camera_shape(self, shape: tuple[int, int]):
-        """
-        Set image resolution in pixels.
-        Both numbers have to be integers and nonnegative.
-
-        Parameters
-        ----------
-        shape : tuple
-            Image resolution in (width: int, height: int).
-        """
-        self.set_camera_width (shape[0])
-        self.set_camera_height(shape[1])
-    def set_projector_height(self, height: int):
-        """
-        Set projector resolution height in pixels.
-
-        Parameters
-        ----------
-        height : int
-            Image resolution height in pixels.
-        """
-        assert height > 0, "Incorrect value for height, has to be nonnegative"
-        self.projector_height = int(height)
-    def set_projector_width(self, width: int):
-        """
-        Set projector resolution width in pixels.
-
-        Parameters
-        ----------
-        width : int
-            Image resolution width in pixels.
-        """
-        assert width > 0, "Incorrect value for width, has to be nonnegative"
-        self.projector_width = int(width)
-    def set_projector_shape(self, shape: tuple[int, int]):
-        """
-        Set projector resolution in pixels.
-        Both numbers have to be integers and nonnegative.
-
-        This will determine the number of images needed from the gray structured light pattern.
-        num_images = 4 * (round(log2(max_resolution))) + 2
-
-        Parameters
-        ----------
-        shape : tuple
-            Image resolution in (width: int, height: int).
-        """
-        self.set_projector_width (shape[0])
-        self.set_projector_height(shape[1])
-        self.num_vertical_images = 2*int(np.ceil(np.log2(shape[0])))
-        self.num_horizontal_images = 2*int(np.ceil(np.log2(shape[1])))
+        self.num_vertical_images      = int(2*np.ceil(np.log2(self.projector.width)))
+        self.num_horizontal_images    = int(2*np.ceil(np.log2(self.projector.height)))
     def set_window_size(self, window: int):
         """
         Set the window (in pixels) of the neighborhood of each calibration corner to calculate the Homography.
         """
         self.window_size = window
-
-    # gettters
-    def get_camera_shape(self) -> tuple[int, int]:
-        """
-        Returns image resolution in pixels as (height, width).
-
-        Returns
-        -------
-        height
-            camera height resolution in pixels
-        width 
-            camera width resolution in pixels.
-        """
-        return (self.camera_width, self.camera_height)
-    def get_projector_shape(self) -> tuple[int, int]:
-        """
-        Returns projector resolution in pixels as (height, width).
-
-        Returns
-        -------
-        height
-            projector height resolution in pixels
-        width 
-            projector width resolution in pixels.
-        """
-        return (self.projector_width, self.projector_height)
+    def load_camera(self, camera: str | dict | Camera):
+        if isinstance(camera, str) or isinstance(camera, dict):
+            self.camera.load_calibration(camera)
+        else:
+            self.camera = camera
 
     # functions
     def decode(self):
@@ -190,8 +95,13 @@ class LocalHomographyCalibration:
             self.index_y.append(self.structured_light.index_y)
 
     def detect_markers_and_homographies(self):
-        for index_x, index_y, folder in zip(self.index_x, self.index_y, self.calibration_directory):
-            white_image = folder[0]
+        """
+        
+        """
+        for i in range(self.num_directories):
+            white_image = self.calibration_directory[i][0]
+            self.camera.intrinsic_images.append(white_image)
+            self.projector.images.append(white_image)
             img_points, obj_points, _ = self.plane_pattern.detect_markers(white_image)
             proj_img_points = np.empty_like(img_points)
         
@@ -206,8 +116,8 @@ class LocalHomographyCalibration:
                 campixels_x, campixels_y = np.meshgrid(np.arange(minX, maxX),
                                                        np.arange(minY, maxY))
                 image_points = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
-                proj_points = np.stack([index_x[minY:maxY, minX:maxX],
-                                        index_y[minY:maxY, minX:maxX],
+                proj_points = np.stack([self.index_x[i][minY:maxY, minX:maxX],
+                                        self.index_y[i][minY:maxY, minX:maxX],
                                         ], axis=-1).reshape((-1,2))
             
                 # image_points is the list of points in the neighborhood seen by the camera
@@ -221,58 +131,56 @@ class LocalHomographyCalibration:
                 q = Q[:,0:-1] / Q[:,-1]
                 proj_img_points[idx] = q
 
-            self.camera_image_points.append(img_points)
-            self.object_points.append(obj_points)
-            self.projector_image_points.append(proj_img_points)
-
-    def findHomographies(self):
-        """
-        TODO: discard function
-        """
-        # clear projector image points
-        self.projector_image_points = np.empty_like(self.camera_image_points)
-        
-        # this happens PER NEIGHBORHOOD, hence the for loop
-        for idx, camera_image_point in enumerate(self.camera_image_points):
-
-            minY = round(camera_image_point[1]-self.window_size)
-            maxY = round(camera_image_point[1]+self.window_size)
-            minX = round(camera_image_point[0]-self.window_size)
-            maxX = round(camera_image_point[0]+self.window_size)
-
-            campixels_x, campixels_y = np.meshgrid(np.arange(minX, maxX),
-                                                   np.arange(minY, maxY))
-            image_points = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
-            proj_points = np.stack([self.index_x[minY:maxY, minX:maxX],
-                                    self.index_y[minY:maxY, minX:maxX],
-                                    ], axis=-1).reshape((-1,2))
-        
-            # image_points is the list of points in the neighborhood seen by the camera
-            # proj_points is the list of points in the neighborhood that we extract from the index_x index_y after decoding
-            H, mask = cv2.findHomography(image_points, proj_points)
-
-            # p is corner in camera image
-            p = ImageUtils.homogeneous_coordinates(camera_image_point) # I think it's supposed to be camera_image_point
-            Q = np.matmul(p, H.T)
-            # q is corner in projector image
-            q = Q[:,0:-1] / Q[:,-1]
-            self.projector_image_points[idx] = q
+            self.camera.intrinsic_image_points.append(img_points)
+            self.camera.intrinsic_object_points.append(obj_points)
+            self.projector.image_points.append(proj_img_points)
+            self.projector.object_points.append(obj_points)
 
     def calibrate_stereo_system(self):
-        cam_result = Calibration.calibrate(self.object_points, self.camera_image_points, self.get_camera_shape())
-        proj_result = Calibration.calibrate(self.object_points, self.projector_image_points, self.get_projector_shape())
+        # if camera is already calibrated, retrieve only the root mean squared reprojection error
+        if self.camera.K is not None:
+            flags = cv2.CALIB_USE_INTRINSIC_GUESS
+        else:
+            flags = 0
 
-        self.camera_K = cam_result['K']
-        self.camera_dist_coeffs = cam_result['dist_coeffs']
+        cam_result = Calibration.calibrate(self.camera.intrinsic_object_points,
+                                           self.camera.intrinsic_image_points,
+                                           self.camera.get_image_shape(),
+                                           K=self.camera.K,
+                                           dist_coeffs=self.camera.dist_coeffs,
+                                           flags=flags)
+
+        self.camera.K = cam_result['K']
+        self.camera.dist_coeffs = cam_result['dist_coeffs']
+        self.camera.tvecs = cam_result['tvecs']
+        self.camera.rvecs = cam_result['rvecs']
+        self.camera.projection_errors()
+        # self.camera.refine()
         self.camera_error = cam_result['rms']
-        self.projector_K = proj_result['K']
-        self.projector_dist_coeffs = proj_result['dist_coeffs']
+
+        proj_result = Calibration.calibrate(self.projector.object_points,
+                                            self.projector.image_points,
+                                            self.projector.get_projector_shape())
+
+        self.projector.K = proj_result['K']
+        self.projector.dist_coeffs = proj_result['dist_coeffs']
+        self.projector.tvecs = proj_result['tvecs']
+        self.projector.rvecs = proj_result['rvecs']
+        self.projector.projection_errors()
+        # self.projector.refine() # this is not yet implemented
         self.projector_error = proj_result['rms']
 
-        stereo_result = Calibration.stereo_calibrate(self.object_points, self.camera_image_points, self.projector_image_points, self.get_camera_shape(), self.camera_K, self.camera_dist_coeffs, self.projector_K, self.projector_dist_coeffs)
+        stereo_result = Calibration.stereo_calibrate(self.camera.intrinsic_object_points,
+                                                     self.camera.intrinsic_image_points,
+                                                     self.projector.image_points,
+                                                     self.camera.get_image_shape(),
+                                                     self.camera.K,
+                                                     self.camera.dist_coeffs,
+                                                     self.projector.K,
+                                                     self.projector.dist_coeffs)
 
-        self.projector_R = stereo_result['R']
-        self.projector_T = stereo_result['T']
+        self.projector.R = stereo_result['R']
+        self.projector.T = stereo_result['T']
         self.stereo_error = stereo_result['rms']
 
     def save_calibration(self):
@@ -285,12 +193,12 @@ class LocalHomographyCalibration:
             path to JSON file where calibration will be saved.  
         """
         save_json({
-            "camera_K": self.camera_K,
-            "camera_dist_coeffs": self.camera_dist_coeffs,
-            "projector_K": self.projector_K,
-            "projector_dist_coeffs": self.projector_dist_coeffs,
-            "projector_R": self.projector_R,
-            "projector_T": self.projector_T,
+            "camera_K": self.camera.K,
+            "camera_dist_coeffs": self.camera.dist_coeffs,
+            "projector_K": self.projector.K,
+            "projector_dist_coeffs": self.projector.dist_coeffs,
+            "projector_R": self.projector.R,
+            "projector_T": self.projector.T,
             "camera_error": self.camera_error,
             "projector_error": self.projector_error,
             "stereo_error": self.stereo_error
@@ -300,8 +208,12 @@ class LocalHomographyCalibration:
         if isinstance(config, str):
             config = load_json(config)
 
-        self.set_camera_shape(config['camera_shape'])
-        self.set_projector_shape(config['projector_shape'])
+        self.camera.set_image_shape(config['camera_shape'])
+        self.projector.set_projector_shape(config['projector_shape'])
+
+        self.camera.set_error_threshold(config['camera_error_thr'])
+        self.projector.set_error_threshold(config['projector_error_thr'])
+
         self.set_plane_pattern(config['plane_pattern'])
         self.set_calibration_directory(config['calibration_directory'])
 

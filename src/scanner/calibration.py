@@ -97,6 +97,12 @@ class CheckerBoard:
             image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # image has to be uint8 for opencv
+        if image.dtype != np.uint8:
+            m = np.iinfo(image.dtype).max
+            image = (image / m * 255).astype(np.uint8)
+
 
         ret, corners = cv2.findChessboardCorners(image, (self.rows, self.columns))
 
@@ -220,6 +226,11 @@ class Charuco:
             image = ImageUtils.load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # image has to be uint8 for opencv. if not, scaled it to [0, 255]
+        if image.dtype != np.uint8:
+            m = np.iinfo(image.dtype).max
+            image = (image / m * 255).astype(np.uint8)
 
         m_pos, m_ids, _ = cv2.aruco.detectMarkers(image, self.aruco_dict)
 

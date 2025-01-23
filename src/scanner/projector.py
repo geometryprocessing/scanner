@@ -40,7 +40,7 @@ class Projector:
         self.image_points         = []
         self.object_points        = []
         self.camera_image_points  = []  # camera points will be used for extrinsic calibration
-        self.camera_object_points = [] # camera points will be used for extrinsic calibration
+        self.camera_object_points = []  # camera points will be used for extrinsic calibration
         self.planes               = []
         self.errors               = []
         self.plane_pattern        = None
@@ -95,73 +95,6 @@ class Projector:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
-    def set_camera_height(self, height: int):
-        """
-        Set image resolution height in pixels.
-
-        Parameters
-        ----------
-        height : int
-            Image resolution height in pixels.
-        """
-        self.camera.set_height(height)
-    def set_camera_width(self, width: int):
-        """
-        Set image resolution width in pixels.
-
-        Parameters
-        ----------
-        width : int
-            Image resolution width in pixels.
-        """
-        self.camera.set_width(width)
-    def set_camera_shape(self, shape: tuple[int, int]):
-        """
-        Set image resolution in pixels.
-        Both numbers have to be integers and nonnegative.
-
-        Parameters
-        ----------
-        shape : tuple
-            Image resolution in (width: int, height: int).
-        """
-        self.camera.set_image_shape(shape)
-    def set_camera_matrix(self, K):
-        """
-        Parameters
-        ----------
-        K : array_like
-            3x3 Intrinsic Matrix of Camera.
-        """
-        self.camera.set_intrinsic_matrix(K)
-    def set_camera_distortion(self, dist_coeffs):
-        """
-        Parameters
-        ----------
-        dist_coeffs : array_like
-            Array of distortion coefficients 
-            (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-            of 4, 5, 8, 12 or 14 elements.
-        """
-        self.camera.set_distortion(dist_coeffs)
-    def set_camera_translation(self, T):
-        """
-        Parameters
-        ----------
-        T : array_like
-            3x1 translation vector of Camera.
-        """
-        self.camera.set_translation(T)
-    def set_camera_rotation(self, r):
-        """
-        Parameters
-        ----------
-        r : array_like
-            Either 3x1 rotation vector (perform Rodrigues) or
-            3x3 rotation matrix of Camera.
-            It saves it as 3x3 rotation matrix.
-        """
-        self.camera.set_rotation(r)
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
         """
         Parameters

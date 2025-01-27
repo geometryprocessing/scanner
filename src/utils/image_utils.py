@@ -386,38 +386,29 @@ class ImageUtils:
         depth (optional)
             numpy array (shape NxMx1) of depth (only returned if load_depth set to True)
         """
-        with open(filename, "rb") as f:
-            in_file = OpenEXR.InputFile(f)
-            try:
-                dw = in_file.header()['dataWindow']
-                pt = Imath.PixelType(Imath.PixelType.FLOAT)
-                dim = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
-                if len(in_file.header()['channels']) == 3:
-                    (r, g, b) = in_file.channels("RGB", pixel_type=pt)
-                    d = None
-                elif len(in_file.header()['channels']) >= 4:
-                    r = in_file.channel('color.R', pt)
-                    g = in_file.channel('color.G', pt)
-                    b = in_file.channel('color.B', pt)
+        with OpenEXR.File(filename) as infile:
+            dw = infile.header()['dataWindow']
+            dim = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
+            if len(infile.header()['channels']) == 3:
+                (R, G, B) = infile.channels()["RGB"]
+                d = None
+            elif len(infile.header()['channels']) >= 4:
+                R = infile.channels()["R"].pixels
+                G = infile.channels()["G"].pixels
+                B = infile.channels()["B"].pixels
 
-                    if load_depth:
-                        d = in_file.channel("distance.Y", pt)
-                        d = np.reshape(np.frombuffer(d, dtype=np.float32), dim)
-                    else:
-                        d = None
-
-                r = np.reshape(np.frombuffer(r, dtype=np.float32), dim)
-                g = np.reshape(np.frombuffer(g, dtype=np.float32), dim)
-                b = np.reshape(np.frombuffer(b, dtype=np.float32), dim)
-                rgb = np.stack([r, g, b], axis=2)
-
-                img = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if make_gray else rgb
                 if load_depth:
-                    return img, d
+                    d = infile.channel()["distance.Y"].pixels
                 else:
-                    return img
-            finally:
-                in_file.close()
+                    d = None
+
+            rgb = np.stack([R, G, B], axis=2)
+
+            img = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if make_gray else rgb
+            if load_depth:
+                return img, d
+            else:
+                return img
 
     @staticmethod
     def save_openexr(filename: str, image: np.ndarray, make_gray: bool=True):
@@ -436,24 +427,22 @@ class ImageUtils:
         """
         if len(image.shape) > 2:
             if make_gray:
-                R = G = B = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float16).tobytes()
+                R = G = B = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float16)
             else:
-                R = image[:, :, 0].astype(np.float16).tobytes()
-                G = image[:, :, 1].astype(np.float16).tobytes()
-                B = image[:, :, 2].astype(np.float16).tobytes()
+                R = image[:, :, 0].astype(np.float16)
+                G = image[:, :, 1].astype(np.float16)
+                B = image[:, :, 2].astype(np.float16)
         else:
-            R = G = B = image.astype(np.float16).tobytes()
+            R = G = B = image.astype(np.float16)
 
-        header = OpenEXR.Header(image.shape[1], image.shape[0])
-        header['Compression'] = Imath.Compression(Imath.Compression.PXR24_COMPRESSION)
-        header['channels'] = {'R': Imath.Channel(Imath.PixelType(OpenEXR.HALF)),
-                            'G': Imath.Channel(Imath.PixelType(OpenEXR.HALF)),
-                            'B': Imath.Channel(Imath.PixelType(OpenEXR.HALF))}
+        header = { 'compression' : OpenEXR.PXR24_COMPRESSION}
+                #   "type" : OpenEXR.scanlineimage }
+        channels = {'R': R,
+                    'G': G,
+                    'B': B}
 
-        exr = OpenEXR.OutputFile(filename, header)
-        exr.writePixels({'R': R, 'G': G, 'B': B})   # need to duplicate channels for grayscale anyways
-                                                    # (to keep it readable by LuminanceHDR)
-        exr.close()
+        with OpenEXR.File(header, channels) as outfile:
+            outfile.write(filename)
 
     @staticmethod
     def linear_map(img, thr=None, mask=None, gamma=1.0):

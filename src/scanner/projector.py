@@ -403,16 +403,17 @@ class Projector:
             # opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
             # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS
-            obj = ThreeDUtils.intersect_line_with_plane(origin, camera_rays, [0,0,0], [0, 0, 1]).astype(np.float32)
-            
-            for o in obj:
-                o[2] = 0. # ENSURE THAT THESE ARE ZERO, OTHERWISE OPENCV WILL NOT ACCEPT THEM
+            objs = ThreeDUtils.intersect_line_with_plane(origin,
+                                                        camera_rays,
+                                                        np.array([[0., 0., 0.]]),
+                                                        np.array([[0., 0., 1.]])).astype(np.float32)            
+            objs[:,2] = 0. # ENSURE THAT THESE ARE ZERO, OTHERWISE OPENCV WILL NOT ACCEPT THEM
             
             proj_img_points = np.array(all_projector_image_points[ids], dtype=np.float32).reshape((-1,2))
 
             # save 2D coordinates for projector and camera and 3D points in the board coordinate system
             self.image_points.append(proj_img_points)
-            self.object_points.append(obj)
+            self.object_points.append(objs)
             self.camera_image_points.append(cam_img_points)
                         
             R, _ = cv2.Rodrigues(rvec)
@@ -424,7 +425,7 @@ class Projector:
             # has to be written as (R @ obj_points.T).T
             # to simplify:
             # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
-            camera_obj =  np.matmul(obj, R_combined.T) + T_combined.reshape((1,3))
+            camera_obj =  np.matmul(objs, R_combined.T) + T_combined.reshape((1,3))
 
             # save 3D points in the camera coordinate system
             self.camera_object_points.append(camera_obj)

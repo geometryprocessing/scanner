@@ -486,7 +486,7 @@ class ThreeDUtils:
         origin = ThreeDUtils.get_origin(R,T)
 
         # R.T @ ray, where ray is (3x1)
-        return origin.reshape((1,3)), np.matmul(rays, R)
+        return origin.reshape((1,3)), np.matmul(rays, R).reshape((-1,3))
 
     @staticmethod
     def camera_to_ray(

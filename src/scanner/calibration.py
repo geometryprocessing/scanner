@@ -162,13 +162,14 @@ class Charuco:
         self.checker_size=checker_size
         self.marker_size=marker_size
         
-        self.aruco_dict = cv2.aruco.Dictionary_get(CHARUCO_DICTIONARY_ENUM[dictionary])
-        self.charuco_board = cv2.aruco.CharucoBoard_create(self.columns,
-                                                           self.rows,
-                                                           self.checker_size,
-                                                           self.marker_size,
-                                                           self.aruco_dict)
-        self.parameters = cv2.aruco.DetectorParameters_create()
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(CHARUCO_DICTIONARY_ENUM[dictionary])
+        self.charuco_board = cv2.aruco.CharucoBoard((self.columns,self.rows),
+                                                    self.checker_size,
+                                                    self.marker_size,
+                                                    self.aruco_dict)
+        self.charuco_board.setLegacyPattern(True)
+        self.chessboard_corners = self.charuco_board.getChessboardCorners()
+        self.parameters = cv2.aruco.DetectorParameters()
 
     def adjust_parameters(self, **kwargs):
         """
@@ -201,7 +202,7 @@ class Charuco:
         image 
             ChArUco board image at the desired resolution.
         """
-        return self.charuco_board.draw(resolution)
+        return self.charuco_board.generateImage(resolution)
     
     def get_image_points(self, resolution: tuple[int, int], ids: list[int]):
         """
@@ -264,7 +265,7 @@ class Charuco:
 
         if count:
             img_points = np.array(c_pos).reshape((-1, 2))
-            obj_points  = self.charuco_board.chessboardCorners[c_ids].reshape((-1, 3))
+            obj_points  = self.chessboard_corners[c_ids].reshape((-1, 3))
             ids = c_ids.ravel()
         else:
             img_points, obj_points, ids = [], [], []

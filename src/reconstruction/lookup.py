@@ -136,13 +136,13 @@ class LookUpCalibration:
         TODO: finding depth will happen PER FRAME of calibration, only after it will be glued together
         """
         plane_q, plane_n = self.reconstruct_plane(white_image)
-        height, width = self.camera.get_image_shape()
+        width, height = self.camera.get_image_shape()
         campixels_x, campixels_y = np.meshgrid(np.arange(width),
                                                np.arange(height))
         
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
 
-        origin, rays = ThreeDUtils.camera_to_ray_world(campixels, self.camera.K, self.camera.dist_coeffs)
+        origin, rays = ThreeDUtils.camera_to_ray_world(campixels, self.camera.R, self.camera.T, self.camera.K, self.camera.dist_coeffs)
         points = ThreeDUtils.intersect_line_with_plane(origin, rays, plane_q, plane_n)
 
         depth = np.linalg.norm(points - origin, axis=1, ord=2)
@@ -164,7 +164,7 @@ class LookUpCalibration:
 
     def calibrate(self):
         # allocate memory for massive, single float precision numpy array
-        height, width = self.camera.get_image_shape()
+        width, height = self.camera.get_image_shape()
         lookup_table = np.full(shape=(height, width, self.num_frames, 4), fill_value=np.nan, dtype=np.float32)
 
         for idx, (color_image, white_image) in enumerate(zip(self.color_images, self.white_images)):

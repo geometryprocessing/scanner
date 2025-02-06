@@ -1,9 +1,11 @@
 import cv2
+from datetime import datetime
 import numpy as np
+import os
 from scipy import interpolate
 
 from src.utils.three_d_utils import ThreeDUtils
-from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.file_io import save_json, load_json, get_all_paths, get_folder_from_file
 from src.utils.image_utils import ImageUtils
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
@@ -24,17 +26,20 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
         np.save(filename, result)
 
 class LookUpCalibration:
+    """
+    TODO: this should actually take the path to a folder with MANY position folders.
+    In each POSITION folder, it contains all of the images with different patterns 
+    projected on the same depth.
+    """
     def __init__(self):
-        self.camera    = Camera()
+        self.camera = Camera()
 
-        # image paths
-        self.white_images = []
-        self.color_images = []
-    
-        # calibration utils
-        self.plane_pattern = None
-        self.num_frames = 0
-        self.lookup_table = None
+        self.plane_pattern         = None
+        self.root                  = None
+        self.calibration_directory = []
+        self.num_directories       = 0
+        self.structure_grammar     = {}
+        self.roi                   = None
 
     # setters
     def set_camera(self, camera: str | dict | Camera):
@@ -44,27 +49,6 @@ class LookUpCalibration:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
-    def set_white_images(self, image_paths: list | str):
-        """
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be used for normalizing the color images and for identifying
-            the depth for each camera ray.
-        """
-        self.white_images = get_all_paths(image_paths)
-    def set_color_images(self, image_paths: list | str):
-        """
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be normalized with the white images and then used to save the
-            LookUp table.
-        """
-        self.color_images = get_all_paths(image_paths)
-        self.num_frames = len(self.color_images)
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
         """
         Parameters
@@ -84,11 +68,49 @@ class LookUpCalibration:
             except:
                 pattern = Charuco(board_config=pattern)
         self.plane_pattern = pattern
-    def set_lookup_table(self, lookup_table_path: str):
+    def set_calibration_directory(self, path: str):
         """
-        Path to .npy file where LookUp table will be stored.
+
+        Parameters
+        ----------
+        path : str
+            path to directory containing multiple calibration folders,
+            each with the same structured light capture of a calibration board
         """
-        self.lookup_table = lookup_table_path
+        assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
+        self.root = path
+        dirs = [f.path for f in os.scandir(path) if f.is_dir()]
+        self.num_directories = len(dirs)
+        self.calibration_directory = [get_all_paths(dir) for dir in dirs]
+    def set_structure_grammar(self, structure_grammar: dict):
+        """
+        The structure grammar is the configuration to read images
+        and save them to pattern/look up tables accordingly.
+        Example below:
+            structure_grammar = {
+                "tables": {
+                    "gray": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
+                    "spiral": ["spiral.tiff"],
+                    "look_up_name": ["list", "of", "images"]
+                },
+                "utils": {
+                    "white": "white.tiff",
+                    "ambient": "ambient.tiff"
+                }
+            }
+        The list of strings are the images which will be used
+        to create a look up table with the key name.
+        """
+        self.structure_grammar = structure_grammar
+    def set_roi(self, roi: list | set):
+        """
+
+        Parameters
+        ----------
+        roi : list or set
+            xyxy region of interest to reduce size of look up tables 
+        """
+        self.roi = roi
 
     # getters
 
@@ -155,25 +177,8 @@ class LookUpCalibration:
         # depth[~idx] = 0
 
         depth = depth.reshape((height, width))
-
-        # np.savez_compressed(path + "combined/depth/" + name + ".npz", depth=to_16bit(depth, is_depth=True))
-        return depth
+        np.savez_compressed(os.path.join(get_folder_from_file(white_image), "depth.npz"), depth=depth)
     
-    def stack_results(self):
-        pass
-
-    def calibrate(self):
-        # allocate memory for massive, single float precision numpy array
-        width, height = self.camera.get_image_shape()
-        lookup_table = np.full(shape=(height, width, self.num_frames, 4), fill_value=np.nan, dtype=np.float32)
-
-        for idx, (color_image, white_image) in enumerate(zip(self.color_images, self.white_images)):
-            normalized = ImageUtils.normalize_color(color_image, white_image)
-            depth = self.find_depth(white_image)
-            lookup_table[:,:,idx,:] = np.concatenate([normalized, depth[:, :, np.newaxis]], axis=2)
-
-        return lookup_table
-
     def save_lookup_table(self,
                           lookup_table: np.ndarray,
                           filename):
@@ -181,18 +186,84 @@ class LookUpCalibration:
         """
         Save the lookup table as a npy file.
         """
-        np.save(filename, lookup_table)
-        # save_json({"roi": roi}, f'{data_path}/lookup_tables/lookup_table_{pattern_name}.json')
+        np.save(os.path.join(self.root, filename), lookup_table)
+
+    def calibrate_positions(self):
+        def _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, ambient, dirname):
+            """
+            Util function to normalize all pattern images with white image (and with black image if available)
+            for a single position of calibration.
+
+            This function is meant to be innacessible to user.
+            """
+            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(dirname, image), white_image, ambient) for image in image_names], axis=2)
+            np.savez_compressed(os.path.join(dirname, f"{pattern_name}.npz"), pattern=normalized)
+
+        def _calibrate_all_patterns_single_positon(position):
+            """
+            Util function to normalize all pattern images with white image (and with black image if available)
+            for a single position of calibration.
+
+            This function is meant to be innacessible to user.
+            """
+            white_image = None
+            ambient = None
+            for util_name, image_name in self.structure_grammar['utils'].items():
+                if util_name == 'white':
+                    white_image = os.path.join(position, image_name)
+                if util_name == 'black':
+                    ambient = os.path.join(position, image_name)
+            self.find_depth(white_image)
+
+            for pattern_name, image_names in self.structure_grammar['tables'].items():
+                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, ambient, position)
+
+
+        for folder in self.calibration_directory:
+            _calibrate_all_patterns_single_positon(get_folder_from_file(folder[0]))
+
+            
+
+    def stack_results(self):
+        """
+        TODO: cannot parallelize multiple function calls to the same memory address lookup_table.
+        Best thing to do is similar to Yurii's legacy code, where we, at the end, concatenate all single_positions
+        into a MEGA lookup table.
+        """
+        width, height = self.camera.get_image_shape()
+        x0, y0 = 0, 0
+
+        if self.roi is not None:
+            x0 = self.roi[0]
+            y0 = self.roi[1]
+            width = self.roi[2] - x0
+            height = self.roi[3] - y0
+
+        for pattern_name in self.structure_grammar['tables'].keys():
+            # allocate memory for massive, single float precision numpy array
+            lookup_table = np.full(shape=(height, width, self.num_directories, 4), fill_value=np.nan, dtype=np.float32)
+            for pos, folder in enumerate(self.calibration_directory):
+                position_dirname = get_folder_from_file(folder[0])
+                depth = np.load(os.path.join(position_dirname, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
+                pattern = np.load(os.path.join(position_dirname, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
+                lookup_table[:,:,pos,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
+            self.save_lookup_table(lookup_table, pattern_name)
+
+        save_json({'roi': self.roi,
+                   'structure_grammar': self.structure_grammar,
+                   'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
+                   os.path.join(self.root, 'calibration_info.json'))
     
     def run(self, config: dict | str):
         if type(config) is str:
             config = load_json(config)
 
-        self.set_camera(config['camera_calibration'])
-        self.set_white_images(config['white_images'])
-        self.set_color_images(config['color_images'])
-        lookup_table = self.calibrate()
-        self.save_lookup_table(lookup_table, config['lookup_table'])
+        self.set_camera(config['look_up_calibration']['camera_calibration'])
+        self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
+        self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
+        self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
+        self.calibrate_positions()
+        self.stack_results()
 
     
 class LookUpReconstruction:
@@ -374,10 +445,10 @@ class LookUpReconstruction:
         if isinstance(config, str):
             config = load_json(config)
 
-        self.set_camera(config['camera_calibration'])
-        self.set_white_images(config['white_images'])
-        self.set_color_images(config['color_images'])
-        self.set_lookup_table(config['lookup_table'])
-        self.set_knots(config['knots'])
-        self.set_samples(config['samples'])
+        self.set_camera(config['look_up_reconstruction']['camera_calibration'])
+        self.set_white_images(config['look_up_reconstruction']['white_images'])
+        self.set_color_images(config['look_up_reconstruction']['color_images'])
+        self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
+        self.set_knots(config['look_up_reconstruction']['knots'])
+        self.set_samples(config['look_up_reconstruction']['samples'])
         self.reconstruct()

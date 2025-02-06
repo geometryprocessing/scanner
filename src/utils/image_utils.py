@@ -109,7 +109,8 @@ class ImageUtils:
     @staticmethod
     def normalize_color(
         color_image: str | np.ndarray,
-        white_image: str | np.ndarray
+        white_image: str | np.ndarray,
+        black_image: str | np.ndarray = None
         ) -> np.ndarray:
         """
         Take a color image and a white image, apply a Gaussian blur
@@ -132,6 +133,8 @@ class ImageUtils:
             white_image = ImageUtils.load_ldr(white_image)
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
+        if black_image is not None and isinstance(black_image, str):
+            black_image = ImageUtils.load_ldr(color_image)
 
         white_image = ImageUtils.blur_3(white_image, sigmas=np.ones(3) * 1.5)
         color_image = ImageUtils.blur_3(color_image, sigmas=np.ones(3) * 1.5)
@@ -140,7 +143,12 @@ class ImageUtils:
         mask = s > thr * np.max(s)
 
         normalized = np.zeros_like(color_image, dtype=np.float32)
-        normalized[mask] = color_image[mask] / white_image[mask]
+
+        if black_image is not None:
+            black_image = ImageUtils.blur_3(black_image, sigmas=np.ones(3) * 1.5)
+            normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
+        else:
+            normalized[mask] = color_image[mask] / white_image[mask]
 
         return normalized
 

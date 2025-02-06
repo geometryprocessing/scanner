@@ -13,6 +13,23 @@ def ensure_exists(path: str):
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
+def get_folder_from_file(path: str) -> str:
+    """
+    Returns the path to the folder containing the file.
+
+    Parameters
+    ----------
+    path : str
+        A path to file. If path is already a directory, returns the same path.
+
+    Returns
+    -------
+    str
+        The string containing the path to folder.
+
+    """
+    return os.path.dirname(path)
+
 def get_all_paths(paths: str | list[str]) -> list[str]:
     """
     Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).

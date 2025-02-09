@@ -424,7 +424,7 @@ class ImageUtils:
                 else:
                     d = None
 
-            img = convert_to_gray(RGB) if make_gray else RGB
+            img = ImageUtils.convert_to_gray(RGB) if make_gray else RGB
             if load_depth:
                 return img, d
             else:

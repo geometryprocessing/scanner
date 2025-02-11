@@ -45,6 +45,7 @@ class LookUpCalibration:
 
         # flag for parallelizing position processing
         self.parallelize_positions = False
+        self.num_cpus              = 1
 
     # setters
     def set_camera(self, camera: str | dict | Camera):
@@ -311,6 +312,7 @@ class LookUpReconstruction:
 
         # flag for parallelizing pixel processing
         self.parallelize_pixels = False
+        self.num_cpus           = 1
 
     # setters
     def set_camera(self, camera: str | dict | Camera):

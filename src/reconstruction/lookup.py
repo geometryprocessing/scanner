@@ -9,21 +9,23 @@ from src.utils.file_io import save_json, load_json, get_all_paths, get_folder_fr
 from src.utils.image_utils import ImageUtils
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
+# for parallel processing
+import concurrent.futures
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
-        """
-        Create a lookup table (dictionary) of 2D pixel coordinates, RGB values for many patterns, and depth.
-        """
-        lookup_tables = [np.load(lut) for lut in lookup_tables]
-        result = [lut[:, :, :, :-1] for lut in lookup_tables]
-        # append the depth from the last lookup table
-        result.append(lookup_tables[-1][:, :, :, -1])
+    """
+    Create a lookup table (dictionary) of 2D pixel coordinates, RGB values for many patterns, and depth.
+    """
+    lookup_tables = [np.load(lut) for lut in lookup_tables]
+    result = [lut[:, :, :, :-1] for lut in lookup_tables]
+    # append the depth from the last lookup table
+    result.append(lookup_tables[-1][:, :, :, -1])
 
-        print("Concatenating...")
-        # these are all 4D arrays, so it makes sense we are concatenating on axis=3
-        # (hard to visualize, since we only see three dimensions)
-        result = np.concatenate(lookup_tables, axis=3)
-        np.save(filename, result)
+    print("Concatenating...")
+    # these are all 4D arrays, so it makes sense we are concatenating on axis=3
+    # (hard to visualize, since we only see three dimensions)
+    result = np.concatenate(lookup_tables, axis=3)
+    np.save(filename, result)
 
 class LookUpCalibration:
     """
@@ -41,6 +43,10 @@ class LookUpCalibration:
         self.structure_grammar     = {}
         self.roi                   = None
 
+        # flag for parallelizing position processing
+        self.parallelize_positions = False
+        self.num_cpus              = 1
+
     # setters
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
@@ -49,6 +55,7 @@ class LookUpCalibration:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
         """
         Parameters
@@ -60,7 +67,7 @@ class LookUpCalibration:
             Function only aceppts ChArUco and Checkerboard/Chessboard.
         """
         if type(pattern) is dict:
-            try: 
+            try:
                 if pattern["type"] == "charuco":
                     pattern = Charuco(board_config=pattern)
                 elif pattern["type"] == "checkerboard":
@@ -68,6 +75,7 @@ class LookUpCalibration:
             except:
                 pattern = Charuco(board_config=pattern)
         self.plane_pattern = pattern
+
     def set_calibration_directory(self, path: str):
         """
 
@@ -82,6 +90,7 @@ class LookUpCalibration:
         dirs = [f.path for f in os.scandir(path) if f.is_dir()]
         self.num_directories = len(dirs)
         self.calibration_directory = [get_all_paths(dir) for dir in dirs]
+
     def set_structure_grammar(self, structure_grammar: dict):
         """
         The structure grammar is the configuration to read images
@@ -95,13 +104,14 @@ class LookUpCalibration:
                 },
                 "utils": {
                     "white": "white.tiff",
-                    "ambient": "ambient.tiff"
+                    "black": "black.tiff"
                 }
             }
         The list of strings are the images which will be used
         to create a look up table with the key name.
         """
         self.structure_grammar = structure_grammar
+
     def set_roi(self, roi: list | set):
         """
 
@@ -112,6 +122,25 @@ class LookUpCalibration:
         """
         self.roi = roi
 
+    # setter for parallelization flag
+    def set_parallelize_positions(self, parallelize: bool):
+        """
+        Parameters
+        ----------
+        parallelize : bool
+            Whether to parallelize the position processing.
+        """
+        self.parallelize_positions = parallelize
+    
+    def set_num_cpus(self, num_cpus: int):
+        """
+        Parameters
+        ----------
+        num_cpus : int
+            Number of CPUs to use for parallel processing.
+        """
+        self.num_cpus = int(num_cpus)
+
     # getters
 
     # functions
@@ -120,7 +149,7 @@ class LookUpCalibration:
         """
         assert self.camera.K is not None, "No camera defined"
         assert self.plane_pattern is not None, "No Plane Pattern defined"
-
+        
         # detect plane/board markers with camera
         img_points, obj_points, _ = \
             self.plane_pattern.detect_markers(white_image)
@@ -135,24 +164,23 @@ class LookUpCalibration:
                                                  img_points,
                                                  self.camera.K,
                                                  self.camera.dist_coeffs)
-        
         rvec = result['rvec']
         tvec = result['tvec']
-        
+
         R, _ = cv2.Rodrigues(rvec)
         T = tvec.reshape((3,1))
-        
+
         # move markers to world coordinate
         R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
-        # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
+        # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation
         # has to be written as (R @ obj_points.T).T
         # to simplify:
         # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
         world_points = np.matmul(obj_points, R_combined.T) + T_combined.reshape((1,3))
-
+        
         # fit plane
         return ThreeDUtils.fit_plane(world_points)
-    
+
     def find_depth(self, white_image: str | np.ndarray) -> np.ndarray:
         """
         TODO: finding depth will happen PER FRAME of calibration, only after it will be glued together
@@ -160,15 +188,14 @@ class LookUpCalibration:
         plane_q, plane_n = self.reconstruct_plane(white_image)
         width, height = self.camera.get_image_shape()
         campixels_x, campixels_y = np.meshgrid(np.arange(width),
-                                               np.arange(height))
-        
+                                                    np.arange(height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
 
         origin, rays = ThreeDUtils.camera_to_ray_world(campixels, self.camera.R, self.camera.T, self.camera.K, self.camera.dist_coeffs)
         points = ThreeDUtils.intersect_line_with_plane(origin, rays, plane_q, plane_n)
 
         depth = np.linalg.norm(points - origin, axis=1, ord=2)
-
+        
         # bs = np.matmul(R.T, (xs - T).T).T
         # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
         #     (roi[1] < bs[:, 1]) & (bs[:, 1] < roi[3])
@@ -178,10 +205,10 @@ class LookUpCalibration:
 
         depth = depth.reshape((height, width))
         np.savez_compressed(os.path.join(get_folder_from_file(white_image), "depth.npz"), depth=depth)
-    
+
     def save_lookup_table(self,
-                          lookup_table: np.ndarray,
-                          filename):
+                            lookup_table: np.ndarray,
+                            filename):
                         #   roi: np.ndarray):
         """
         Save the lookup table as a npy file.
@@ -189,40 +216,44 @@ class LookUpCalibration:
         np.save(os.path.join(self.root, filename), lookup_table)
 
     def calibrate_positions(self):
-        def _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, ambient, dirname):
+        def _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black, dirname):
             """
             Util function to normalize all pattern images with white image (and with black image if available)
             for a single position of calibration.
 
             This function is meant to be innacessible to user.
             """
-            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(dirname, image), white_image, ambient) for image in image_names], axis=2)
+            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(dirname, image), white_image, black) for image in image_names], axis=2)
             np.savez_compressed(os.path.join(dirname, f"{pattern_name}.npz"), pattern=normalized)
 
         def _calibrate_all_patterns_single_positon(position):
             """
             Util function to normalize all pattern images with white image (and with black image if available)
             for a single position of calibration.
-
+            
             This function is meant to be innacessible to user.
             """
             white_image = None
-            ambient = None
+            black = None
             for util_name, image_name in self.structure_grammar['utils'].items():
                 if util_name == 'white':
                     white_image = os.path.join(position, image_name)
                 if util_name == 'black':
-                    ambient = os.path.join(position, image_name)
+                    black = os.path.join(position, image_name)
             self.find_depth(white_image)
 
             for pattern_name, image_names in self.structure_grammar['tables'].items():
-                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, ambient, position)
+                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black, position)
 
-
-        for folder in self.calibration_directory:
-            _calibrate_all_patterns_single_positon(get_folder_from_file(folder[0]))
-
-            
+        # optional parallelization
+        if self.parallelize_positions:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                futures = [executor.submit(_calibrate_all_patterns_single_positon, get_folder_from_file(folder[0])) for folder in self.calibration_directory]
+                concurrent.futures.wait(futures)  # Wait for all tasks to complete
+        else:
+        # original sequential processing
+            for folder in self.calibration_directory:
+                _calibrate_all_patterns_single_positon(get_folder_from_file(folder[0]))
 
     def stack_results(self):
         """
@@ -250,22 +281,24 @@ class LookUpCalibration:
             self.save_lookup_table(lookup_table, pattern_name)
 
         save_json({'roi': self.roi,
-                   'structure_grammar': self.structure_grammar,
-                   'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
-                   os.path.join(self.root, 'calibration_info.json'))
-    
+                    'structure_grammar': self.structure_grammar,
+                    'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
+                    os.path.join(self.root, 'calibration_info.json'))
+
     def run(self, config: dict | str):
         if type(config) is str:
             config = load_json(config)
-
+        
         self.set_camera(config['look_up_calibration']['camera_calibration'])
         self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
         self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
+        self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
+        self.set_num_cpus(config['look_up_calibration']['num_cpus'])
         self.calibrate_positions()
         self.stack_results()
 
-    
+
 class LookUpReconstruction:
     def __init__(self):
         self.camera    = Camera()
@@ -288,6 +321,10 @@ class LookUpReconstruction:
         self.colors      = None
         self.normals     = None
 
+        # flag for parallelizing pixel processing
+        self.parallelize_pixels = False
+        self.num_cpus           = 1
+
     # setters
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
@@ -296,6 +333,7 @@ class LookUpReconstruction:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+
     def set_white_images(self, image_paths: list | str):
         """
         Parameters
@@ -305,6 +343,7 @@ class LookUpReconstruction:
             These images will be used for normalizing the color images.
         """
         self.white_images = get_all_paths(image_paths)
+
     def set_color_images(self, image_paths: list | str):
         """
         Parameters
@@ -315,31 +354,53 @@ class LookUpReconstruction:
             the depth stored in the tables saved from LookUpCalibration.
         """
         self.color_images = get_all_paths(image_paths)
+
     def set_lookup_table(self, lookup_table_path: str):
         """
         Path to .npy file where LookUp table is stored.
         """
         self.lookup_table = lookup_table_path
+
     def set_knots(self, knots: int | list[int]):
         """
         Knots will be used to fit a cubic B spline on the LookUp table data.
-
         Notes
         -----
         If only one integer is passed, it will be used for all color channels.
         If a list is passed, it needs to match the order of the color channels.
         """
         self.knots = knots
+
     def set_samples(self, samples: int):
         """
         Samples will be used to sample the cubic B spline fit along the depth
         of each color channel in the LookUp table.
         """
         self.samples = max(samples, 0)
+
     def set_mask(self, mask: np.ndarray):
         """
         """
         self.mask = mask
+
+    # setter for parallelization flag
+    def set_parallelize_pixels(self, parallelize: bool):
+        """
+        Parameters
+        ----------
+        parallelize : bool
+            Whether to parallelize the pixel processing.
+        """
+        self.parallelize_pixels = parallelize
+
+    def set_num_cpus(self, num_cpus: int):
+        """
+        Parameters
+        ----------
+        num_cpus : int
+            Number of CPUs to use for parallel processing.
+        """
+        self.num_cpus = int(num_cpus)
 
     # getters
     def get_mask(self):
@@ -378,7 +439,7 @@ class LookUpReconstruction:
         loss = np.linalg.norm(fitted_color - pixel, axis=0) # I think it's axis=1
         argmin = np.argmin(loss)
         return d_samples[argmin]
-    
+
     def extract_colors(self, white_image: str | np.ndarray) -> np.ndarray:
         """
         Extract colors PER FRAME, using the white pattern image.
@@ -394,7 +455,7 @@ class LookUpReconstruction:
         maximum = np.max(white_image)
         colors = (white_image - minimum) / (maximum - minimum)
         return colors
-    
+
     def extract_normals(self, point_cloud):
         """
         Extract normals PER FRAME, using the reconstructed point cloud.
@@ -406,13 +467,13 @@ class LookUpReconstruction:
         """
         normals = ThreeDUtils.normals_from_point_cloud(point_cloud)
         return normals
-    
+
     def reconstruct(self):
         """
         TODO: reconstruction will happen PER FRAME
         TODO: inside here, it will run PER CAMERA RAY
         """
-        lookup_table = np.load(self.lookup_table) 
+        lookup_table = np.load(self.lookup_table)
 
         for frame_number, (white_image, color_image) in enumerate(zip(self.white_images, self.color_images)):
             normalized = ImageUtils.normalize_color(white_image, color_image)
@@ -420,16 +481,32 @@ class LookUpReconstruction:
             # allocate the memory for point cloud
             point_cloud = np.zeros(shape=(normalized.shape, 3))
 
-            for idx, (pixel, lookup) in enumerate(
-                zip(normalized.reshape(-1, *normalized.shape[2:]),
-                    lookup_table.reshape(-1, *lookup_table.shape[2:]))):
-                point3D = self.extract_depth(pixel, lookup)
-                point_cloud[idx, :] = point3D
+            if self.parallelize_pixels:
+                pixels = normalized.reshape(-1, *normalized.shape[2:])
+                lookups = lookup_table.reshape(-1, *lookup_table.shape[2:])
+                num_pixels = pixels.shape[0]
+
+                point_cloud_temp = np.zeros((num_pixels, 3))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                    results = list(executor.map(self.extract_depth, pixels, lookups))
+                for idx, point3D in enumerate(results):
+                    point_cloud_temp[idx, :] = point3D
+
+                point_cloud = point_cloud_temp.reshape(normalized.shape + (3,))
+
+            else:
+                # original sequential processing
+                for idx, (pixel, lookup) in enumerate(
+                    zip(normalized.reshape(-1, *normalized.shape[2:]),
+                        lookup_table.reshape(-1, *lookup_table.shape[2:]))):
+                    point3D = self.extract_depth(pixel, lookup)
+                    point_cloud[idx, :] = point3D
 
             colors = self.extract_colors(white_image)
             normals = self.extract_normals(point_cloud)
 
-            self.save_point_cloud_as_ply(frame_number, point_cloud, normals, colors)
+            self.save_point_cloud_as_ply(str(frame_number), point_cloud, normals, colors)
 
     def save_point_cloud_as_ply(self,
                                 filename: str,
@@ -451,4 +528,16 @@ class LookUpReconstruction:
         self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
         self.set_knots(config['look_up_reconstruction']['knots'])
         self.set_samples(config['look_up_reconstruction']['samples'])
+        self.set_parallelize_pixels(config['look_up_reconstruction']['parallelize_pixels'])
+        self.set_num_cpus(config['look_up_reconstruction']['num_cpus'])
         self.reconstruct()
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Look Up Calibration and Reconstruction")
+    parser.add_argument('-c', '--calibration_config', type=str, help="Path to config for Look Up Calibration")
+    args = parser.parse_args()
+
+    luc = LookUpCalibration()
+    config = args.calibration_config
+    luc.run(config)

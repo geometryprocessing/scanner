@@ -55,6 +55,7 @@ class LocalHomographyCalibration:
         self.plane_pattern = pattern
     def set_calibration_directory(self, path: str):
         """
+        # TODO: change the get_all_paths to get_all_folders?
 
         Parameters
         ----------
@@ -208,14 +209,14 @@ class LocalHomographyCalibration:
         if isinstance(config, str):
             config = load_json(config)
 
-        self.camera.set_image_shape(config['camera_shape'])
-        self.projector.set_projector_shape(config['projector_shape'])
+        self.camera.set_image_shape(config['local_homography']['camera_shape'])
+        self.projector.set_projector_shape(config['local_homography']['projector_shape'])
 
-        self.camera.set_error_threshold(config['camera_error_thr'])
-        self.projector.set_error_threshold(config['projector_error_thr'])
+        self.camera.set_error_threshold(config['local_homography']['camera_error_thr'])
+        self.projector.set_error_threshold(config['local_homography']['projector_error_thr'])
 
-        self.set_plane_pattern(config['plane_pattern'])
-        self.set_calibration_directory(config['calibration_directory'])
+        self.set_plane_pattern(config['local_homography']['plane_pattern'])
+        self.set_calibration_directory(config['local_homography']['calibration_directory'])
 
         self.decode()
         self.detect_markers_and_homographies()

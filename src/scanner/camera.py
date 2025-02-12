@@ -622,26 +622,26 @@ class Camera:
         if isinstance(config, str):
             config = load_json(config)
 
-        self.set_intrinsic_image_paths(config['intrinsic_folder_path'])
-        self.set_extrinsic_image_path(config['extrinsic_image_path'])
+        self.set_intrinsic_image_paths(config['camera_calibration']['intrinsic_folder_path'])
+        self.set_extrinsic_image_path(config['camera_calibration']['extrinsic_image_path'])
 
-        self.set_height(config['height'])
-        self.set_width(config['width'])
+        self.set_height(config['camera_calibration']['height'])
+        self.set_width(config['camera_calibration']['width'])
 
         # calibration utils
-        self.set_calibration_pattern(config['charuco'])
-        self.set_error_threshold(config['error_thr'])
-        self.set_min_points(config['min_points'])
+        self.set_calibration_pattern(config['camera_calibration']['charuco'])
+        self.set_error_threshold(config['camera_calibration']['error_thr'])
+        self.set_min_points(config['camera_calibration']['min_points'])
 
         # intrinsic
         self.detect_markers_for_intrinsic()
         self.calibrate_intrinsics()
         self.refine()
-        self.set_scaling_factor(config['scaling_factor'])
+        self.set_scaling_factor(config['camera_calibration']['scaling_factor'])
         self.calibrate_new_optimal_intrinsic_matrix()
 
         # extrinsic (or skip if camera is origin)
         self.detect_markers_for_extrinsic()
         self.calibrate_extrinsics()
         
-        self.save_calibration(config['output_filename'])
+        self.save_calibration(config['camera_calibration']['output_filename'])

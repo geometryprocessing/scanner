@@ -652,16 +652,16 @@ class Projector:
         if isinstance(config, str):
             config = load_json(config)
 
-        self.set_image_paths(config['image_folder_path'])
-        self.set_projector_height(config['height'])
-        self.set_projector_width(config['width'])
-        self.load_camera(config['camera_calibration'])
-        self.set_plane_pattern(config['aruco_dict'])
-        self.set_calibration_pattern(config['checkerboard_dict'])
-        self.set_error_threshold(config['error_thr'])
-        self.set_min_points(config['min_points'])
+        self.set_image_paths(config['projector_calibration']['image_folder_path'])
+        self.set_projector_height(config['projector_calibration']['height'])
+        self.set_projector_width(config['projector_calibration']['width'])
+        self.load_camera(config['projector_calibration']['camera_calibration'])
+        self.set_plane_pattern(config['projector_calibration']['plane_pattern'])
+        self.set_calibration_pattern(config['projector_calibration']['calibration_pattern'])
+        self.set_error_threshold(config['projector_calibration']['error_thr'])
+        self.set_min_points(config['projector_calibration']['min_points'])
 
         self.calibrate_intrinsic()
         self.calibrate_extrinsics()
         
-        self.save_calibration(config['output_filename'])
+        self.save_calibration(config['projector_calibration']['output_filename'])

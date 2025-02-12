@@ -106,11 +106,29 @@ class ImageUtils:
 
         return img
     
+    def convert_to_gray(image: np.ndarray) -> np.ndarray:
+        """
+        Function to convert RGB image to grayscale.
+
+        Parameters
+        ----------
+        image : array_like
+            image array
+
+        Returns
+        ----------
+        grayscale version of image
+        """
+        return (.2989 * image[:,:,0] \
+                + .5870 * image[:,:,1] \
+                + .1140 * image[:,:,2]).astype(image.dtype)
+    
     @staticmethod
     def normalize_color(
         color_image: str | np.ndarray,
         white_image: str | np.ndarray,
-        black_image: str | np.ndarray = None
+        black_image: str | np.ndarray = None,
+        black_scale: float=1.0
         ) -> np.ndarray:
         """
         Take a color image and a white image, apply a Gaussian blur
@@ -133,11 +151,14 @@ class ImageUtils:
             white_image = ImageUtils.load_ldr(white_image)
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
-        if black_image is not None and isinstance(black_image, str):
-            black_image = ImageUtils.load_ldr(color_image)
+        if black_image is not None:
+            if isinstance(black_image, str):
+                black_image = ImageUtils.load_ldr(color_image)
+            dtype = black_image.dtype
+            black_image = (black_image * black_scale).astype(dtype)
 
-        white_image = ImageUtils.blur_3(white_image, sigmas=np.ones(3) * 1.5)
-        color_image = ImageUtils.blur_3(color_image, sigmas=np.ones(3) * 1.5)
+        white_image = ImageUtils.blur(white_image, sigma=1.5)
+        color_image = ImageUtils.blur(color_image, sigma=1.5)
 
         thr, s = 0.01, np.min(white_image, axis=2)
         mask = s > thr * np.max(s)
@@ -145,7 +166,8 @@ class ImageUtils:
         normalized = np.zeros_like(color_image, dtype=np.float32)
 
         if black_image is not None:
-            black_image = ImageUtils.blur_3(black_image, sigmas=np.ones(3) * 1.5)
+            black_image = ImageUtils.blur(black_image, sigma=1.5)
+            black_image = np.broadcast_to(black_image, color_image.shape)
             normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
         else:
             normalized[mask] = color_image[mask] / white_image[mask]
@@ -195,7 +217,7 @@ class ImageUtils:
         return rgb
     
     @staticmethod
-    def blur_3(image: np.ndarray, sigmas: list[float]) -> np.ndarray:
+    def blur(image: np.ndarray, sigma: int | float | list[float] | list[int]) -> np.ndarray:
         """
         Take image and apply Gaussian blur kernel.
         Function creates a copy of image and returns the blurred version.
@@ -213,9 +235,7 @@ class ImageUtils:
         blurred copy of image
         """
         img = deepcopy(image)
-        for i in range(3):
-            img[:, :, i] = gaussian_filter(image[:, :, i], sigma=sigmas[i])
-
+        img = gaussian_filter(img, sigma=sigma)
         return img
     
     @staticmethod
@@ -327,9 +347,7 @@ class ImageUtils:
 
             # Convert image to grayscale if requested using the first three channels
             if make_gray and len(shape) > 2 and shape[2] >= 3:
-                img_array = (.2989 * img_array[:,:,0] \
-                             + .5870 * img_array[:,:,1] \
-                                + .1140 * img_array[:,:,2]).astype(dtype)
+                img_array = ImageUtils.convert_to_gray(img_array)
 
             # Normalize pixel values if requested
             if normalize:
@@ -395,24 +413,21 @@ class ImageUtils:
             numpy array (shape NxMx1) of depth (only returned if load_depth set to True)
         """
         with OpenEXR.File(filename) as infile:
-            dw = infile.header()['dataWindow']
-            dim = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
             if len(infile.header()['channels']) == 3:
-                (R, G, B) = infile.channels()["RGB"]
+                RGB = infile.channels()["RGB"].pixels
                 d = None
             elif len(infile.header()['channels']) >= 4:
-                R = infile.channels()["R"].pixels
-                G = infile.channels()["G"].pixels
-                B = infile.channels()["B"].pixels
+                R = infile.header()['channels']["R"].pixels
+                G = infile.header()['channels']["G"].pixels
+                B = infile.header()['channels']["B"].pixels
+                RGB = np.stack([R, G, B], axis=2)
 
                 if load_depth:
                     d = infile.channel()["distance.Y"].pixels
                 else:
                     d = None
 
-            rgb = np.stack([R, G, B], axis=2)
-
-            img = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if make_gray else rgb
+            img = ImageUtils.convert_to_gray(RGB) if make_gray else RGB
             if load_depth:
                 return img, d
             else:
@@ -432,9 +447,11 @@ class ImageUtils:
         make_gray : boolean, optional
             Flag to convert RGB image to grayscale (True) or save with all three color channels (False).
             Default is True.
+
+        Note: this function is compatible with OpenEXR 3.x, not 2.x
         """
         if len(image.shape) > 2:
-            if make_gray:
+            if make_gray is True:
                 R = G = B = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float16)
             else:
                 R = image[:, :, 0].astype(np.float16)
@@ -443,14 +460,14 @@ class ImageUtils:
         else:
             R = G = B = image.astype(np.float16)
 
-        header = { 'compression' : OpenEXR.PXR24_COMPRESSION}
-                #   "type" : OpenEXR.scanlineimage }
+        header = {'compression': OpenEXR.PXR24_COMPRESSION}
         channels = {'R': R,
                     'G': G,
                     'B': B}
 
         with OpenEXR.File(header, channels) as outfile:
             outfile.write(filename)
+
 
     @staticmethod
     def linear_map(img, thr=None, mask=None, gamma=1.0):

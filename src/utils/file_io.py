@@ -30,6 +30,31 @@ def get_folder_from_file(path: str) -> str:
     """
     return os.path.dirname(path)
 
+def get_all_folders(path: str) -> list[str]:
+    """
+    Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).
+
+    Parameters
+    ----------
+    path : str
+        A path to a directory.
+
+    Returns
+    -------
+    list of str
+        A list of naturally sorted full paths to all directories found in the input directory.
+
+    Notes
+    -----
+    Naturally sorted means that the file
+    'hello_world_01.txt' will come before 'hello_world_10.txt', because 01 < 10.
+    For more information, read
+    https://github.com/SethMMorton/natsort/wiki/How-Does-Natsort-Work%3F-(1-%E2%80%90-Basics)
+    """
+
+    return natsorted([f.path for f in os.scandir(path) if f.is_dir()])
+
+
 def get_all_paths(paths: str | list[str]) -> list[str]:
     """
     Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).

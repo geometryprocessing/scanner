@@ -1,16 +1,15 @@
 import cv2
+import concurrent.futures
 from datetime import datetime
 import numpy as np
 import os
 from scipy import interpolate
 
 from src.utils.three_d_utils import ThreeDUtils
-from src.utils.file_io import save_json, load_json, get_all_paths, get_folder_from_file
+from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
-# for parallel processing
-import concurrent.futures
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """
@@ -86,10 +85,9 @@ class LookUpCalibration:
             each with the same structured light capture of a calibration board
         """
         assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
-        self.root = path
-        dirs = [f.path for f in os.scandir(path) if f.is_dir()]
-        self.num_directories = len(dirs)
-        self.calibration_directory = [get_all_paths(dir) for dir in dirs]
+        self.root = os.path.abspath(path)
+        self.calibration_directory = get_all_folders(self.root)
+        self.num_directories = len(self.calibration_directory)
 
     def set_structure_grammar(self, structure_grammar: dict):
         """
@@ -112,17 +110,18 @@ class LookUpCalibration:
         """
         self.structure_grammar = structure_grammar
 
-    def set_roi(self, roi: list | set):
+    def set_roi(self, roi: list | np.ndarray):
         """
 
         Parameters
         ----------
         roi : list or set
             xyxy region of interest to reduce size of look up tables 
+        
+        Note: set it to None if you would like to use the whole pixel array from the camera. 
         """
         self.roi = roi
 
-    # setter for parallelization flag
     def set_parallelize_positions(self, parallelize: bool):
         """
         Parameters
@@ -139,7 +138,7 @@ class LookUpCalibration:
         num_cpus : int
             Number of CPUs to use for parallel processing.
         """
-        self.num_cpus = int(num_cpus)
+        self.num_cpus = int(max(1, num_cpus))
 
     # getters
 
@@ -216,17 +215,17 @@ class LookUpCalibration:
         np.save(os.path.join(self.root, filename), lookup_table)
 
     def calibrate_positions(self):
-        def _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black, dirname):
+        def _calibrate_single_pattern_single_position(pattern_name: str, image_names: list[str], white_image: str, black_image: str, black_scale: float, folder: str):
             """
             Util function to normalize all pattern images with white image (and with black image if available)
             for a single position of calibration.
 
             This function is meant to be innacessible to user.
             """
-            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(dirname, image), white_image, black) for image in image_names], axis=2)
-            np.savez_compressed(os.path.join(dirname, f"{pattern_name}.npz"), pattern=normalized)
+            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(folder, image), white_image, black_image, black_scale) for image in image_names], axis=2)
+            np.savez_compressed(os.path.join(folder, f"{pattern_name}.npz"), pattern=normalized)
 
-        def _calibrate_all_patterns_single_positon(position):
+        def _calibrate_all_patterns_single_positon(folder: str):
             """
             Util function to normalize all pattern images with white image (and with black image if available)
             for a single position of calibration.
@@ -234,26 +233,30 @@ class LookUpCalibration:
             This function is meant to be innacessible to user.
             """
             white_image = None
-            black = None
+            black_image = None
+            black_scale = 1.0
             for util_name, image_name in self.structure_grammar['utils'].items():
                 if util_name == 'white':
-                    white_image = os.path.join(position, image_name)
+                    white_image = os.path.join(folder, image_name)
                 if util_name == 'black':
-                    black = os.path.join(position, image_name)
+                    black_image = os.path.join(folder, image_name)
+                if util_name == 'black_scale':
+                    black_scale = float(image_name)
             self.find_depth(white_image)
 
             for pattern_name, image_names in self.structure_grammar['tables'].items():
-                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black, position)
+                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black_image, black_scale, folder)
+       
 
         # optional parallelization
         if self.parallelize_positions:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(_calibrate_all_patterns_single_positon, get_folder_from_file(folder[0])) for folder in self.calibration_directory]
+                futures = [executor.submit(_calibrate_all_patterns_single_positon, folder) for folder in self.calibration_directory]
                 concurrent.futures.wait(futures)  # Wait for all tasks to complete
         else:
         # original sequential processing
             for folder in self.calibration_directory:
-                _calibrate_all_patterns_single_positon(get_folder_from_file(folder[0]))
+                _calibrate_all_patterns_single_positon(folder)
 
     def stack_results(self):
         """
@@ -261,6 +264,17 @@ class LookUpCalibration:
         Best thing to do is similar to Yurii's legacy code, where we, at the end, concatenate all single_positions
         into a MEGA lookup table.
         """
+        def _stack_single_pattern_single_position(table: np.ndarray, index: int, folder: str):
+            """
+            Util function to ...
+
+            This function is meant to be innacessible to user.
+            """
+            depth = np.load(os.path.join(folder, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
+            pattern = np.load(os.path.join(folder, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
+            table[:,:,index,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
+
+
         width, height = self.camera.get_image_shape()
         x0, y0 = 0, 0
 
@@ -273,11 +287,19 @@ class LookUpCalibration:
         for pattern_name in self.structure_grammar['tables'].keys():
             # allocate memory for massive, single float precision numpy array
             lookup_table = np.full(shape=(height, width, self.num_directories, 4), fill_value=np.nan, dtype=np.float32)
-            for pos, folder in enumerate(self.calibration_directory):
-                position_dirname = get_folder_from_file(folder[0])
-                depth = np.load(os.path.join(position_dirname, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
-                pattern = np.load(os.path.join(position_dirname, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
-                lookup_table[:,:,pos,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
+            
+            # optional parallelization
+            if self.parallelize_positions:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                    futures = [executor.submit(_stack_single_pattern_single_position, lookup_table, pos, folder) for pos, folder in enumerate(self.calibration_directory)]
+                    concurrent.futures.wait(futures)  # Wait for all tasks to complete
+
+            else:
+                # original sequential processing
+                for pos, folder in enumerate(self.calibration_directory):
+                    depth = np.load(os.path.join(folder, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
+                    pattern = np.load(os.path.join(folder, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
+                    lookup_table[:,:,pos,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
             self.save_lookup_table(lookup_table, pattern_name)
 
         save_json({'roi': self.roi,
@@ -291,6 +313,7 @@ class LookUpCalibration:
         
         self.set_camera(config['look_up_calibration']['camera_calibration'])
         self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
+        self.set_roi(config['look_up_calibration']['roi'])
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
         self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
         self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
@@ -383,7 +406,6 @@ class LookUpReconstruction:
         """
         self.mask = mask
 
-    # setter for parallelization flag
     def set_parallelize_pixels(self, parallelize: bool):
         """
         Parameters
@@ -400,7 +422,7 @@ class LookUpReconstruction:
         num_cpus : int
             Number of CPUs to use for parallel processing.
         """
-        self.num_cpus = int(num_cpus)
+        self.num_cpus = int(max(1, num_cpus))
 
     # getters
     def get_mask(self):
@@ -535,9 +557,17 @@ class LookUpReconstruction:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Look Up Calibration and Reconstruction")
-    parser.add_argument('-c', '--calibration_config', type=str, help="Path to config for Look Up Calibration")
+    parser.add_argument('-c', '--calibration_config', type=str, default=None,
+                        help="Path to config for Look Up Calibration")
+    parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
+                    help='Path to config JSON with parameters for LookUp Reconstruction')
+
     args = parser.parse_args()
 
-    luc = LookUpCalibration()
-    config = args.calibration_config
-    luc.run(config)
+    if args.calibration_config is not None:
+        luc = LookUpCalibration()
+        luc.run(args.calibration_config)
+
+    if args.reconstruction_config is not None:
+        lur = LookUpReconstruction()
+        lur.run(args.reconstruction_config)

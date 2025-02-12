@@ -1,11 +1,11 @@
-matplotlib==3.10.0
-natsort==8.4.0
-numpy==2.2.2
-open3d==0.19.0 # latest is Python 3.12
-opencv_contrib_python==4.11.0.86
-OpenEXR==3.3.2 # latest is Python 3.12
-Pillow==11.1.0
-rawpy==0.24.0
-scipy==1.15.1
+matplotlib
+natsort
+numpy
+open3d # latest is Python 3.12
+opencv_contrib_python
+OpenEXR # latest is Python 3.12
+Pillow
+rawpy
+scipy
 
 git+https://github.com/elerac/structuredlight

@@ -133,7 +133,7 @@ class ImageUtils:
         """
         Take a color image and a white image, apply a Gaussian blur
         on both and get color divided by white.
-        This function is relevant to LookUp reconstruction.
+        This function is relevant to LookUp Calibration and Reconstruction.
 
         Parameters
         ----------
@@ -147,32 +147,32 @@ class ImageUtils:
         normalized
             numpy array of color_image / white_image
         """
-        if isinstance(white_image, str):
-            white_image = ImageUtils.load_ldr(white_image)
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
-        if black_image is not None:
+        color_image = np.atleast_3d(color_image)
+
+        monochromatic = True if color_image.shape[2] == 1 else False
+
+        if isinstance(white_image, str):
+            white_image = ImageUtils.load_ldr(white_image, make_gray=monochromatic)
+        white_image = np.atleast_3d(white_image)
+
+        if black_image is None:
+            black_image = np.zeros_like(color_image)
+        else:
             if isinstance(black_image, str):
-                black_image = ImageUtils.load_ldr(color_image)
+                black_image = ImageUtils.load_ldr(black_image, make_gray=monochromatic)
+            black_image = np.atleast_3d(black_image)
             dtype = black_image.dtype
             black_image = (black_image * black_scale).astype(dtype)
-
-        white_image = ImageUtils.blur(white_image, sigma=1.5)
-        color_image = ImageUtils.blur(color_image, sigma=1.5)
 
         thr, s = 0.01, np.min(white_image, axis=2)
         mask = s > thr * np.max(s)
 
         normalized = np.zeros_like(color_image, dtype=np.float32)
-
-        if black_image is not None:
-            black_image = ImageUtils.blur(black_image, sigma=1.5)
-            black_image = np.broadcast_to(black_image, color_image.shape)
-            normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
-        else:
-            normalized[mask] = color_image[mask] / white_image[mask]
-
-        return normalized
+        # normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
+        normalized[mask] = (color_image[mask]) / (white_image[mask])
+        return np.clip(normalized, 0., 1.)
 
     
     @staticmethod
@@ -217,7 +217,7 @@ class ImageUtils:
         return rgb
     
     @staticmethod
-    def blur(image: np.ndarray, sigma: int | float | list[float] | list[int]) -> np.ndarray:
+    def blur(image: np.ndarray, sigmas: int | float | list[float] | list[int]) -> np.ndarray:
         """
         Take image and apply Gaussian blur kernel.
         Function creates a copy of image and returns the blurred version.
@@ -235,8 +235,12 @@ class ImageUtils:
         blurred copy of image
         """
         img = deepcopy(image)
-        img = gaussian_filter(img, sigma=sigma)
-        return img
+        img = np.atleast_3d(img)
+        sigmas = np.atleast_1d(sigmas)
+        shape = img.shape
+        for idx in range(shape[2]):
+            img[:,:,idx] = gaussian_filter(img[:,:,idx], sigma=sigmas[idx])
+        return np.squeeze(img)
     
     @staticmethod
     def replace_hot_pixels(image, dark, thr=32):
@@ -296,7 +300,7 @@ class ImageUtils:
     @staticmethod
     def load_ldr(filename: str, make_gray: bool = False, normalize: bool = False) -> np.ndarray:
         """
-        Load LDR (low dynamic range) image using Pillow. Flags can be set to make it grayscale
+        Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
         and/or normalize the value range to [0, 1.0) as np.float64.
 
         Parameters
@@ -321,7 +325,7 @@ class ImageUtils:
         """
         try:
             # Open the image with Pillow
-            img = Image.open(filename)
+            # img = Image.open(filename)
 
             # # Handle EXIF orientation
             # try:
@@ -340,13 +344,18 @@ class ImageUtils:
             # except Exception as e:
             #     print(f"Warning: Could not handle EXIF orientation: {e}")
 
-            img_array = np.array(img)
+            # img_array = np.array(img)
             # save the data type and shape for future operations
+
+            img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
             dtype = img_array.dtype
             shape = img_array.shape
+            if len(shape) > 2 and shape[2] == 3:
+                # invert from BGR to RGB
+                img_array = img_array[:,:,::-1]
 
             # Convert image to grayscale if requested using the first three channels
-            if make_gray and len(shape) > 2 and shape[2] >= 3:
+            if make_gray and len(shape) > 2 and shape[2] == 3:
                 img_array = ImageUtils.convert_to_gray(img_array)
 
             # Normalize pixel values if requested

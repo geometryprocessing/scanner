@@ -127,7 +127,8 @@ class ImageUtils:
     def normalize_color(
         color_image: str | np.ndarray,
         white_image: str | np.ndarray,
-        black_image: str | np.ndarray = None
+        black_image: str | np.ndarray = None,
+        black_scale: float=1.0
         ) -> np.ndarray:
         """
         Take a color image and a white image, apply a Gaussian blur
@@ -150,11 +151,14 @@ class ImageUtils:
             white_image = ImageUtils.load_ldr(white_image)
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
-        if black_image is not None and isinstance(black_image, str):
-            black_image = ImageUtils.load_ldr(color_image)
+        if black_image is not None:
+            if isinstance(black_image, str):
+                black_image = ImageUtils.load_ldr(color_image)
+            dtype = black_image.dtype
+            black_image = (black_image * black_scale).astype(dtype)
 
-        white_image = ImageUtils.blur_3(white_image, sigmas=np.ones(3) * 1.5)
-        color_image = ImageUtils.blur_3(color_image, sigmas=np.ones(3) * 1.5)
+        white_image = ImageUtils.blur(white_image, sigma=1.5)
+        color_image = ImageUtils.blur(color_image, sigma=1.5)
 
         thr, s = 0.01, np.min(white_image, axis=2)
         mask = s > thr * np.max(s)
@@ -162,7 +166,8 @@ class ImageUtils:
         normalized = np.zeros_like(color_image, dtype=np.float32)
 
         if black_image is not None:
-            black_image = ImageUtils.blur_3(black_image, sigmas=np.ones(3) * 1.5)
+            black_image = ImageUtils.blur(black_image, sigma=1.5)
+            black_image = np.broadcast_to(black_image, color_image.shape)
             normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
         else:
             normalized[mask] = color_image[mask] / white_image[mask]
@@ -212,7 +217,7 @@ class ImageUtils:
         return rgb
     
     @staticmethod
-    def blur_3(image: np.ndarray, sigmas: list[float]) -> np.ndarray:
+    def blur(image: np.ndarray, sigma: int | float | list[float] | list[int]) -> np.ndarray:
         """
         Take image and apply Gaussian blur kernel.
         Function creates a copy of image and returns the blurred version.
@@ -230,9 +235,7 @@ class ImageUtils:
         blurred copy of image
         """
         img = deepcopy(image)
-        for i in range(3):
-            img[:, :, i] = gaussian_filter(image[:, :, i], sigma=sigmas[i])
-
+        img = gaussian_filter(img, sigma=sigma)
         return img
     
     @staticmethod

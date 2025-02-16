@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import concurrent.futures
 from datetime import datetime
@@ -10,6 +11,39 @@ from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folde
 from src.utils.image_utils import ImageUtils
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
+
+# TODO: MOVE THIS TO UTILS
+import heapq
+def k_smallest(arr: np.ndarray, k: int):
+    """
+    Function to find the k largest elements in the array using a min heap.
+
+    Parameters
+    ----------
+    arr: array_like
+        array with elements
+    k: int
+        k smallest will be returned
+
+    Returns
+    -------
+    
+
+    """
+    # Create a min-heap with the first k elements (value, index)
+    minH = [(arr[i], i) for i in range(k)]
+    heapq.heapify(minH)
+
+    # Traverse the rest of the array
+    for i in range(k, len(arr)):
+        if arr[i] < minH[0][0]:
+            heapq.heapreplace(minH, (arr[i], i))
+    
+    # Separate values and indices
+    values = [x[0] for x in minH]
+    indices = [x[1] for x in minH]
+    
+    return values, indices
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """
@@ -28,23 +62,35 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
 
 class LookUpCalibration:
     """
-    TODO: this should actually take the path to a folder with MANY position folders.
-    In each POSITION folder, it contains all of the images with different patterns 
-    projected on the same depth.
     """
-    def __init__(self):
+    def __init__(self, config: dict | str = None):
         self.camera = Camera()
 
-        self.plane_pattern         = None
-        self.root                  = None
+        self.plane_pattern = None
+        self.root = None
         self.calibration_directory = []
-        self.num_directories       = 0
-        self.structure_grammar     = {}
-        self.roi                   = None
+        self.num_directories = 0
+        self.structure_grammar = {}
+        self.roi = None
 
         # flag for parallelizing position processing
         self.parallelize_positions = False
-        self.num_cpus              = 1
+        self.num_cpus = 1
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+        
+        self.set_camera(config['look_up_calibration']['camera_calibration'])
+        self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
+        self.set_roi(config['look_up_calibration']['roi'])
+        self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
+        self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
+        self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
+        self.set_num_cpus(config['look_up_calibration']['num_cpus'])
 
     # setters
     def set_camera(self, camera: str | dict | Camera):
@@ -81,8 +127,8 @@ class LookUpCalibration:
         Parameters
         ----------
         path : str
-            path to directory containing multiple calibration folders,
-            each with the same structured light capture of a calibration board
+            path to directory containing multiple scenes folders,
+            each with the same structured light capture of an object
         """
         assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
         self.root = os.path.abspath(path)
@@ -102,7 +148,8 @@ class LookUpCalibration:
                 },
                 "utils": {
                     "white": "white.tiff",
-                    "black": "black.tiff"
+                    "black": "black.tiff",
+                    "black_scale: 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -307,46 +354,69 @@ class LookUpCalibration:
                     'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
                     os.path.join(self.root, 'calibration_info.json'))
 
-    def run(self, config: dict | str):
-        if type(config) is str:
-            config = load_json(config)
-        
-        self.set_camera(config['look_up_calibration']['camera_calibration'])
-        self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
-        self.set_roi(config['look_up_calibration']['roi'])
-        self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
-        self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
-        self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
-        self.set_num_cpus(config['look_up_calibration']['num_cpus'])
+    def run(self):
         self.calibrate_positions()
         self.stack_results()
 
 
 class LookUpReconstruction:
-    def __init__(self):
-        self.camera    = Camera()
+    def __init__(self, config: dict | str = None):
+        self.camera = Camera()
 
-        # image paths
-        self.white_images = []
-        self.color_images = []
+        self.reconstruction_directory = []
+        self.structure_grammar = {}
 
         # reconstruction utils
         self.lookup_table = None
-        self.knots        = []
-        self.samples      = 1000
-        # TODO: PROBABLY WILL BE DISCARDED
-        # TODO: better ROI, since it's fixed for all frames?
-        self.thr         = None
-        # TODO: PROBABLY WILL BE DISCARDED, too much memory storing these
-        self.mask        = None
-        self.point_cloud = None
-        self.depth_map   = None
-        self.colors      = None
-        self.normals     = None
+        self.knots = []
+        self.samples = 1000
+        self.roi = None
+        self.white_image = None
+        self.thr = None # threshold for mask
+        self.mask = None
+        self.pattern_images = None
+        self.black_image = None
+        self.black_scale = 0.1
+        self.normalized = None
 
+        # flag for debugging and verbose
+        self.debug = False
+        self.verbose = False
         # flag for parallelizing pixel processing
         self.parallelize_pixels = False
-        self.num_cpus           = 1
+        self.num_cpus = 1
+
+        # reconstruction outpus
+        self.depth_map = None
+        self.point_cloud = None
+        self.colors = None
+        self.normals = None
+        # extra outputs if debug=True
+        self.loss_1 = None
+        self.loss_2 = None
+        self.loss_12 = None
+        self.depth_12 = None
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.set_camera(config['look_up_reconstruction']['camera_calibration'])
+        # TODO: consider moving roi and mask_thr to structure_grammar['utils']
+        self.set_roi(config['look_up_reconstruction']['roi'])
+        self.set_mask_threshold(config['look_up_reconstruction']['mask_thr'])
+
+        self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
+        self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
+        self.set_structure_grammar(config['look_up_reconstruction']['structure_grammar'])
+        self.set_parallelize_pixels(config['look_up_reconstruction']['parallelize_pixels'])
+        self.set_num_cpus(config['look_up_reconstruction']['num_cpus'])
+        self.set_debug(config['look_up_reconstruction']['debug'])
+        self.set_verbose(config['look_up_reconstruction']['verbose'])
+        self.set_outputs(config['look_up_reconstruction']['outputs'])
 
     # setters
     def set_camera(self, camera: str | dict | Camera):
@@ -357,54 +427,78 @@ class LookUpReconstruction:
         else:
             self.camera = camera
 
-    def set_white_images(self, image_paths: list | str):
+    def set_reconstruction_directory(self, path: str):
         """
+
         Parameters
         ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be used for normalizing the color images.
+        path : str
+            path to directory containing multiple scene folders,
+            each with the images that match the "utils" and the "tables" images
+            for LookUp reconstruction
         """
-        self.white_images = get_all_paths(image_paths)
+        assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
+        self.reconstruction_directory = os.path.abspath(path)
+        
+    def set_lookup_table(self, lookup_table: str | np.ndarray):
+        """
 
-    def set_color_images(self, image_paths: list | str):
-        """
         Parameters
         ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be normalized with the white images and then used for finding
-            the depth stored in the tables saved from LookUpCalibration.
+        lookup_table : str or array_like
+            if string, must be path to load lookup table (.npy file)
         """
-        self.color_images = get_all_paths(image_paths)
+        if isinstance(lookup_table, str):
+            lookup_table = np.load(lookup_table)
+        self.lookup_table = lookup_table
 
-    def set_lookup_table(self, lookup_table_path: str):
+    def set_structure_grammar(self, structure_grammar: dict):
         """
-        Path to .npy file where LookUp table is stored.
+        The structure grammar is the configuration to read images, look up tables, 
+        and create the depth maps/point clouds accordingly.
+        Example below:
+            structure_grammar = {
+                "table": {
+                    "name": "gray",
+                    "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
+                    "interpolant": {
+                        "active": true,
+                        "knots": [150, 160, 140],
+                        "samples": 1000, 
+                    }
+                },
+                "utils": {
+                    "white": "white.tiff",
+                    "black": "black.tiff",
+                    "black_scale": 0.1
+                }
+            }
+        The list of strings are the images which will be used
+        to create a look up table with the key name.
         """
-        self.lookup_table = lookup_table_path
+        self.structure_grammar = structure_grammar
 
-    def set_knots(self, knots: int | list[int]):
+    def set_roi(self, roi: list | np.ndarray):
         """
-        Knots will be used to fit a cubic B spline on the LookUp table data.
-        Notes
-        -----
-        If only one integer is passed, it will be used for all color channels.
-        If a list is passed, it needs to match the order of the color channels.
-        """
-        self.knots = knots
 
-    def set_samples(self, samples: int):
+        Parameters
+        ----------
+        roi : list or set
+            xyxy region of interest to reduce size of look up tables 
+        
+        Note: set it to None if you would like to use the whole pixel array from the camera. 
         """
-        Samples will be used to sample the cubic B spline fit along the depth
-        of each color channel in the LookUp table.
-        """
-        self.samples = max(samples, 0)
+        self.roi = roi
 
-    def set_mask(self, mask: np.ndarray):
+    def set_mask_threshold(self, thr: float):
         """
+
+        Parameters
+        ----------
+        thr : float
+            
         """
-        self.mask = mask
+        self.thr = min(1., max(0., float(thr)))
 
     def set_parallelize_pixels(self, parallelize: bool):
         """
@@ -424,45 +518,156 @@ class LookUpReconstruction:
         """
         self.num_cpus = int(max(1, num_cpus))
 
-    # getters
-    def get_mask(self):
-        return self.mask
+    def set_verbose(self, verbose: bool):
+        """
+        Parameters
+        ----------
+        verbose : bool
+            Whether to print messages while processing.
+            Default is False
+        """
+        self.verbose = verbose
 
-    def generate_mask(self, image, ):
+    def set_debug(self, debug: bool):
         """
-        TODO: generating mask will happen PER FRAME of calibration
+        Parameters
+        ----------
+        verbose : bool
+            Whether to save extra debug results.
+            Default is False
         """
-        pass
-        if self.mask is not None:
-            print("External mask provided")
-            return
-        ImageUtils.generate_mask()
+        self.debug = debug
+
+    def set_outputs(self, outputs: dict):
+        """
+        Parameters
+        ----------
+        outputs : dict
+            Dictionary containing which outputs to save.
+            outputs: {
+                "depth_map": True,
+                "point_cloud": True,
+                "loss_1": True,
+                "loss_2": True,
+                "loss_12": True,
+                "depth_12": True
+            }
+            Each can be set to True or False
+
+        Notes: 
+        - depth_map is a HxW numpy array containing depth per pixel of the result.
+        - point_cloud is a 3D numpy array of the result.
+        - loss_1 is a HxW numpy array containing the loss from the pixel and the first nearest neighbor.
+        - loss_2 is a HxW numpy array containing the loss from the pixel and the second nearest neighbor.
+        - loss_12 is a HxW numpy array containing the loss
+            from the first nearest neighbor and the second nearest neighbor.
+        - depth_12 is a HxW numpy array containing the depth distance
+            from the first nearest neighbor and the second nearest neighbor.
+        """
+        self.outputs = outputs
+
+    # getters
+    def mask_already_exists(self):
+        return os.path.exists(os.path.join(self.reconstruction_directory, 'mask.npy'))
 
     # reconstruction functions
-    def extract_depth(self, pixel, lookup):
+    def load_images(self):
+        if self.verbose:
+            print('-' * 15)
+            print("Loading images")
+        width, height = self.camera.get_image_shape()
+        x0, y0 = 0, 0
+
+        if self.roi is not None:
+            x0 = self.roi[0]
+            y0 = self.roi[1]
+            width = self.roi[2] - x0
+            height = self.roi[3] - y0
+            
+        images: list[str] = self.structure_grammar['table']['images']
+        utils: dict = self.structure_grammar['utils']
+        self.pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, image)))[y0:y0+height,x0:x0+width] for image in images], axis=2)
+        self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['white']))[y0:y0+height,x0:x0+width]
+        self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
+        self.black_scale = utils['black_scale']
+
+    def extract_mask(self):
+        """
+        """
+        if self.mask_already_exists():
+            if self.verbose:
+                print('-' * 15)
+                print("Found mask -- loading it")
+            self.mask = np.load(os.path.join(self.reconstruction_directory, 'mask.npy'))
+        else:
+            if self.verbose:
+                print('-' * 15)
+                print("Extracting mask from white image")
+            s = np.min(self.white_image, axis=2)
+            self.mask: np.ndarray = s > self.thr * np.max(s)
+    
+    def normalize_color(self):
+        if self.verbose:
+            print('-' * 15)
+            print("Normalizing pattern images")
+        self.normalized: np.ndarray = ImageUtils.normalize_color(self.pattern_images,
+                                                     self.white_image,
+                                                     self.mask,
+                                                     self.black_image,
+                                                     self.black_scale)
+
+    def calculate_loss_per_pixel(self, color, pixel, ord=2) -> np.ndarray:
+        """
+        
+        """
+        loss = np.linalg.norm(color - pixel, ord=ord, axis=1)
+        return loss
+    
+    def smooth_lookup(self, color, depth) -> np.ndarray:
+        """
+        
+        """
+        knots = self.structure_grammar['table']['interpolant']['knots']
+        samples = self.structure_grammar['table']['interpolant']['samples']
+        fits = []
+        try:
+            for ch in range(color.shape[1]):
+                fit = interpolate.make_splrep(depth, color[:, ch], t=np.linspace(depth[2], depth[-3], knots[ch]), k=3)
+                fits.append(fit)
+        except ValueError as e:
+            print("Fit failed", e)
+            return np.full(shape=(1,3), fill_value=np.nan)
+
+        d_samples = np.linspace(depth[0], depth[-1], samples)
+        fitted_color = np.array([fits[i](d_samples) for i in range(len(fits))])
+        return fitted_color
+    
+    def extract_depth(self,
+                      pixel,
+                      lookup) -> tuple[float, float, float, float, float] | float:
         """
         TODO: replace slow np.argmin with some form of gradient descent
         Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
         second order derivatives of the splines with scipy.interpolate.BSpline.derivative
         """
-        fits = []
-        color = lookup[:, :-1]
-        depth = lookup[:, -1]
-        try:
-            for ch in range(color.shape[1]):
-                fit = interpolate.splrep(depth, color[:, ch], t=np.linspace(depth[2], depth[-3], self.knots[ch]), k=3)
-                fits.append(interpolate.BSpline(*fit))
-        except ValueError as e:
-            print("Fit failed", e)
-            return np.full(shape=(1,3), fill_value=np.nan)
+        color = lookup[::-1, :-1]
+        depth = lookup[::-1, -1]
+        if self.structure_grammar['table']['interpolant']['active']:
+            color = self.smooth_lookup(color, depth)
 
-        d_samples = np.linspace(depth[0], depth[-1], self.samples)
-        fitted_color = np.array([fits[i](d_samples) for i in range(len(fits))])
-        loss = np.linalg.norm(fitted_color - pixel, axis=0) # I think it's axis=1
-        argmin = np.argmin(loss)
-        return d_samples[argmin]
+        loss = self.calculate_loss_per_pixel(color, pixel)
+        if self.debug:
+            k_losses, k_indices = k_smallest(loss, 2)
+            return depth[k_indices[0]], k_losses[0], k_losses[1], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
+        k_losses, k_indices = k_smallest(loss, 1)
+        return depth[k_indices[0]]
 
-    def extract_colors(self, white_image: str | np.ndarray) -> np.ndarray:
+    def process_pixel(self, mask, pixel, lookup):
+        if not mask:
+            return None
+        return self.extract_depth(pixel, lookup)
+
+    def extract_colors(self) -> np.ndarray:
         """
         Extract colors PER FRAME, using the white pattern image.
 
@@ -471,91 +676,143 @@ class LookUpReconstruction:
         colors
             numpy array of the colors of the scene
         """
-        if isinstance(white_image, str):
-            white_image = ImageUtils.load_ldr(white_image)
-        minimum = np.min(white_image)
-        maximum = np.max(white_image)
-        colors = (white_image - minimum) / (maximum - minimum)
-        return colors
+        if self.verbose:
+            print("Extracting colors for point cloud")
+        minimum = np.min(self.white_image)
+        maximum = np.max(self.white_image)
+        self.colors: np.ndarray = ((self.white_image - minimum) / (maximum - minimum)).reshape((-1,3))
 
-    def extract_normals(self, point_cloud):
+    def extract_point_cloud(self):
+        self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
+                                                                  K=self.camera.K,
+                                                                  dist_coeffs=self.camera.dist_coeffs,
+                                                                  R=self.camera.R,
+                                                                  T=self.camera.T,
+                                                                  roi=self.roi)
+    def extract_normals(self):
         """
-        Extract normals PER FRAME, using the reconstructed point cloud.
+        Extract normals using the reconstructed point cloud.
 
         Returns
         -------
         normal
             numpy array of the normals of reconstructed point cloud
         """
-        normals = ThreeDUtils.normals_from_point_cloud(point_cloud)
-        return normals
+        if self.verbose:
+            print("Extracting normals for point cloud")
+        self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
 
     def reconstruct(self):
         """
-        TODO: reconstruction will happen PER FRAME
-        TODO: inside here, it will run PER CAMERA RAY
         """
-        lookup_table = np.load(self.lookup_table)
+        if self.verbose:
+            print('-' * 15)
+            print("Beginning reconstruction")
+        # allocate the memory for depth_map
+        shape = self.normalized.shape[:2]
+        self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64).flatten()
+        if self.debug:
+            self.loss_1 = np.zeros(shape=shape, dtype=np.float64).flatten()
+            self.loss_2 = np.zeros(shape=shape, dtype=np.float64).flatten()
+            self.loss_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
+            self.depth_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
+        
+        if self.parallelize_pixels:
+            if self.verbose:
+                print("Parallelizing")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                futures = [executor.submit(self.process_pixel, mask, pixel, lookup)
+                           for mask, pixel, lookup in zip(self.mask.flatten(),
+                                                          self.normalized.reshape(-1, *self.normalized.shape[2:]),
+                                                          self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))]
+                concurrent.futures.wait(futures)  # Wait for all tasks to complete
+            for idx, results in enumerate(futures):
+                if results is None:
+                    continue
 
-        for frame_number, (white_image, color_image) in enumerate(zip(self.white_images, self.color_images)):
-            normalized = ImageUtils.normalize_color(white_image, color_image)
+                if self.debug:
+                    self.depth_map[idx] = results[0]
+                    self.loss_1[idx] = results[1]
+                    self.loss_2[idx] = results[2]
+                    self.loss_12[idx] = results[3]
+                    self.depth_12[idx] = results[4]
+                else:
+                    self.depth_map[idx] = results
+        else:
+            # original sequential processing
+            for idx, (mask, pixel, lookup) in enumerate(zip(self.mask.flatten(),
+                                                            self.normalized.reshape(-1, *self.normalized.shape[2:]),
+                                                            self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))):
+                results = self.process_pixel(mask, pixel, lookup)
+                if results is None:
+                    continue
 
-            # allocate the memory for point cloud
-            point_cloud = np.zeros(shape=(normalized.shape, 3))
+                if self.debug:
+                    self.depth_map[idx] = results[0]
+                    self.loss_1[idx] = results[1]
+                    self.loss_2[idx] = results[2]
+                    self.loss_12[idx] = results[3]
+                    self.depth_12[idx] = results[4]
+                else:
+                    self.depth_map[idx] = results
 
-            if self.parallelize_pixels:
-                pixels = normalized.reshape(-1, *normalized.shape[2:])
-                lookups = lookup_table.reshape(-1, *lookup_table.shape[2:])
-                num_pixels = pixels.shape[0]
+        if self.verbose:
+            print("Reshaping resulting arrays from 1D back to 2D")
+            self.depth_map = self.depth_map.reshape(shape)
+            if self.debug:
+                self.loss_1 = self.loss_1.reshape(shape)
+                self.loss_2 = self.loss_2.reshape(shape)
+                self.loss_12 = self.loss_12.reshape(shape)
+                self.depth_12 = self.depth_12.reshape(shape)
 
-                point_cloud_temp = np.zeros((num_pixels, 3))
+    def save_outputs(self):
+        table_name = self.structure_grammar['table']['name']
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                    results = list(executor.map(self.extract_depth, pixels, lookups))
-                for idx, point3D in enumerate(results):
-                    point_cloud_temp[idx, :] = point3D
+        if self.outputs['depth_map']:
+            np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)
+            if self.verbose:
+                print('-' * 15)
+                print("Saved depth map")
 
-                point_cloud = point_cloud_temp.reshape(normalized.shape + (3,))
+        if self.outputs['point_cloud']:
+            if self.verbose:
+                print('-' * 15)
+                print("Constructing point cloud")
+            self.extract_point_cloud()
+            self.extract_normals()
+            self.extract_colors()
+            ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
+                                 self.point_cloud,
+                                 self.normals,
+                                 self.colors)
+            if self.verbose:
+                print("Saved point cloud")
 
-            else:
-                # original sequential processing
-                for idx, (pixel, lookup) in enumerate(
-                    zip(normalized.reshape(-1, *normalized.shape[2:]),
-                        lookup_table.reshape(-1, *lookup_table.shape[2:]))):
-                    point3D = self.extract_depth(pixel, lookup)
-                    point_cloud[idx, :] = point3D
+        if self.outputs['mask']:
+            np.save(os.path.join(self.reconstruction_directory,"mask.npy"), self.mask)
+            if self.verbose:
+                print('-' * 15)
+                print("Saved mask")
 
-            colors = self.extract_colors(white_image)
-            normals = self.extract_normals(point_cloud)
+        if self.debug:
+            np.savez_compressed(os.path.join(self.reconstruction_directory,f"{table_name}_debug.npz"),
+                            loss_1=self.loss_1,
+                            loss_2=self.loss_2,
+                            loss_12=self.loss_12,
+                            depth_12=self.depth_12)
+            if self.verbose:
+                print('-' * 15)
+                print("Saved extra outputs because debug is set to True")
 
-            self.save_point_cloud_as_ply(str(frame_number), point_cloud, normals, colors)
-
-    def save_point_cloud_as_ply(self,
-                                filename: str,
-                                point_cloud: np.ndarray,
-                                normals: np.ndarray=None,
-                                colors: np.ndarray=None):
-        """
-        Save point cloud PER FRAME.
-        """
-        ThreeDUtils.save_ply(filename, point_cloud, normals, colors)
-
-    def run(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.set_camera(config['look_up_reconstruction']['camera_calibration'])
-        self.set_white_images(config['look_up_reconstruction']['white_images'])
-        self.set_color_images(config['look_up_reconstruction']['color_images'])
-        self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
-        self.set_knots(config['look_up_reconstruction']['knots'])
-        self.set_samples(config['look_up_reconstruction']['samples'])
-        self.set_parallelize_pixels(config['look_up_reconstruction']['parallelize_pixels'])
-        self.set_num_cpus(config['look_up_reconstruction']['num_cpus'])
+    def run(self):
+        self.load_images()
+        self.extract_mask()
+        self.normalize_color()
         self.reconstruct()
+        self.save_outputs()
+
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser(description="Look Up Calibration and Reconstruction")
     parser.add_argument('-c', '--calibration_config', type=str, default=None,
                         help="Path to config for Look Up Calibration")
@@ -565,9 +822,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.calibration_config is not None:
-        luc = LookUpCalibration()
-        luc.run(args.calibration_config)
+        luc = LookUpCalibration(args.calibration_config)
+        luc.run()
 
     if args.reconstruction_config is not None:
-        lur = LookUpReconstruction()
-        lur.run(args.reconstruction_config)
+        lur = LookUpReconstruction(args.reconstruction_config)
+        lur.run()

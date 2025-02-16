@@ -9,12 +9,11 @@ import OpenEXR
 
 class ImageUtils:
     @staticmethod
-    def undistort_camera_points(
-        points2D: np.ndarray,
-        K: np.ndarray,
-        dist_coeffs: np.ndarray,
-        R: np.ndarray=None,
-        P: np.ndarray=None ) -> np.ndarray:
+    def undistort_camera_points(points2D: np.ndarray,
+                                K: np.ndarray,
+                                dist_coeffs: np.ndarray,
+                                R: np.ndarray=None,
+                                P: np.ndarray=None) -> np.ndarray:
         """
         This function, by default, takes a array of 2D pixel coordinates (x,y)
         and returns normalized, homogenous coordinates (u,v,1).
@@ -37,12 +36,10 @@ class ImageUtils:
         return cv2.undistortPoints(np.array(points2D, dtype=np.float32).reshape((-1, 1, 2)), K, dist_coeffs, R, P).reshape((-1, 2))
     
     @staticmethod
-    def undistort_image(
-        image: np.ndarray,
-        K: np.ndarray,
-        dist_coeffs: np.ndarray,
-        newK : np.ndarray=None
-        ) -> np.ndarray:
+    def undistort_image(image: np.ndarray,
+                        K: np.ndarray,
+                        dist_coeffs: np.ndarray,
+                        newK : np.ndarray=None) -> np.ndarray:
         """
         Take image as numpy array and undistort it using OpenCV.
         Function creates a copy of image and returns the undistorted version.
@@ -66,9 +63,7 @@ class ImageUtils:
 
 
     @staticmethod
-    def homogeneous_coordinates(
-        points2D: np.ndarray
-        ) -> np.ndarray:
+    def homogeneous_coordinates(points2D: np.ndarray) -> np.ndarray:
         """
         Converts coordinates into homogenous form, i.e.
         the point (u, v) becomes (u, v, 1)
@@ -124,12 +119,11 @@ class ImageUtils:
                 + .1140 * image[:,:,2]).astype(image.dtype)
     
     @staticmethod
-    def normalize_color(
-        color_image: str | np.ndarray,
-        white_image: str | np.ndarray,
-        black_image: str | np.ndarray = None,
-        black_scale: float=1.0
-        ) -> np.ndarray:
+    def normalize_color(color_image: str | np.ndarray,
+                        white_image: str | np.ndarray,
+                        mask: str | np.ndarray = None,
+                        black_image: str | np.ndarray = None,
+                        black_scale: float=1.0) -> np.ndarray:
         """
         Take a color image and a white image, apply a Gaussian blur
         on both and get color divided by white.
@@ -150,33 +144,42 @@ class ImageUtils:
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
         color_image = np.atleast_3d(color_image)
-
         monochromatic = True if color_image.shape[2] == 1 else False
+        normalized = np.zeros_like(color_image, dtype=np.float32)
 
         if isinstance(white_image, str):
-            white_image = ImageUtils.load_ldr(white_image, make_gray=monochromatic)
+            white_image = ImageUtils.load_ldr(white_image)
         white_image = np.atleast_3d(white_image)
 
-        if black_image is None:
-            black_image = np.zeros_like(color_image)
+        if mask is None:
+            mask = np.full_like(white_image, fill_value=True, dtype=np.bool)
         else:
+            if isinstance(mask, str):
+                mask = np.load(mask)
+
+        if black_image is not None:
             if isinstance(black_image, str):
-                black_image = ImageUtils.load_ldr(black_image, make_gray=monochromatic)
+                black_image = ImageUtils.load_ldr(black_image)
             black_image = np.atleast_3d(black_image)
             dtype = black_image.dtype
             black_image = (black_image * black_scale).astype(dtype)
 
-        thr, s = 0.01, np.min(white_image, axis=2)
-        mask = s > thr * np.max(s)
+            if monochromatic:
+                white_image = ImageUtils.convert_to_gray(white_image)
+                black_image = ImageUtils.convert_to_gray(black_image)
 
-        normalized = np.zeros_like(color_image, dtype=np.float32)
-        # normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
-        normalized[mask] = (color_image[mask]) / (white_image[mask])
+            normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
+        else: 
+            if monochromatic:
+                white_image = ImageUtils.convert_to_gray(white_image)
+            normalized[mask] = (color_image[mask]) / (white_image[mask])
+
         return np.clip(normalized, 0., 1.)
 
     
     @staticmethod
-    def demosaic(bayer: np.ndarray, roll: bool=False) -> np.ndarray:
+    def demosaic(bayer: np.ndarray,
+                 roll: bool=False) -> np.ndarray:
         """
         Take raw image and demosaic it, i.e. reconstruct full color image.
         Function creates a copy of image and returns the demosaiced version.
@@ -217,7 +220,8 @@ class ImageUtils:
         return rgb
     
     @staticmethod
-    def blur(image: np.ndarray, sigmas: int | float | list[float] | list[int]) -> np.ndarray:
+    def blur(image: np.ndarray,
+             sigmas: int | float | list[float] | list[int]) -> np.ndarray:
         """
         Take image and apply Gaussian blur kernel.
         Function creates a copy of image and returns the blurred version.
@@ -243,7 +247,9 @@ class ImageUtils:
         return np.squeeze(img)
     
     @staticmethod
-    def replace_hot_pixels(image, dark, thr=32):
+    def replace_hot_pixels(image,
+                           dark,
+                           thr=32):
         """
         Take image and replace hot pixels with neighboring value.
 
@@ -298,7 +304,9 @@ class ImageUtils:
         return np.maximum(0, np.minimum(bayer, 1))
     
     @staticmethod
-    def load_ldr(filename: str, make_gray: bool = False, normalize: bool = False) -> np.ndarray:
+    def load_ldr(filename: str,
+                 make_gray: bool = False,
+                 normalize: bool = False) -> np.ndarray:
         """
         Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
         and/or normalize the value range to [0, 1.0) as np.float64.
@@ -374,7 +382,9 @@ class ImageUtils:
 
     
     @staticmethod
-    def save_ldr(filename: str, image: np.ndarray, ensure_rgb: bool=False):
+    def save_ldr(filename: str,
+                 image: np.ndarray,
+                 ensure_rgb: bool=False):
         """
         Save image with .LDR extension image using OpenCV.
 
@@ -397,7 +407,9 @@ class ImageUtils:
         cv2.imwrite(filename, image)  # expects BGR or Gray
     
     @staticmethod
-    def load_openexr(filename: str, make_gray: bool=False, load_depth: bool=False):
+    def load_openexr(filename: str,
+                     make_gray: bool=False,
+                     load_depth: bool=False):
         """
         Load .EXR extension image using OpenEXR. These are multi-channel,
         high-dynamic range images.
@@ -443,7 +455,9 @@ class ImageUtils:
                 return img
 
     @staticmethod
-    def save_openexr(filename: str, image: np.ndarray, make_gray: bool=True):
+    def save_openexr(filename: str,
+                     image: np.ndarray,
+                     make_gray: bool=True):
         """
         Save image with .EXR extension using OpenEXR.
 
@@ -479,7 +493,10 @@ class ImageUtils:
 
 
     @staticmethod
-    def linear_map(img, thr=None, mask=None, gamma=1.0):
+    def linear_map(img,
+                   thr=None,
+                   mask=None,
+                   gamma=1.0):
         """
         """
         if thr is None:

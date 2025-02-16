@@ -122,7 +122,8 @@ def load_json(filename: str) -> dict:
     with open(filename, 'r') as f:
         return numpinize(json.load(f))
 
-def save_json(data: dict, filename: str):
+def save_json(data: dict,
+              filename: str):
     """
     Function to save data as JSON file.
 

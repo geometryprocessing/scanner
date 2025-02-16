@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import numpy as np
 import os
@@ -10,28 +11,44 @@ from src.scanner.projector import Projector
 from src.reconstruction.structured_light import StructuredLight
 
 class LocalHomographyCalibration:
-    def __init__(self):
-        self.plane_pattern    = None
+    def __init__(self, config: dict | str = None):
+        self.plane_pattern = None
 
-        self.structured_light         = StructuredLight()
+        self.structured_light = StructuredLight()
         self.structured_light.set_pattern('gray')
 
-        self.calibration_directory    = None
-        self.num_directories          = 0
+        self.calibration_directory = None
+        self.num_directories = 0
         # this is determined from necessary images of gray patterns for the projector resolution
-        self.num_vertical_images      = 0 
-        self.num_horizontal_images    = 0 
+        self.num_vertical_images = 0 
+        self.num_horizontal_images = 0 
         
         self.window_size = 30
 
-        self.index_x                = []
-        self.index_y                = []
-        self.object_points          = []
-        self.camera_image_points    = []
+        self.index_x = []
+        self.index_y = []
+        self.object_points = []
+        self.camera_image_points = []
         self.projector_image_points = []
 
-        self.camera                = Camera()
-        self.projector             = Projector()
+        self.camera = Camera()
+        self.projector = Projector()
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.camera.set_image_shape(config['local_homography']['camera_shape'])
+        self.projector.set_projector_shape(config['local_homography']['projector_shape'])
+
+        self.camera.set_error_threshold(config['local_homography']['camera_error_thr'])
+        self.projector.set_error_threshold(config['local_homography']['projector_error_thr'])
+
+        self.set_plane_pattern(config['local_homography']['plane_pattern'])
+        self.set_calibration_directory(config['local_homography']['calibration_directory'])
 
     # setters
     def set_plane_pattern(self, pattern: dict | Charuco | CheckerBoard):
@@ -205,21 +222,19 @@ class LocalHomographyCalibration:
             "stereo_error": self.stereo_error
         }, os.path.join(self.calibration_directory, 'calibration.json'))
 
-    def run(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.camera.set_image_shape(config['local_homography']['camera_shape'])
-        self.projector.set_projector_shape(config['local_homography']['projector_shape'])
-
-        self.camera.set_error_threshold(config['local_homography']['camera_error_thr'])
-        self.projector.set_error_threshold(config['local_homography']['projector_error_thr'])
-
-        self.set_plane_pattern(config['local_homography']['plane_pattern'])
-        self.set_calibration_directory(config['local_homography']['calibration_directory'])
-
+    def run(self):
         self.decode()
         self.detect_markers_and_homographies()
 
         self.calibrate_stereo_system()
         self.save_calibration()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Local Homography Calibration")
+    parser.add_argument('-c', '--config', type=str, required=True,
+                        help="Path to config for Local Homography Calibration")
+
+    args = parser.parse_args()
+
+    lhc = LocalHomographyCalibration(args.config)
+    lhc.run()

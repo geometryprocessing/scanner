@@ -1,8 +1,8 @@
+import argparse
 import cv2
 import json
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths
@@ -20,35 +20,52 @@ from src.scanner.camera import Camera
 # projector
 
 class Projector:
-    def __init__(self):
+    def __init__(self, config: dict | str = None):
         # resolution
         self.width  = None
         self.height = None
         # accompanying camera
         self.camera = Camera()
         # intrinsic
-        self.K           = None
+        self.K = None
         self.dist_coeffs = None
-        self.rvecs       = np.zeros(shape=(3,1))
-        self.tvecs       = np.zeros(shape=(3,1))
+        self.rvecs = np.zeros(shape=(3,1))
+        self.tvecs = np.zeros(shape=(3,1))
         # extrinsic
         self.R = np.identity(3)        # projector is initialized at origin
         self.T = np.zeros(shape=(3,1)) # projector is initialized at origin
         # calibration utils
-        self.images               = []               # image paths
-        self.discarded_images     = set()
-        self.image_points         = []
-        self.object_points        = []
-        self.camera_image_points  = []  # camera points will be used for extrinsic calibration
-        self.camera_object_points = []  # camera points will be used for extrinsic calibration
-        self.planes               = []
-        self.errors               = []
-        self.plane_pattern        = None
-        self.calibration_pattern  = None
-        self.calibration_image    = None
-        self.error_thr            = None
-        self.min_points           = 4
+        self.images = []               # image paths
+        self.discarded_images = set()
+        self.image_points = []
+        self.object_points = []
+        self.camera_image_points = []  # camera points will be used for extrinsic calibration
+        self.camera_object_points = [] # camera points will be used for extrinsic calibration
+        self.planes = []
+        self.errors = []
+        self.plane_pattern = None
+        self.calibration_pattern = None
+        self.calibration_image = None
+        self.error_thr = None
+        self.min_points = 4
         # self.max_planes = 0 # TODO: discard
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.set_image_paths(config['projector_calibration']['image_folder_path'])
+        self.set_projector_height(config['projector_calibration']['height'])
+        self.set_projector_width(config['projector_calibration']['width'])
+        self.load_camera(config['projector_calibration']['camera_calibration'])
+        self.set_plane_pattern(config['projector_calibration']['plane_pattern'])
+        self.set_calibration_pattern(config['projector_calibration']['calibration_pattern'])
+        self.set_error_threshold(config['projector_calibration']['error_thr'])
+        self.set_min_points(config['projector_calibration']['min_points'])
+        self.set_output(config['projector_calibration']['output_filename'])
 
     # setters
     def set_intrinsic_matrix(self, K):
@@ -209,6 +226,15 @@ class Projector:
         """
         self.set_projector_width (shape[0])
         self.set_projector_height(shape[1])
+    def set_output(self, filename: str):
+        """
+        
+        Parameters
+        ----------
+        filename : str
+            path to where output will be saved as a JSON file 
+        """
+        self.output = filename
     def discard_intrinsic_images(self):
         self.images = [image for image in self.images if image not in self.discarded_images]
     
@@ -610,7 +636,7 @@ class Projector:
         """
         pass
         
-    def save_calibration(self, filename: str):
+    def save_calibration(self):
         """
         Save calibration into a JSON file.
 
@@ -633,7 +659,7 @@ class Projector:
             "width": self.width,
             "error": self.get_mean_error(),
             "error_threshold": self.error_thr
-        }, filename)
+        }, self.output)
 
     def load_calibration(self, calibration: str | dict):
         if type(calibration) is str:
@@ -648,20 +674,16 @@ class Projector:
         self.set_rotation(calibration['R'])
         self.set_translation(calibration['T'])
 
-    def run(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.set_image_paths(config['projector_calibration']['image_folder_path'])
-        self.set_projector_height(config['projector_calibration']['height'])
-        self.set_projector_width(config['projector_calibration']['width'])
-        self.load_camera(config['projector_calibration']['camera_calibration'])
-        self.set_plane_pattern(config['projector_calibration']['plane_pattern'])
-        self.set_calibration_pattern(config['projector_calibration']['calibration_pattern'])
-        self.set_error_threshold(config['projector_calibration']['error_thr'])
-        self.set_min_points(config['projector_calibration']['min_points'])
-
+    def run(self):
         self.calibrate_intrinsic()
         self.calibrate_extrinsics()
-        
-        self.save_calibration(config['projector_calibration']['output_filename'])
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Projector Calibration")
+    parser.add_argument('-c', '--config', type=str, required=True,
+                        help="Path to config for Projector Calibration")
+
+    args = parser.parse_args()
+
+    proj = Projector(args.config)
+    proj.run()

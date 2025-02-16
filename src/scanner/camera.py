@@ -1,10 +1,7 @@
+import argparse
 import cv2
 from enum import Enum
-import json
-import matplotlib as mlp
-import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 from src.utils.file_io import save_json, load_json, get_all_paths
 from src.utils.plotter import Plotter
@@ -69,35 +66,55 @@ def get_open_cv_calibration_flags(model):
     return flags
     
 class Camera:
-    def __init__(self):
+    def __init__(self, config: dict | str = None):
         self.model = "to-be-implemented" # this will be the CameraModel ENUM
 
         # image resolution
         self.width  = None
         self.height = None
         # intrinsic
-        self.intrinsic_images        = []     # image paths
-        self.discarded_images        = set()
+        self.intrinsic_images = [] # image paths
+        self.discarded_images = set()
         self.intrinsic_object_points = []
-        self.intrinsic_image_points  = []
-        self.K                       = None
-        self.scaling_factor          = 0
-        self.newK                    = None
-        self.roi                     = None
-        self.dist_coeffs             = None
-        self.rvecs                   = np.zeros(shape=(3,1))
-        self.tvecs                   = np.zeros(shape=(3,1))
+        self.intrinsic_image_points = []
+        self.K = None
+        self.scaling_factor = 0
+        self.newK = None
+        self.roi = None
+        self.dist_coeffs = None
+        self.rvecs = np.zeros(shape=(3,1))
+        self.tvecs = np.zeros(shape=(3,1))
         # extrinsic
-        self.extrinsic_image         = None     # image paths
+        self.extrinsic_image = None    # image paths
         self.extrinsic_object_points = []
-        self.extrinsic_image_points  = []
-        self.R                       = np.identity(3)        # camera is initialized at origin
-        self.T                       = np.zeros(shape=(3,1)) # camera is initialized at origin
+        self.extrinsic_image_points = []
+        self.R = np.identity(3)        # camera is initialized at origin
+        self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
         # calibration utils
-        self.errors              = []
+        self.errors = []
         self.calibration_pattern = None
-        self.error_thr           = 0
-        self.min_points          = 4
+        self.error_thr = 0
+        self.min_points = 4
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.set_intrinsic_image_paths(config['camera_calibration']['intrinsic_folder_path'])
+        self.set_extrinsic_image_path(config['camera_calibration']['extrinsic_image_path'])
+
+        self.set_height(config['camera_calibration']['height'])
+        self.set_width(config['camera_calibration']['width'])
+
+        # calibration utils
+        self.set_calibration_pattern(config['camera_calibration']['charuco'])
+        self.set_error_threshold(config['camera_calibration']['error_thr'])
+        self.set_min_points(config['camera_calibration']['min_points'])
+        self.set_scaling_factor(config['camera_calibration']['scaling_factor'])
+        self.set_output(config['camera_calibration']['output_filename'])
 
     # setters
     def set_intrinsic_matrix(self, K):
@@ -282,6 +299,15 @@ class Camera:
             Array of 3D world points of shape (N,3).
         """
         self.extrinsic_object_points = object_points
+    def set_output(self, filename: str):
+        """
+        
+        Parameters
+        ----------
+        filename : str
+            path to where output will be saved as a JSON file 
+        """
+        self.output = filename
 
     # getters
     def get_intrinsic_matrix(self) -> np.ndarray:
@@ -581,7 +607,7 @@ class Camera:
         """
         pass
         
-    def save_calibration(self, filename: str):
+    def save_calibration(self):
         """
         Save calibration into a JSON file.
 
@@ -604,7 +630,7 @@ class Camera:
             "width": self.width,
             "error": self.get_mean_error(),
             "error_threshold": self.error_thr
-        }, filename)
+        }, self.output)
 
     def load_calibration(self, calibration: str | dict):
         if type(calibration) is str:
@@ -618,30 +644,24 @@ class Camera:
         self.set_rotation(calibration['R'])
         self.set_translation(calibration['T'])
 
-    def run(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.set_intrinsic_image_paths(config['camera_calibration']['intrinsic_folder_path'])
-        self.set_extrinsic_image_path(config['camera_calibration']['extrinsic_image_path'])
-
-        self.set_height(config['camera_calibration']['height'])
-        self.set_width(config['camera_calibration']['width'])
-
-        # calibration utils
-        self.set_calibration_pattern(config['camera_calibration']['charuco'])
-        self.set_error_threshold(config['camera_calibration']['error_thr'])
-        self.set_min_points(config['camera_calibration']['min_points'])
+    def run(self):
 
         # intrinsic
         self.detect_markers_for_intrinsic()
         self.calibrate_intrinsics()
         self.refine()
-        self.set_scaling_factor(config['camera_calibration']['scaling_factor'])
         self.calibrate_new_optimal_intrinsic_matrix()
 
         # extrinsic (or skip if camera is origin)
         self.detect_markers_for_extrinsic()
         self.calibrate_extrinsics()
-        
-        self.save_calibration(config['camera_calibration']['output_filename'])
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Camera Calibration")
+    parser.add_argument('-c', '--config', type=str, required=True,
+                        help="Path to config for Camera Calibration")
+
+    args = parser.parse_args()
+
+    camera = Camera(args.config)
+    camera.run()

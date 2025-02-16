@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import numpy as np
 import structuredlight as sl
@@ -11,31 +12,43 @@ from src.scanner.camera import Camera
 from src.scanner.projector import Projector
 
 class StructuredLight:
-    def __init__(self):
+    def __init__(self, config: dict | str = None):
         self.projector = Projector()
-        self.camera    = Camera()
-        self.pattern   = None
+        self.camera = Camera()
+        self.pattern = None
 
         # image paths
-        self.horizontal_images         = []
-        self.vertical_images           = []
+        self.horizontal_images = []
+        self.vertical_images = []
         self.inverse_horizontal_images = []
-        self.inverse_vertical_images   = []
+        self.inverse_vertical_images = []
 
         self.black_image = None
         self.white_image = None
 
         # reconstruction utils
-        self.thr              = None
-        self.index_x          = None
-        self.index_y          = None
+        self.thr = None
+        self.index_x = None
+        self.index_y = None
         self.minimum_contrast = 0.1
-        self.mask             = None
+        self.mask = None
         # reconstruction
         self.point_cloud = None
-        self.depth_map   = None
-        self.colors      = None
-        self.normals     = None
+        self.depth_map = None
+        self.colors = None
+        self.normals = None
+
+        if config is not None:
+            self.load_config(config)
+
+    def load_config(self, config: str | dict):
+        if isinstance(config, str):
+            config = load_json(config)
+
+        self.set_black_pattern_image(config['structured_light']['black_image'])
+        self.set_white_pattern_image(config['structured_light']['white_image'])
+        self.set_threshold(config['structured_light']['threshold'])
+        self.set_output(config['structured_light']['output_filename'])
 
     # setters
     def set_pattern(self, pattern: str):
@@ -189,6 +202,15 @@ class StructuredLight:
         """
         """
         self.mask = mask
+    def set_output(self, filename: str):
+        """
+        
+        Parameters
+        ----------
+        filename : str
+            path to where output will be saved as a JSON file 
+        """
+        self.output = filename
 
     # getters
     def get_minimum_contrast(self):
@@ -372,9 +394,9 @@ class StructuredLight:
         elif self.point_cloud is not None:
             self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
 
-    def save_point_cloud_as_ply(self, filename: str):
+    def save_point_cloud_as_ply(self):
         assert self.point_cloud is not None, "No reconstruction yet"
-        ThreeDUtils.save_ply(filename, self.point_cloud, self.normals, self.colors)
+        ThreeDUtils.save_ply(self.output, self.point_cloud, self.normals, self.colors)
 
     def plot_normal_map(self, figsize: tuple=(12,16), filename: str=None):
         Plotter.plot_normal_map(self.normals, self.mask, figsize=figsize, filename=filename)
@@ -392,15 +414,20 @@ class StructuredLight:
                                figsize=figsize,
                                filename=filename)
 
-    def run(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.set_black_pattern_image(config['black_image'])
-        self.set_white_pattern_image(config['white_image'])
-        self.set_threshold(config['threshold'])
+    def run(self):
         self.decode()
         self.reconstruct()
         self.extract_colors()
         self.extract_normals()
-        self.save_point_cloud_as_ply(config['ply_filename'])
+        self.save_point_cloud_as_ply()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Structured Light Reconstruction")
+    parser.add_argument('-c', '--config', type=str, required=True,
+                        help="Path to config for Structured Light Reconstruction")
+
+    args = parser.parse_args()
+
+    struc = StructuredLight(args.config)
+    struc.run()

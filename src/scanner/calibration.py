@@ -35,7 +35,11 @@ CHARUCO_DICTIONARY_ENUM = {
 
 
 class CheckerBoard:
-    def __init__(self, rows=None, columns=None, checker_size=None, board_config=None):
+    def __init__(self,
+                 rows: int = None,
+                 columns: int = None,
+                 checker_size: int = None,
+                 board_config: dict = None):
         """
         Initialize checkerboard object for corner detection.
 
@@ -71,13 +75,16 @@ class CheckerBoard:
         obj_points[:, :2] = np.mgrid[0:self.rows, 0:self.columns].T.reshape(-1, 2) * self.checker_size
         return obj_points
     
-    def change_criteria(self, criteria: tuple[int, int, float]):
+    def change_criteria(self,
+                        criteria: tuple[int, int, float]):
         self.criteria = criteria
 
-    def create_image(self, resolution: tuple):
+    def create_image(self,
+                     resolution: tuple):
         pass
     
-    def detect_markers(self, image):
+    def detect_markers(self,
+                       image):
         """
         Detect checkerboard markers on grayscale image.
 
@@ -128,12 +135,12 @@ class CheckerBoard:
 
 class Charuco:
     def __init__(self,
-                rows=None,
-                columns=None,
-                checker_size=None,
-                marker_size=None,
-                dictionary=None,
-                board_config=None):
+                rows: int = None,
+                columns: int = None,
+                checker_size: int = None,
+                marker_size: int = None,
+                dictionary: str = None,
+                board_config: dict = None):
         """
         Initialize ChArUco object for marker detection.
 
@@ -171,7 +178,8 @@ class Charuco:
         self.chessboard_corners = self.charuco_board.getChessboardCorners()
         self.parameters = cv2.aruco.DetectorParameters()
 
-    def adjust_parameters(self, **kwargs):
+    def adjust_parameters(self,
+                          **kwargs):
         """
         Pass keyword arguments from OpenCV aruco library, such as
             adaptiveThreshWinSizeMin,
@@ -189,7 +197,8 @@ class Charuco:
         for key, value in kwargs.items():
             setattr(self.parameters, key, value)
     
-    def create_image(self, resolution: tuple[int, int]):
+    def create_image(self,
+                     resolution: tuple[int, int]):
         """
         Parameters
         ----------
@@ -204,7 +213,9 @@ class Charuco:
         """
         return self.charuco_board.generateImage(resolution)
     
-    def get_image_points(self, resolution: tuple[int, int], ids: list[int]):
+    def get_image_points(self,
+                         resolution: tuple[int, int],
+                         ids: list[int]) -> list[float]:
         """
         TODO: discard
         
@@ -225,7 +236,8 @@ class Charuco:
 
         return img_points[ids]
         
-    def detect_markers(self, image):
+    def detect_markers(self,
+                       image: str | np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Detect ChArUco markers on image.
 
@@ -278,8 +290,7 @@ class Calibration:
     @staticmethod
     def calibrate_intrinsic(object_points: list,
                             image_points: list,
-                            image_shape: tuple
-                            ) -> dict:
+                            image_shape: tuple) -> dict:
         """
         TODO: explain function
 
@@ -322,8 +333,7 @@ class Calibration:
                   image_shape: tuple,
                   K: np.ndarray=None,
                   dist_coeffs: np.ndarray=None,
-                  flags: int=0
-                  ) -> dict:
+                  flags: int=0) -> dict:
         """
         TODO: explain function
 
@@ -378,8 +388,7 @@ class Calibration:
                            image_shape: tuple,
                            K: np.ndarray=None,
                            dist_coeffs: np.ndarray=None,
-                           flags: int=0
-                           ) -> dict:
+                           flags: int=0) -> dict:
         """
         TODO: explain function
 
@@ -476,8 +485,7 @@ class Calibration:
                            rvec: np.ndarray,
                            tvec: np.ndarray,
                            K: np.ndarray, 
-                           dist_coeffs: np.ndarray
-                           ) -> np.ndarray:
+                           dist_coeffs: np.ndarray) -> np.ndarray:
         """
         TODO: explain function
 
@@ -519,8 +527,7 @@ class Calibration:
                            image_points: list,
                            K: np.ndarray,
                            dist_coeffs: np.ndarray,
-                           flags: int=cv2.SOLVEPNP_ITERATIVE
-                           ) -> dict:
+                           flags: int=cv2.SOLVEPNP_ITERATIVE) -> dict:
         """
         TODO: function explanation
 
@@ -577,8 +584,7 @@ class Calibration:
                          dist_coeffs_2: np.ndarray,
                          R_1: np.ndarray=np.identity(3),
                          T_1: np.ndarray=np.zeros((3,1)),
-                         flags: int=cv2.CALIB_FIX_INTRINSIC
-                         ) -> dict:
+                         flags: int=cv2.CALIB_FIX_INTRINSIC) -> dict:
         """
         TODO: function explanation
 

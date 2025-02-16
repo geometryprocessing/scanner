@@ -621,32 +621,40 @@ class ThreeDUtils:
     @staticmethod
     def point_cloud_from_depth_map(
         depth_map: np.ndarray,
-        R: np.ndarray,
-        T: np.ndarray,
-        K: np.ndarray) -> np.ndarray:
+        K: np.ndarray,
+        dist_coeffs: np.ndarray = None,
+        R: np.ndarray = [0,0,0],
+        T: np.ndarray = [0,0,0],
+        roi: np.ndarray = None) -> np.ndarray:
         """
 
         Parameters
         ----------
         depth_map : array_like
             depth map (shape HxW) already undistorted
-        R : array_like
-            camera rotation in world coordinate system. If sent as a 3x1 or 1x3 vector,
-            function uses Rodrigues to obtain 3x3 matrix
-        T : array_like
-            3x1 or 1x3 camera translation vector in world coordinate system
         K : array_like
             3x3 camera intrinsic matrix
+        dist_coeffs : array_like
+
+            Default value is None, i.e. this function will not undistort the camera pixels.
+        R : array_like, optional
+            camera rotation in world coordinate system. If sent as a 3x1 or 1x3 vector,
+            function uses Rodrigues to obtain 3x3 matrix
+            Default value is [0,0,0]
+        T : array_like, optional
+            3x1 or 1x3 camera translation vector in world coordinate system
+            Default value is [0,0,0]
+        roi : array_like, optional
+            region of interest as xyxy for the depth map.
+            Default value is None, i.e. this function assumes the depth map is the same shape
+            as the images taken by the camera. If the depth map is a crop of the original image,
+            the roi value needs to be set in order for the rays into the scene to be accurate.
 
         Returns
         -------
         point_cloud
             numpy array (shape Sx3) of points, where S = H * W from depth map.
             It can be fewer points if there is no depth information at certain pixels.
-
-        Notes
-        -----
-        This function does not accept depth maps that have not been corrected for distortion.
         """
         R = np.array(R, dtype=np.float32)
         T = np.array(T, dtype=np.float32).reshape((1,3))
@@ -654,15 +662,23 @@ class ThreeDUtils:
             R, _ = cv2.Rodrigues(R)
 
         shape = depth_map.shape
-        mask = depth_map[depth_map > 0]
-        campixels_x, campixels_y = np.meshgrid(np.arange(shape[1]),
-                                               np.arange(shape[0]))
+        width, height = shape[0], shape[1]
+        x0, y0 = 0, 0
+
+        if roi is not None:
+            x0 = roi[0]
+            y0 = roi[1]
+            width = roi[2] - x0
+            height = roi[3] - y0
+        # mask = depth_map[depth_map > 0]
+        campixels_x, campixels_y = np.meshgrid(np.arange(x0, x0+width),
+                                               np.arange(y0, y0+height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
         
-        result3D = np.matmul(ImageUtils.homogeneous_coordinates(campixels), np.linalg.inv(K).T) * depth_map
+        result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map.flatten()[:,np.newaxis]
         result3D = np.matmul(result3D, R.T) + T
 
-        return result3D[mask]
+        return result3D
 
     @staticmethod
     def depth_map_from_point_cloud(
@@ -708,11 +724,11 @@ class ThreeDUtils:
             numpy array (Nx3) of colors
         """
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points.astype(np.float32))
+        pcd.points = o3d.utility.Vector3dVector(points.astype(np.float64))
         if normals is not None:
-            pcd.normals = o3d.utility.Vector3dVector(normals.astype(np.float32))
+            pcd.normals = o3d.utility.Vector3dVector(normals.astype(np.float64))
         if colors is not None:
-            pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float32))
+            pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
         o3d.io.write_point_cloud(filename, pcd, compressed=False, print_progress=True)
 
     @staticmethod

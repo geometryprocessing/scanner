@@ -4,46 +4,14 @@ import concurrent.futures
 from datetime import datetime
 import numpy as np
 import os
-from scipy import interpolate
 
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
+from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
-# TODO: MOVE THIS TO UTILS
-import heapq
-def k_smallest(arr: np.ndarray, k: int):
-    """
-    Function to find the k largest elements in the array using a min heap.
-
-    Parameters
-    ----------
-    arr: array_like
-        array with elements
-    k: int
-        k smallest will be returned
-
-    Returns
-    -------
-    
-
-    """
-    # Create a min-heap with the first k elements (value, index)
-    minH = [(arr[i], i) for i in range(k)]
-    heapq.heapify(minH)
-
-    # Traverse the rest of the array
-    for i in range(k, len(arr)):
-        if arr[i] < minH[0][0]:
-            heapq.heapreplace(minH, (arr[i], i))
-    
-    # Separate values and indices
-    values = [x[0] for x in minH]
-    indices = [x[1] for x in minH]
-    
-    return values, indices
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """
@@ -623,25 +591,6 @@ class LookUpReconstruction:
         loss = np.linalg.norm(color - pixel, ord=ord, axis=1)
         return loss
     
-    def smooth_lookup(self, color, depth) -> np.ndarray:
-        """
-        
-        """
-        knots = self.structure_grammar['table']['interpolant']['knots']
-        samples = self.structure_grammar['table']['interpolant']['samples']
-        fits = []
-        try:
-            for ch in range(color.shape[1]):
-                fit = interpolate.make_splrep(depth, color[:, ch], t=np.linspace(depth[2], depth[-3], knots[ch]), k=3)
-                fits.append(fit)
-        except ValueError as e:
-            print("Fit failed", e)
-            return np.full(shape=(1,3), fill_value=np.nan)
-
-        d_samples = np.linspace(depth[0], depth[-1], samples)
-        fitted_color = np.array([fits[i](d_samples) for i in range(len(fits))])
-        return fitted_color
-    
     def extract_depth(self,
                       pixel,
                       lookup) -> tuple[float, float, float, float, float] | float:
@@ -653,13 +602,17 @@ class LookUpReconstruction:
         color = lookup[::-1, :-1]
         depth = lookup[::-1, -1]
         if self.structure_grammar['table']['interpolant']['active']:
-            color = self.smooth_lookup(color, depth)
+            knots = self.structure_grammar['table']['interpolant']['knots']
+            samples = self.structure_grammar['table']['interpolant']['samples']
+            color = spline_interpolant(depth, color, knots, samples)
 
-        loss = self.calculate_loss_per_pixel(color, pixel)
+        loss = calculate_loss(color, pixel, ord=np.inf)
+
         if self.debug:
-            k_losses, k_indices = k_smallest(loss, 2)
-            return depth[k_indices[0]], k_losses[0], k_losses[1], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
-        k_losses, k_indices = k_smallest(loss, 1)
+            k_indices = k_smallest_indices(loss, 2)
+            return depth[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
+        
+        k_indices = k_smallest_indices(loss, 1)
         return depth[k_indices[0]]
 
     def process_pixel(self, mask, pixel, lookup):
@@ -727,17 +680,18 @@ class LookUpReconstruction:
                                                           self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))]
                 concurrent.futures.wait(futures)  # Wait for all tasks to complete
             for idx, results in enumerate(futures):
-                if results is None:
+                result = results.result()
+                if result is None:
                     continue
 
                 if self.debug:
-                    self.depth_map[idx] = results[0]
-                    self.loss_1[idx] = results[1]
-                    self.loss_2[idx] = results[2]
-                    self.loss_12[idx] = results[3]
-                    self.depth_12[idx] = results[4]
+                    self.depth_map[idx] = result[0]
+                    self.loss_1[idx] = result[1]
+                    self.loss_2[idx] = result[2]
+                    self.loss_12[idx] = result[3]
+                    self.depth_12[idx] = result[4]
                 else:
-                    self.depth_map[idx] = results
+                    self.depth_map[idx] = result
         else:
             # original sequential processing
             for idx, (mask, pixel, lookup) in enumerate(zip(self.mask.flatten(),
@@ -758,12 +712,12 @@ class LookUpReconstruction:
 
         if self.verbose:
             print("Reshaping resulting arrays from 1D back to 2D")
-            self.depth_map = self.depth_map.reshape(shape)
-            if self.debug:
-                self.loss_1 = self.loss_1.reshape(shape)
-                self.loss_2 = self.loss_2.reshape(shape)
-                self.loss_12 = self.loss_12.reshape(shape)
-                self.depth_12 = self.depth_12.reshape(shape)
+        self.depth_map = self.depth_map.reshape(shape)
+        if self.debug:
+            self.loss_1 = self.loss_1.reshape(shape)
+            self.loss_2 = self.loss_2.reshape(shape)
+            self.loss_12 = self.loss_12.reshape(shape)
+            self.depth_12 = self.depth_12.reshape(shape)
 
     def save_outputs(self):
         table_name = self.structure_grammar['table']['name']

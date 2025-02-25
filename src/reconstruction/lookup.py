@@ -606,12 +606,12 @@ class LookUpReconstruction:
         """
         color = lookup[::-1, :-1]
         depth = lookup[::-1, -1]
-        if self.structure_grammar['table']['interpolant']['active']:
-            knots = self.structure_grammar['table']['interpolant']['knots']
-            samples = self.structure_grammar['table']['interpolant']['samples']
+        if self.structure_grammar['interpolant']['active']:
+            knots = self.structure_grammar['interpolant']['knots']
+            samples = self.structure_grammar['interpolant']['samples']
             color = spline_interpolant(depth, color, knots, samples)
 
-        loss = calculate_loss(color, pixel, ord=self.structure_grammar['table']['loss']['order'])
+        loss = calculate_loss(color, pixel, ord=self.structure_grammar['loss']['order'])
 
         if self.debug:
             k_indices = k_smallest_indices(loss, 2)

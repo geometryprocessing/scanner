@@ -258,7 +258,7 @@ class LookUpCalibration:
             if self.verbose:
                 print('-' * 15)
                 print("Extracting depth from white image")
-            self.find_depth(white_image)
+            self.find_depth(folder, white_image)
 
         normalized = ImageUtils.normalize_color(color_image=pattern_images,
                                                 white_image=white_image,

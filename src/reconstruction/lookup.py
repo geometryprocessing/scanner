@@ -41,6 +41,8 @@ class LookUpCalibration:
         self.structure_grammar = {}
         self.roi = None
 
+        # flag for  verbose
+        self.verbose = False
         # flag for parallelizing position processing
         self.parallelize_positions = False
         self.num_cpus = 1
@@ -57,6 +59,7 @@ class LookUpCalibration:
         self.set_roi(config['look_up_calibration']['roi'])
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
         self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
+        self.set_verbose(config['look_up_reconstruction']['verbose'])
         self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
         self.set_num_cpus(config['look_up_calibration']['num_cpus'])
 
@@ -109,13 +112,10 @@ class LookUpCalibration:
         and save them to pattern/look up tables accordingly.
         Example below:
             structure_grammar = {
-                "tables": {
-                    "gray": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
-                    "spiral": ["spiral.tiff"],
-                    "look_up_name": ["list", "of", "images"]
-                },
+                "name": "gray",
+                "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
                 "utils": {
-                    "white": "white.tiff",
+                    "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
                     "black": "black.tiff",
                     "black_scale: 0.1
                 }
@@ -137,6 +137,16 @@ class LookUpCalibration:
         """
         self.roi = roi
 
+    def set_verbose(self, verbose: bool):
+        """
+        Parameters
+        ----------
+        verbose : bool
+            Whether to print messages while processing.
+            Default is False
+        """
+        self.verbose = verbose
+
     def set_parallelize_positions(self, parallelize: bool):
         """
         Parameters
@@ -156,7 +166,9 @@ class LookUpCalibration:
         self.num_cpus = int(max(1, num_cpus))
 
     # getters
-
+    def depth_already_exists(self, folder):
+        return os.path.exists(os.path.join(folder, 'depth.npz'))
+    
     # functions
     def reconstruct_plane(self, white_image: str | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -195,7 +207,7 @@ class LookUpCalibration:
         # fit plane
         return ThreeDUtils.fit_plane(world_points)
 
-    def find_depth(self, white_image: str | np.ndarray) -> np.ndarray:
+    def find_depth(self, folder: str, white_image: str | np.ndarray) -> np.ndarray:
         """
         TODO: finding depth will happen PER FRAME of calibration, only after it will be glued together
         """
@@ -218,7 +230,7 @@ class LookUpCalibration:
         # depth[~idx] = 0
 
         depth = depth.reshape((height, width))
-        np.savez_compressed(os.path.join(get_folder_from_file(white_image), "depth.npz"), depth=depth)
+        np.savez_compressed(folder, "depth.npz", depth=depth)
 
     def save_lookup_table(self,
                             lookup_table: np.ndarray,
@@ -228,50 +240,47 @@ class LookUpCalibration:
         Save the lookup table as a npy file.
         """
         np.save(os.path.join(self.root, filename), lookup_table)
+    
+    def process_position(self, folder: str, structure_grammar: dict):
+        table_name = structure_grammar['name']
+        images: list[str] = structure_grammar['images']
+        utils: dict = structure_grammar['utils']
+        pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
+        white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+        black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
+        black_scale = None if 'black_scale' not in utils else float(utils['black_scale'])
+
+        if self.depth_already_exists(folder):            
+            if self.verbose:
+                print('-' * 15)
+                print("Found depth -- skipping extraction")
+        else:
+            if self.verbose:
+                print('-' * 15)
+                print("Extracting depth from white image")
+                self.find_depth(white_image)
+
+        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                white_image=white_image,
+                                                black_image=black_image,
+                                                black_scale=black_scale)
+        np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
 
     def calibrate_positions(self):
-        def _calibrate_single_pattern_single_position(pattern_name: str, image_names: list[str], white_image: str, black_image: str, black_scale: float, folder: str):
-            """
-            Util function to normalize all pattern images with white image (and with black image if available)
-            for a single position of calibration.
-
-            This function is meant to be innacessible to user.
-            """
-            normalized = np.concatenate([ImageUtils.normalize_color(os.path.join(folder, image), white_image, black_image, black_scale) for image in image_names], axis=2)
-            np.savez_compressed(os.path.join(folder, f"{pattern_name}.npz"), pattern=normalized)
-
-        def _calibrate_all_patterns_single_positon(folder: str):
-            """
-            Util function to normalize all pattern images with white image (and with black image if available)
-            for a single position of calibration.
-            
-            This function is meant to be innacessible to user.
-            """
-            white_image = None
-            black_image = None
-            black_scale = 1.0
-            for util_name, image_name in self.structure_grammar['utils'].items():
-                if util_name == 'white':
-                    white_image = os.path.join(folder, image_name)
-                if util_name == 'black':
-                    black_image = os.path.join(folder, image_name)
-                if util_name == 'black_scale':
-                    black_scale = float(image_name)
-            self.find_depth(white_image)
-
-            for pattern_name, image_names in self.structure_grammar['tables'].items():
-                _calibrate_single_pattern_single_position(pattern_name, image_names, white_image, black_image, black_scale, folder)
-       
-
+        if self.verbose:
+            print('-' * 15)
+            print(f"Beginning calibration for all positions for LookUp Table {self.structure_grammar['name']}")
         # optional parallelization
         if self.parallelize_positions:
+            if self.verbose:
+                print(f"Parallelizing with {self.num_cpus} CPU cores")
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(_calibrate_all_patterns_single_positon, folder) for folder in self.calibration_directory]
+                futures = [executor.submit(self.process_position, folder, self.structure_grammar) for folder in self.calibration_directory]
                 concurrent.futures.wait(futures)  # Wait for all tasks to complete
         else:
         # original sequential processing
             for folder in self.calibration_directory:
-                _calibrate_all_patterns_single_positon(folder)
+                self.process_position(folder, self.structure_grammar)
 
     def stack_results(self):
         """
@@ -279,17 +288,21 @@ class LookUpCalibration:
         Best thing to do is similar to Yurii's legacy code, where we, at the end, concatenate all single_positions
         into a MEGA lookup table.
         """
-        def _stack_single_pattern_single_position(table: np.ndarray, index: int, folder: str):
+        def _stack_single_pattern_single_position(table: np.ndarray, index: int, folder: str, table_name: str):
             """
             Util function to ...
 
             This function is meant to be innacessible to user.
             """
             depth = np.load(os.path.join(folder, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
-            pattern = np.load(os.path.join(folder, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
+            pattern = np.load(os.path.join(folder, f'{table_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
             table[:,:,index,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
-
-
+        
+        if self.verbose:
+            print('-' * 15)
+            print(f"Beginning stacking of all normalized patterns and depth")
+        
+        table_name = self.structure_grammar['name']
         width, height = self.camera.get_image_shape()
         x0, y0 = 0, 0
 
@@ -299,28 +312,29 @@ class LookUpCalibration:
             width = self.roi[2] - x0
             height = self.roi[3] - y0
 
-        for pattern_name in self.structure_grammar['tables'].keys():
-            # allocate memory for massive, single float precision numpy array
-            lookup_table = np.full(shape=(height, width, self.num_directories, 4), fill_value=np.nan, dtype=np.float32)
-            
-            # optional parallelization
-            if self.parallelize_positions:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                    futures = [executor.submit(_stack_single_pattern_single_position, lookup_table, pos, folder) for pos, folder in enumerate(self.calibration_directory)]
-                    concurrent.futures.wait(futures)  # Wait for all tasks to complete
+        # allocate memory for massive, single float precision numpy array
+        lookup_table = np.full(shape=(height, width, self.num_directories, 4), fill_value=np.nan, dtype=np.float32)
+        
+        # optional parallelization
+        if self.parallelize_positions:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                futures = [executor.submit(_stack_single_pattern_single_position, lookup_table, pos, folder, table_name) for pos, folder in enumerate(self.calibration_directory)]
+                concurrent.futures.wait(futures)  # Wait for all tasks to complete
 
-            else:
-                # original sequential processing
-                for pos, folder in enumerate(self.calibration_directory):
-                    depth = np.load(os.path.join(folder, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
-                    pattern = np.load(os.path.join(folder, f'{pattern_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
-                    lookup_table[:,:,pos,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
-            self.save_lookup_table(lookup_table, pattern_name)
+        else:
+            # original sequential processing
+            for pos, folder in enumerate(self.calibration_directory):
+                _stack_single_pattern_single_position(lookup_table, pos, folder, table_name)
 
+        if self.verbose:
+            print('-' * 15)
+            print(f"Saving LookUp Table {table_name} and Calibration Info")
+
+        self.save_lookup_table(lookup_table, table_name)
         save_json({'roi': self.roi,
                     'structure_grammar': self.structure_grammar,
                     'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
-                    os.path.join(self.root, 'calibration_info.json'))
+                    os.path.join(self.root, f'{table_name}_calibration_info.json'))
 
     def run(self):
         self.calibrate_positions()
@@ -426,14 +440,12 @@ class LookUpReconstruction:
         and create the depth maps/point clouds accordingly.
         Example below:
             structure_grammar = {
-                "table": {
-                    "name": "gray",
-                    "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
-                    "interpolant": {
-                        "active": true,
-                        "knots": [150, 160, 140],
-                        "samples": 1000, 
-                    }
+                "name": "gray",
+                "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
+                "interpolant": {
+                    "active": true,
+                    "knots": [150, 160, 140],
+                    "samples": 1000
                 },
                 "utils": {
                     "white": "white.tiff",
@@ -552,7 +564,7 @@ class LookUpReconstruction:
             width = self.roi[2] - x0
             height = self.roi[3] - y0
             
-        images: list[str] = self.structure_grammar['table']['images']
+        images: list[str] = self.structure_grammar['images']
         utils: dict = self.structure_grammar['utils']
         self.pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, image)))[y0:y0+height,x0:x0+width] for image in images], axis=2)
         self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['white']))[y0:y0+height,x0:x0+width]
@@ -579,17 +591,10 @@ class LookUpReconstruction:
             print('-' * 15)
             print("Normalizing pattern images")
         self.normalized: np.ndarray = ImageUtils.normalize_color(self.pattern_images,
-                                                     self.white_image,
-                                                     self.mask,
-                                                     self.black_image,
-                                                     self.black_scale)
-
-    def calculate_loss_per_pixel(self, color, pixel, ord=2) -> np.ndarray:
-        """
-        
-        """
-        loss = np.linalg.norm(color - pixel, ord=ord, axis=1)
-        return loss
+                                                                 self.white_image,
+                                                                 self.mask,
+                                                                 self.black_image,
+                                                                 self.black_scale)
     
     def extract_depth(self,
                       pixel,
@@ -606,7 +611,7 @@ class LookUpReconstruction:
             samples = self.structure_grammar['table']['interpolant']['samples']
             color = spline_interpolant(depth, color, knots, samples)
 
-        loss = calculate_loss(color, pixel, ord=np.inf)
+        loss = calculate_loss(color, pixel, ord=self.structure_grammar['table']['loss']['order'])
 
         if self.debug:
             k_indices = k_smallest_indices(loss, 2)
@@ -672,7 +677,7 @@ class LookUpReconstruction:
         
         if self.parallelize_pixels:
             if self.verbose:
-                print("Parallelizing")
+                print(f"Parallelizing with {self.num_cpus} CPU cores")
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
                 futures = [executor.submit(self.process_pixel, mask, pixel, lookup)
                            for mask, pixel, lookup in zip(self.mask.flatten(),
@@ -720,7 +725,7 @@ class LookUpReconstruction:
             self.depth_12 = self.depth_12.reshape(shape)
 
     def save_outputs(self):
-        table_name = self.structure_grammar['table']['name']
+        table_name = self.structure_grammar['name']
 
         if self.outputs['depth_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)

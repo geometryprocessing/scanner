@@ -143,16 +143,15 @@ class ImageUtils:
         """
         if isinstance(color_image, str):
             color_image = ImageUtils.load_ldr(color_image)
-        color_image = np.atleast_3d(color_image)
-        monochromatic = True if color_image.shape[2] == 1 else False
+        color_image = np.atleast_3d(np.squeeze(color_image))
         normalized = np.zeros_like(color_image, dtype=np.float32)
 
         if isinstance(white_image, str):
             white_image = ImageUtils.load_ldr(white_image)
-        white_image = np.atleast_3d(white_image)
+        white_image = np.atleast_3d(np.squeeze(white_image))
 
         if mask is None:
-            mask = np.full_like(white_image, fill_value=True, dtype=np.bool)
+            mask = np.full(shape=(normalized.shape[0], normalized.shape[1]), fill_value=True, dtype=np.bool)
         else:
             if isinstance(mask, str):
                 mask = np.load(mask)
@@ -160,18 +159,13 @@ class ImageUtils:
         if black_image is not None:
             if isinstance(black_image, str):
                 black_image = ImageUtils.load_ldr(black_image)
-            black_image = np.atleast_3d(black_image)
-            dtype = black_image.dtype
-            black_image = (black_image * black_scale).astype(dtype)
-
-            if monochromatic:
-                white_image = ImageUtils.convert_to_gray(white_image)
-                black_image = ImageUtils.convert_to_gray(black_image)
+            black_image = np.atleast_3d(np.squeeze(black_image))
+            black_image = black_image * black_scale
+            # it seems that keeping black_image as uint16 is problematic...
+            # TODO: need further investigation
 
             normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
         else: 
-            if monochromatic:
-                white_image = ImageUtils.convert_to_gray(white_image)
             normalized[mask] = (color_image[mask]) / (white_image[mask])
 
         return np.clip(normalized, 0., 1.)

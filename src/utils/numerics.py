@@ -42,7 +42,7 @@ def spline_interpolant(x: np.ndarray, y: np.ndarray, knots: list[int], samples: 
     fitted_y = np.array([fits[i](d_samples) for i in range(len(fits))])
     return fitted_y
 
-def calculate_loss(array_1: np.ndarray, array_2: np.ndarray, ord=2, axis=1):
+def calculate_loss(array_1: np.ndarray, array_2: np.ndarray, ord: int | str =2, axis: int=1):
     """
     Given two arrays, this function calculates
 
@@ -68,4 +68,10 @@ def calculate_loss(array_1: np.ndarray, array_2: np.ndarray, ord=2, axis=1):
     n : float or ndarray
         Norm of `array_1 - array_2`.
     """
+    # handle string input for infinity norm
+    if ord == 'inf':
+        ord = np.inf
+    elif ord == '-inf':
+        ord = -np.inf
+
     return np.linalg.norm(array_1 - array_2, ord=ord, axis=axis)

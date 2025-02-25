@@ -670,15 +670,15 @@ class ThreeDUtils:
             y0 = roi[1]
             width = roi[2] - x0
             height = roi[3] - y0
-        # mask = depth_map[depth_map > 0]
         campixels_x, campixels_y = np.meshgrid(np.arange(x0, x0+width),
                                                np.arange(y0, y0+height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
-        
-        result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map.flatten()[:,np.newaxis]
+        depth_map = depth_map.flatten()
+        result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map[:, np.newaxis]
         result3D = np.matmul(result3D, R.T) + T
 
-        return result3D
+        mask = depth_map > 0
+        return result3D[mask]
 
     @staticmethod
     def depth_map_from_point_cloud(

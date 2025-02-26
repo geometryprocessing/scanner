@@ -230,7 +230,7 @@ class LookUpCalibration:
         # depth[~idx] = 0
 
         depth = depth.reshape((height, width))
-        np.savez_compressed(folder, "depth.npz", depth=depth)
+        np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
 
     def save_lookup_table(self,
                             lookup_table: np.ndarray,
@@ -260,11 +260,19 @@ class LookUpCalibration:
                 print("Extracting depth from white image")
             self.find_depth(folder, white_image)
 
-        normalized = ImageUtils.normalize_color(color_image=pattern_images,
-                                                white_image=white_image,
-                                                black_image=black_image,
-                                                black_scale=black_scale)
-        np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
+        if os.path.exists(os.path.join(folder, f'{table_name}.npz')):
+            if self.verbose:
+                print('-' * 15)
+                print("Found normalized -- skipping normalization")
+        else:
+            if self.verbose:
+                print('-' * 15)
+                print("Normalizing image")
+            normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                    white_image=white_image,
+                                                    black_image=black_image,
+                                                    black_scale=black_scale)
+            np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
 
     def calibrate_positions(self):
         if self.verbose:
@@ -354,11 +362,12 @@ class LookUpReconstruction:
         self.samples = 1000
         self.roi = None
         self.white_image = None
+        self.color_image = None
         self.thr = None # threshold for mask
         self.mask = None
         self.pattern_images = None
         self.black_image = None
-        self.black_scale = 0.1
+        self.black_scale = 1
         self.normalized = None
 
         # flag for debugging and verbose
@@ -568,8 +577,17 @@ class LookUpReconstruction:
         utils: dict = self.structure_grammar['utils']
         self.pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, image)))[y0:y0+height,x0:x0+width] for image in images], axis=2)
         self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['white']))[y0:y0+height,x0:x0+width]
-        self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
-        self.black_scale = utils['black_scale']
+
+        if 'colors' in utils:
+            if utils['white'] == utils['colors']:
+                self.color_image = self.white_image # to avoid loading it twice
+            else:
+                self.color_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors']))[y0:y0+height,x0:x0+width]
+        
+        if 'black' in utils:
+            self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
+            if 'black_scale' in utils:
+                self.black_scale = utils['black_scale']
 
     def extract_mask(self):
         """
@@ -636,9 +654,9 @@ class LookUpReconstruction:
         """
         if self.verbose:
             print("Extracting colors for point cloud")
-        minimum = np.min(self.white_image)
-        maximum = np.max(self.white_image)
-        self.colors: np.ndarray = ((self.white_image - minimum) / (maximum - minimum)).reshape((-1,3))
+        minimum = np.min(self.color_image)
+        maximum = np.max(self.color_image)
+        self.colors: np.ndarray = ((self.color_image - minimum) / (maximum - minimum)).reshape((-1,3))
 
     def extract_point_cloud(self):
         self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
@@ -738,12 +756,12 @@ class LookUpReconstruction:
                 print('-' * 15)
                 print("Constructing point cloud")
             self.extract_point_cloud()
-            self.extract_normals()
+            # self.extract_normals()
             self.extract_colors()
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
                                  self.point_cloud,
                                  self.normals,
-                                 self.colors)
+                                 self.colors[self.depth_map > 0])
             if self.verbose:
                 print("Saved point cloud")
 

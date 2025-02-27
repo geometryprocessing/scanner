@@ -1,7 +1,8 @@
 import argparse
 import cv2
 import numpy as np
-import structuredlight as sl
+import structuredlight
+import hilbert as hi
 import os
 
 from src.utils.three_d_utils import ThreeDUtils
@@ -15,16 +16,8 @@ class StructuredLight:
     def __init__(self, config: dict | str = None):
         self.projector = Projector()
         self.camera = Camera()
-        self.pattern = None
 
-        # image paths
-        self.horizontal_images = []
-        self.vertical_images = []
-        self.inverse_horizontal_images = []
-        self.inverse_vertical_images = []
-
-        self.black_image = None
-        self.white_image = None
+        self.structure_grammar = {}
 
         # reconstruction utils
         self.thr = None
@@ -44,136 +37,10 @@ class StructuredLight:
     def load_config(self, config: str | dict):
         if isinstance(config, str):
             config = load_json(config)
+        self.set_structure_grammar(config['structured_light']['structure_grammar'])
+        self.set_camera(config['structured_light']['calibration_calibration'])
+        self.set_projector(config['structured_light']['projector_calibration'])
 
-        self.set_black_pattern_image(config['structured_light']['black_image'])
-        self.set_white_pattern_image(config['structured_light']['white_image'])
-        self.set_threshold(config['structured_light']['threshold'])
-        self.set_output(config['structured_light']['output_filename'])
-
-    # setters
-    def set_pattern(self, pattern: str):
-        """
-        Currently supported structured light patterns: Gray, Binary, and XOR.
-        """
-        match pattern.lower():
-            case 'gray':
-                self.pattern = sl.Gray()
-            case 'binary':
-                self.pattern = sl.Binary()
-            case 'bin':
-                self.pattern = sl.Binary()
-            case 'xor':
-                self.pattern = sl.XOR()
-            case _:
-                print("Unrecognized structured light pattern type, defaulting to gray...\n")
-                self.pattern = sl.Gray()
-    def set_horizontal_pattern_image_paths(self, image_paths: list | str):
-        """
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be used for decoding horizontal structured light patterns.
-        """
-        self.horizontal_images = get_all_paths(image_paths)
-    def set_vertical_pattern_image_paths(self, image_paths: list | str):
-        """
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be used for decoding vertical structure light patterns.
-        """
-        self.vertical_images = get_all_paths(image_paths)
-    def set_inverse_horizontal_image_paths(self, image_paths: list | str):
-        """
-        Inverse horizontal structured light pattern images will be used for 
-        setting a threshold value for pixel intensity when decoding horizontal patterns.
-        Read the structuredlight docs for more information:
-        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
-
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-        """
-        self.inverse_horizontal_images = get_all_paths(image_paths)
-    def set_inverse_vertical_image_paths(self, image_paths: list | str):
-        """
-        Inverse vertical structured light pattern images will be used for 
-        setting a threshold value for pixel intensity when decoding vertical patterns.
-        Read the structuredlight docs for more information:
-        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
-
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-        """
-        self.inverse_vertical_images = get_all_paths(image_paths)
-    def set_white_pattern_image(self, image_path: str):
-        """
-        Set the path of captured image of scene with an all-white pattern projected.
-        The white image can be used to extract colors for the reconstructed point cloud.
-        The white image can also be used for setting a threshold value when decoding
-        structured light patterns.
-        Read the structuredlight docs for more information:
-        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
-
-        Parameters
-        ----------
-        image_path : str
-            path to white pattern image
-
-        Notes
-        -----
-        This has to be used in combination with set_black_pattern_image, since the 
-        threshold for ON or OFF will be set per pixel as:
-        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image.
-        If negative/inverse structured light patterns are passed,
-        black and white pattern images will be ignored for threshold setting.
-        """
-        self.white_image = image_path
-    def set_black_pattern_image(self, image_path: str):
-        """
-        Set the path of captured image of scene with an all-black pattern projected.
-        The black image can be used to extract colors for the reconstructed point cloud.
-        The black image can also be used for setting a threshold value when decoding
-        structured light patterns.
-        Read the structuredlight docs for more information:
-        https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
-
-        Parameters
-        ----------
-        image_path : str
-            path to black pattern image
-
-        Notes
-        -----
-        This has to be used in combination with set_white_pattern_image, since the 
-        threshold for ON or OFF will be set per pixel as:
-        thr = 0.5 * white_pattern_image + 0.5 * black_pattern_image.
-        If negative/inverse structured light patterns are passed,
-        black and white pattern images will be ignored for threshold setting.
-        """
-        self.black_image = image_path
-    def set_threshold(self, thr: float):
-        """
-        Set the threshold value for considering a pixel ON or OFF
-        based on its intensity.
-
-        Parameters
-        ----------
-        thr : float
-            threshold value for considering a pixel ON or OFF
-
-        Notes
-        -----
-        If black and white pattern images are set, or if negative/inverse
-        patterns are passed, this threshold value will be ignored.
-        """
-        assert thr > 0, "Incorrect value for threshold, has to be nonnegative"
-        self.thr = float(thr)
     def set_projector(self, projector: str | dict |Projector):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
@@ -188,6 +55,24 @@ class StructuredLight:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+    def set_structure_grammar(self, structure_grammar: dict):
+        """
+        The structure grammar is the configuration to read images
+        and save them to pattern/look up tables accordingly.
+        Example below:
+            structure_grammar = {
+                "name": "gray",
+                "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
+                "utils": {
+                    "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
+                    "black": "black.tiff",
+                    "black_scale: 0.1
+                }
+            }
+        The list of strings are the images which will be used
+        to create a look up table with the key name.
+        """
+        self.structure_grammar = structure_grammar
     def set_minimum_contrast(self, contrast: float):
         """
         Set minimum contrast float value which can be used to generate a mask.
@@ -247,37 +132,34 @@ class StructuredLight:
         """
         
         """
-        assert self.pattern is not None, "Structured light pattern not specified"
-
-        thresh = self.thr
-        if self.white_image and self.black_image:
-            img_white = ImageUtils.load_ldr(self.white_image, make_gray=True)
-            img_black = ImageUtils.load_ldr(self.black_image, make_gray=True)
-            thresh = 0.5*img_white + 0.5*img_black
-
-        if len(self.horizontal_images) > 0:
-            gray_horizontal = [ImageUtils.load_ldr(img, make_gray=True) for img in self.horizontal_images]
-            if self.inverse_horizontal_images:
-                assert len(self.inverse_horizontal_images) == len(self.horizontal_images), \
-                    "Mismatch between number of horizontal patterns \
-                        and inverse horizontal patterns. Must be the same"
-                horizontal_second_argument = [ImageUtils.load_ldr(img, make_gray=True) 
-                                              for img in self.inverse_horizontal_images]
-            else:
-                horizontal_second_argument = thresh
-            self.index_y = self.pattern.decode(gray_horizontal, horizontal_second_argument)
-
-        if len(self.vertical_images) > 0:
-            gray_vertical = [ImageUtils.load_ldr(img, make_gray=True) for img in self.vertical_images]
-            if self.inverse_vertical_images:
-                assert len(self.inverse_vertical_images) == len(self.vertical_images), \
-                    "Mismatch between number of horizontal patterns \
-                        and inverse horizontal patterns. Must be the same"
-                vertical_second_argument = [ImageUtils.load_ldr(img, make_gray=True)
-                                            for img in self.inverse_vertical_images]
-            else:
-                vertical_second_argument = thresh
-            self.index_x = self.pattern.decode(gray_vertical, vertical_second_argument)
+        pattern = self.structure_grammar['pattern']
+        if pattern == 'gray' or pattern == 'binary' or pattern == 'xor':
+            # handle structure grammar for Gray, Binary, and XOR types
+            vert = None if 'vertical_images' not in self.structure_grammar else self.structure_grammar['vertical_images']
+            horz = None if 'horizontal_images' not in self.structure_grammar else self.structure_grammar['horizontal_images']
+            inv_vert = None if 'inverse_vertical_images' not in self.structure_grammar else self.structure_grammar['inverse_vertical_images']
+            inv_horz = None if 'inverse_horizontal_images' not in self.structure_grammar else self.structure_grammar['inverse_horizontal_images']
+            white = None if 'inverse_vertical_images' not in self.structure_grammar else self.structure_grammar['white']
+            black = None if 'inverse_horizontal_images' not in self.structure_grammar else self.structure_grammar['black']
+            thr = None if 'threshold' not in self.structure_grammar else self.structure_grammar['threshold']
+            
+            self.index_x, self.index_y = StructuredLight.decode_gray_binary_xor(pattern,
+                                                                                vert,
+                                                                                inv_vert,
+                                                                                horz,
+                                                                                inv_horz,
+                                                                                white,
+                                                                                black,
+                                                                                thr)
+        elif pattern == 'hilbert':
+            # handle structure grammar for Hilbert
+            StructuredLight.decode_hilbert(self.structure_grammar['images'], self.structure_grammar['num_bits'])
+        elif pattern == 'phaseshift':
+            # handle structure grammar for Phase Shift
+            F = 1.0 if 'F' not in self.structure_grammar else self.structure_grammar['F']
+            StructuredLight.decode_phaseshift(self.structure_grammar['images'], F)
+        else:
+            raise RuntimeError("Unrecognized pattern, cannot decode structured light")
 
     def plot_decoding(self):
         """
@@ -375,10 +257,10 @@ class StructuredLight:
 
         img = ImageUtils.load_ldr(self.white_image)
         # clip RGB range to [0., 1.[
-        data_type = img.dtype
-        m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
-
-        self.colors = img[self.mask] / m
+        minimum = np.min(img)
+        maximum = np.max(img)
+        self.colors: np.ndarray = ((img - minimum) / (maximum - minimum)).reshape((-1,3))
+        self.colors = img[self.mask]
 
     def extract_depth_map(self):
         assert self.point_cloud is not None, "No reconstruction yet"
@@ -418,8 +300,149 @@ class StructuredLight:
         self.decode()
         self.reconstruct()
         self.extract_colors()
-        self.extract_normals()
+        # self.extract_normals()
         self.save_point_cloud_as_ply()
+
+    @staticmethod
+    def decode_hilbert(images, num_bits):
+        if isinstance(images, list):
+            images = [ImageUtils.load_ldr(img, make_gray=True) 
+                        if isinstance(img, str) else np.atleast_3d(img)
+                        for img in images]
+            images = np.concatenate(images, axis=2)
+        
+        num_dims = images.shape[2]
+
+        decoded = hi.encode(images, num_dims=num_dims, num_bits=num_bits)
+        return decoded.reshape((images.shape[0],images.shape[1]))
+
+    @staticmethod
+    def decode_gray_binary_xor(pattern,
+                               vertical_images=None,
+                               inverse_vertical_images=None,
+                               horizontal_images=None,
+                               inverse_horizontal_images=None,
+                               white_image=None,
+                               black_image=None,
+                               thresh=None):
+        """
+
+        Parameters
+        ----------
+        vertical_images : list
+            List of strings containing image paths (or string for folder containing images).
+            These images will be used for decoding vertical structured light patterns.
+        inverse_vertical_images : list, optional
+            List of strings containing image paths (or string for folder containing images).
+            Inverse vertical structured light pattern images will be used for 
+            setting a threshold value for pixel intensity when decoding vertical patterns.
+            Read the structuredlight docs for more information:
+            https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+        horizontal_images : list
+            List of strings containing image paths (or string for folder containing images).
+            These images will be used for decoding horizontal structured light patterns.
+        inverse_horizontal_images : list, optional
+            List of strings containing image paths (or string for folder containing images).
+            Inverse horizontal structured light pattern images will be used for 
+            setting a threshold value for pixel intensity when decoding horizontal patterns.
+            Read the structuredlight docs for more information:
+            https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+        white_image : str | np.ndarray, optional
+            (if str, path to) captured image of scene with an all-white pattern projected.
+            The white image can be used for setting a threshold value when decoding
+            structured light patterns. This has to be used in combination with black_image,
+            since the  threshold for ON or OFF will be set per pixel as:
+            thr = 0.5 * white_image + 0.5 * black_image.
+            If negative/inverse structured light patterns are passed,
+            black and white pattern images will be ignored for threshold setting.
+            Read the structuredlight docs for more information:
+            https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+
+        
+        black_image : str | np.ndarray, optional
+            (if str, path to) captured image of scene with an all-black pattern projected.
+            The black image can be used to extract colors for the reconstructed point cloud.
+            The black image can also be used for setting a threshold value when decoding
+            structured light patterns. This has to be used in combination with white_image,
+            since the  threshold for ON or OFF will be set per pixel as:
+            thr = 0.5 * white_image + 0.5 * black_image.
+            If negative/inverse structured light patterns are passed,
+            black and white pattern images will be ignored for threshold setting.
+            Read the structuredlight docs for more information:
+            https://github.com/elerac/structuredlight/wiki#how-to-binarize-a-grayscale-image
+        thresh : float, optional
+            threshold value for considering a pixel ON or OFF based on its intensity.
+            If black and white pattern images are set, or if negative/inverse
+            patterns are passed, this threshold value will be ignored.
+
+        Returns
+        -------
+        index_x, index_y
+        """
+        
+        if isinstance(pattern, str):
+            match pattern.lower():
+                case 'gray':
+                    pattern = structuredlight.Gray()
+                case 'binary':
+                    pattern = structuredlight.Binary()
+                case 'bin':
+                    pattern = structuredlight.Binary()
+                case 'xor':
+                    pattern = structuredlight.XOR()
+                case _:
+                    print("Unrecognized structured light pattern type, defaulting to gray...\n")
+                    pattern = structuredlight.Gray()
+        
+        index_x, index_y = None, None
+        if white_image and black_image:
+            white_image = ImageUtils.load_ldr(white_image, make_gray=True) \
+                  if isinstance(white_image, str) else ImageUtils.convert_to_gray(white_image) 
+            black_image = ImageUtils.load_ldr(black_image, make_gray=True) \
+                  if isinstance(black_image, str) else ImageUtils.convert_to_gray(black_image) 
+            thresh = 0.5*white_image + 0.5*black_image
+
+        if len(horizontal_images) > 0:
+            gray_horizontal = [ImageUtils.load_ldr(img, make_gray=True) 
+                               if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
+                               for img in horizontal_images]
+            if inverse_horizontal_images:
+                assert len(inverse_horizontal_images) == len(horizontal_images), \
+                    "Mismatch between number of horizontal patterns \
+                        and inverse horizontal patterns. Must be the same"
+                horizontal_second_argument = [ImageUtils.load_ldr(img, make_gray=True) 
+                                              if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
+                                              for img in inverse_horizontal_images]
+            else:
+                horizontal_second_argument = thresh
+            index_y = pattern.decode(gray_horizontal, horizontal_second_argument)
+
+        if len(vertical_images) > 0:
+            gray_vertical = [ImageUtils.load_ldr(img, make_gray=True) 
+                               if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
+                               for img in vertical_images]
+            if inverse_vertical_images:
+                assert len(inverse_vertical_images) == len(vertical_images), \
+                    "Mismatch between number of vertical patterns \
+                        and inverse vertical patterns. Must be the same"
+                vertical_second_argument = [ImageUtils.load_ldr(img, make_gray=True) 
+                                              if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
+                                              for img in inverse_vertical_images]
+            else:
+                vertical_second_argument = thresh
+            index_y = pattern.decode(gray_vertical, vertical_second_argument)
+
+        return index_x, index_y
+    
+    @staticmethod
+    def decode_phaseshift(images, F=1.0):
+        pattern = structuredlight.PhaseShifting(num=len(images), F=F)
+
+        images = [ImageUtils.load_ldr(img, make_gray=True) 
+                    if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
+                    for img in images]
+
+        return pattern.decode(images)
 
 
 if __name__ == "__main__":

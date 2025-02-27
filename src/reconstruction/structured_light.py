@@ -2,7 +2,7 @@ import argparse
 import cv2
 import numpy as np
 import structuredlight
-import hilbert as hi
+import hilbert
 import os
 
 from src.utils.three_d_utils import ThreeDUtils
@@ -20,12 +20,10 @@ class StructuredLight:
         self.structure_grammar = {}
 
         # reconstruction utils
-        self.thr = None
         self.index_x = None
         self.index_y = None
-        self.minimum_contrast = 0.1
         self.mask = None
-        # reconstruction
+        # reconstruction outpus
         self.point_cloud = None
         self.depth_map = None
         self.colors = None
@@ -37,9 +35,24 @@ class StructuredLight:
     def load_config(self, config: str | dict):
         if isinstance(config, str):
             config = load_json(config)
+        self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
         self.set_structure_grammar(config['structured_light']['structure_grammar'])
         self.set_camera(config['structured_light']['calibration_calibration'])
         self.set_projector(config['structured_light']['projector_calibration'])
+        self.set_outputs(config['structured_light']['outputs'])
+
+    def set_reconstruction_directory(self, path: str):
+        """
+
+        Parameters
+        ----------
+        path : str
+            path to directory containing multiple scene folders,
+            each with the images that match the "utils" and the "tables" images
+            for LookUp reconstruction
+        """
+        assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
+        self.reconstruction_directory = os.path.abspath(path)
 
     def set_projector(self, projector: str | dict |Projector):
         # if string, load the json file and get the parameters
@@ -48,6 +61,7 @@ class StructuredLight:
             self.projector.load_calibration(projector)
         else:
             self.projector = projector
+
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
@@ -55,6 +69,7 @@ class StructuredLight:
             self.camera.load_calibration(camera)
         else:
             self.camera = camera
+
     def set_structure_grammar(self, structure_grammar: dict):
         """
         The structure grammar is the configuration to read images
@@ -73,6 +88,25 @@ class StructuredLight:
         to create a look up table with the key name.
         """
         self.structure_grammar = structure_grammar
+
+    def set_outputs(self, outputs: dict):
+        """
+        Parameters
+        ----------
+        outputs : dict
+            Dictionary containing which outputs to save.
+            outputs: {
+                "depth_map": True,
+                "point_cloud": True
+            }
+            Each can be set to True or False
+
+        Notes: 
+        - depth_map is a HxW numpy array containing depth per pixel of the result.
+        - point_cloud is a 3D numpy array of the result.
+        """
+        self.outputs = outputs
+
     def set_minimum_contrast(self, contrast: float):
         """
         Set minimum contrast float value which can be used to generate a mask.
@@ -83,19 +117,11 @@ class StructuredLight:
         If the pixel does not pass that test, it will get masked out.
         """
         self.minimum_contrast = max(min(contrast, 1.), 0.)
+
     def set_mask(self, mask: np.ndarray):
         """
         """
         self.mask = mask
-    def set_output(self, filename: str):
-        """
-        
-        Parameters
-        ----------
-        filename : str
-            path to where output will be saved as a JSON file 
-        """
-        self.output = filename
 
     # getters
     def get_minimum_contrast(self):
@@ -160,15 +186,7 @@ class StructuredLight:
             StructuredLight.decode_phaseshift(self.structure_grammar['images'], F)
         else:
             raise RuntimeError("Unrecognized pattern, cannot decode structured light")
-
-    def plot_decoding(self):
-        """
         
-        """
-        Plotter.plot_decoding(self.camera.get_image_shape(),
-                              self.index_x,
-                              self.index_y)
-
     def reconstruct(self):
         """
         Take correspondence indices between camera and projector and use
@@ -250,17 +268,19 @@ class StructuredLight:
         -----
         colors will be stored in [0., 1.[ range as a numpy array of type np.float32
         """
-        assert self.white_image is not None, "Need to set white image"
+        if 'colors' not in self.structure_grammar:
+            print("No color image set, therefore no color extraction for point cloud")
+            return
         
+        color_image = self.structure_grammar['colors']
         if self.mask is None:
             self.generate_mask()
 
-        img = ImageUtils.load_ldr(self.white_image)
+        img = ImageUtils.load_ldr(color_image)
         # clip RGB range to [0., 1.[
         minimum = np.min(img)
         maximum = np.max(img)
         self.colors: np.ndarray = ((img - minimum) / (maximum - minimum)).reshape((-1,3))
-        self.colors = img[self.mask]
 
     def extract_depth_map(self):
         assert self.point_cloud is not None, "No reconstruction yet"
@@ -275,10 +295,29 @@ class StructuredLight:
             self.normals = ThreeDUtils.normals_from_depth_map(self.depth_map)
         elif self.point_cloud is not None:
             self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
+    
+    def save_outputs(self):
+        name = self.structure_grammar['type']
 
-    def save_point_cloud_as_ply(self):
-        assert self.point_cloud is not None, "No reconstruction yet"
-        ThreeDUtils.save_ply(self.output, self.point_cloud, self.normals, self.colors)
+        if self.outputs['depth_map']:
+            self.extract_depth_map()
+            np.save(os.path.join(self.reconstruction_directory,f"structured_light_{name}_depth_map.npy"), self.depth_map)
+
+        if self.outputs['point_cloud']:
+            # self.extract_normals()
+            self.extract_colors()
+            ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"structured_light_{name}_point_cloud.ply"),
+                                 self.point_cloud,
+                                 self.normals,
+                                 self.colors)
+            
+    def plot_decoding(self):
+        """
+        
+        """
+        Plotter.plot_decoding(self.camera.get_image_shape(),
+                              self.index_x,
+                              self.index_y)
 
     def plot_normal_map(self, figsize: tuple=(12,16), filename: str=None):
         Plotter.plot_normal_map(self.normals, self.mask, figsize=figsize, filename=filename)
@@ -299,9 +338,7 @@ class StructuredLight:
     def run(self):
         self.decode()
         self.reconstruct()
-        self.extract_colors()
-        # self.extract_normals()
-        self.save_point_cloud_as_ply()
+        self.save_outputs()
 
     @staticmethod
     def decode_hilbert(images, num_bits):
@@ -313,7 +350,7 @@ class StructuredLight:
         
         num_dims = images.shape[2]
 
-        decoded = hi.encode(images, num_dims=num_dims, num_bits=num_bits)
+        decoded = hilbert.encode(images, num_dims=num_dims, num_bits=num_bits)
         return decoded.reshape((images.shape[0],images.shape[1]))
 
     @staticmethod

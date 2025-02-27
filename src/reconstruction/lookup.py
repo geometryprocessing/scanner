@@ -458,6 +458,7 @@ class LookUpReconstruction:
                 },
                 "utils": {
                     "white": "white.tiff",
+                    "colors: "white.tiff,
                     "black": "black.tiff",
                     "black_scale": 0.1
                 }
@@ -652,6 +653,8 @@ class LookUpReconstruction:
         colors
             numpy array of the colors of the scene
         """
+        if self.color_image is None:
+            print("No color image set, therefore no color extraction for point cloud")
         if self.verbose:
             print("Extracting colors for point cloud")
         minimum = np.min(self.color_image)
@@ -761,7 +764,7 @@ class LookUpReconstruction:
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
                                  self.point_cloud,
                                  self.normals,
-                                 self.colors[self.depth_map > 0])
+                                 self.colors[(self.depth_map > 0).flatten()])
             if self.verbose:
                 print("Saved point cloud")
 

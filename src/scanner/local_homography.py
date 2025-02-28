@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import os
 
-from src.utils.file_io import save_json, load_json, get_all_paths
+from src.utils.file_io import save_json, load_json, get_all_paths, get_folder_from_file
 from src.utils.image_utils import ImageUtils
 from src.scanner.calibration import Charuco, CheckerBoard, Calibration
 from src.scanner.camera import Camera
@@ -15,7 +15,6 @@ class LocalHomographyCalibration:
         self.plane_pattern = None
 
         self.structured_light = StructuredLight()
-        self.structured_light.set_pattern('gray')
 
         self.calibration_directory = None
         self.num_directories = 0
@@ -101,13 +100,17 @@ class LocalHomographyCalibration:
     # functions
     def decode(self):
         """
-        
         """
         for folder in self.calibration_directory:
-            self.structured_light.set_vertical_pattern_image_paths(folder[slice(2, 2 + self.num_vertical_images, 2)])
-            self.structured_light.set_inverse_vertical_image_paths(folder[slice(3, 2 + self.num_vertical_images, 2)])
-            self.structured_light.set_horizontal_pattern_image_paths(folder[slice(2 + self.num_vertical_images, 2 + self.num_vertical_images + self.num_horizontal_images, 2)])
-            self.structured_light.set_inverse_horizontal_image_paths(folder[slice(2 + self.num_vertical_images + 1, 2 + self.num_vertical_images + self.num_horizontal_images, 2)])
+            structure_grammar = {
+                "pattern": "gray",
+                "vertical_images": [os.path.basename(d) for d in folder[slice(2, 2 + self.num_vertical_images, 2)]],
+                "inverse_vertical_images": [os.path.basename(d) for d in folder[slice(3, 2 + self.num_vertical_images, 2)]],
+                "horizontal_images": [os.path.basename(d) for d in folder[slice(2 + self.num_vertical_images, 2 + self.num_vertical_images + self.num_horizontal_images, 2)]],
+                "inverse_horizontal_images": [os.path.basename(d) for d in folder[slice(2 + self.num_vertical_images + 1, 2 + self.num_vertical_images + self.num_horizontal_images, 2)]]
+            }
+            self.structured_light.set_reconstruction_directory(get_folder_from_file(folder[0]))
+            self.structured_light.set_structure_grammar(structure_grammar)
             self.structured_light.decode()
             self.index_x.append(self.structured_light.index_x)
             self.index_y.append(self.structured_light.index_y)

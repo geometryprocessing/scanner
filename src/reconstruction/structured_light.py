@@ -148,8 +148,8 @@ class StructuredLight:
             self.mask = np.full(cam_resolution, True)
             return
 
-        white = ImageUtils.load_ldr(self.white_image, make_gray=True)
-        black = ImageUtils.load_ldr(self.black_image, make_gray=True)
+        white = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, self.white_image), make_gray=True)
+        black = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, self.black_image), make_gray=True)
         data_type = white.dtype
         m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
         self.mask = (abs(white-black) > m*self.minimum_contrast)
@@ -161,13 +161,28 @@ class StructuredLight:
         pattern = self.structure_grammar['pattern']
         if pattern == 'gray' or pattern == 'binary' or pattern == 'xor':
             # handle structure grammar for Gray, Binary, and XOR types
-            vert = None if 'vertical_images' not in self.structure_grammar else self.structure_grammar['vertical_images']
-            horz = None if 'horizontal_images' not in self.structure_grammar else self.structure_grammar['horizontal_images']
-            inv_vert = None if 'inverse_vertical_images' not in self.structure_grammar else self.structure_grammar['inverse_vertical_images']
-            inv_horz = None if 'inverse_horizontal_images' not in self.structure_grammar else self.structure_grammar['inverse_horizontal_images']
-            white = None if 'inverse_vertical_images' not in self.structure_grammar else self.structure_grammar['white']
-            black = None if 'inverse_horizontal_images' not in self.structure_grammar else self.structure_grammar['black']
-            thr = None if 'threshold' not in self.structure_grammar else self.structure_grammar['threshold']
+            vert = None if 'vertical_images' not in self.structure_grammar \
+                else [os.path.join(self.reconstruction_directory, img) \
+                      for img in self.structure_grammar['vertical_images']]
+            
+            horz = None if 'horizontal_images' not in self.structure_grammar \
+                else [os.path.join(self.reconstruction_directory, img) \
+                      for img in self.structure_grammar['horizontal_images']]
+            
+            inv_vert = None if 'inverse_vertical_images' not in self.structure_grammar \
+                else [os.path.join(self.reconstruction_directory, img) \
+                      for img in self.structure_grammar['inverse_vertical_images']]
+            
+            inv_horz = None if 'inverse_horizontal_images' not in self.structure_grammar \
+                else [os.path.join(self.reconstruction_directory, img) \
+                      for img in self.structure_grammar['inverse_horizontal_images']]
+            
+            white = None if 'inverse_vertical_images' not in self.structure_grammar \
+                else os.path.join(self.reconstruction_directory, self.structure_grammar['white'])
+            black = None if 'inverse_horizontal_images' not in self.structure_grammar \
+                else os.path.join(self.reconstruction_directory, self.structure_grammar['black'])
+            thr = None if 'threshold' not in self.structure_grammar \
+                else self.structure_grammar['threshold']
             
             self.index_x, self.index_y = StructuredLight.decode_gray_binary_xor(pattern,
                                                                                 vert,
@@ -179,11 +194,15 @@ class StructuredLight:
                                                                                 thr)
         elif pattern == 'hilbert':
             # handle structure grammar for Hilbert
-            StructuredLight.decode_hilbert(self.structure_grammar['images'], self.structure_grammar['num_bits'])
+            StructuredLight.decode_hilbert([os.path.join(self.reconstruction_directory, img) 
+                                            for img in self.structure_grammar['images']],
+                                            self.structure_grammar['num_bits'])
         elif pattern == 'phaseshift':
             # handle structure grammar for Phase Shift
             F = 1.0 if 'F' not in self.structure_grammar else self.structure_grammar['F']
-            StructuredLight.decode_phaseshift(self.structure_grammar['images'], F)
+            StructuredLight.decode_phaseshift([os.path.join(self.reconstruction_directory, img) 
+                                               for img in self.structure_grammar['images']], 
+                                               F)
         else:
             raise RuntimeError("Unrecognized pattern, cannot decode structured light")
         
@@ -276,7 +295,7 @@ class StructuredLight:
         if self.mask is None:
             self.generate_mask()
 
-        img = ImageUtils.load_ldr(color_image)
+        img = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, color_image))
         # clip RGB range to [0., 1.[
         minimum = np.min(img)
         maximum = np.max(img)
@@ -467,7 +486,7 @@ class StructuredLight:
                                               for img in inverse_vertical_images]
             else:
                 vertical_second_argument = thresh
-            index_y = pattern.decode(gray_vertical, vertical_second_argument)
+            index_x = pattern.decode(gray_vertical, vertical_second_argument)
 
         return index_x, index_y
     

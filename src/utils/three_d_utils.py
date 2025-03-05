@@ -662,7 +662,7 @@ class ThreeDUtils:
             R, _ = cv2.Rodrigues(R)
 
         shape = depth_map.shape
-        width, height = shape[0], shape[1]
+        width, height = shape[1], shape[0]
         x0, y0 = 0, 0
 
         if roi is not None:
@@ -676,9 +676,7 @@ class ThreeDUtils:
         depth_map = depth_map.flatten()
         result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map[:, np.newaxis]
         result3D = np.matmul(result3D, R.T) + T
-
-        mask = depth_map > 0
-        return result3D[mask]
+        return result3D
 
     @staticmethod
     def depth_map_from_point_cloud(

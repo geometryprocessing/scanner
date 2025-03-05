@@ -41,7 +41,7 @@ class LookUpCalibration:
         self.structure_grammar = {}
         self.roi = None
 
-        # flag for  verbose
+        # flag for verbose
         self.verbose = False
         # flag for parallelizing position processing
         self.parallelize_positions = False
@@ -117,7 +117,6 @@ class LookUpCalibration:
                 "utils": {
                     "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
                     "black": "black.tiff",
-                    "black_scale: 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -248,7 +247,6 @@ class LookUpCalibration:
         pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
         white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
         black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
-        black_scale = None if 'black_scale' not in utils else float(utils['black_scale'])
 
         if self.depth_already_exists(folder):            
             if self.verbose:
@@ -270,8 +268,7 @@ class LookUpCalibration:
                 print("Normalizing image")
             normalized = ImageUtils.normalize_color(color_image=pattern_images,
                                                     white_image=white_image,
-                                                    black_image=black_image,
-                                                    black_scale=black_scale)
+                                                    black_image=black_image)
             np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
 
     def calibrate_positions(self):
@@ -367,7 +364,6 @@ class LookUpReconstruction:
         self.mask = None
         self.pattern_images = None
         self.black_image = None
-        self.black_scale = 1
         self.normalized = None
 
         # flag for debugging and verbose
@@ -460,7 +456,6 @@ class LookUpReconstruction:
                     "white": "white.tiff",
                     "colors: "white.tiff,
                     "black": "black.tiff",
-                    "black_scale": 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -587,8 +582,6 @@ class LookUpReconstruction:
         
         if 'black' in utils:
             self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
-            if 'black_scale' in utils:
-                self.black_scale = utils['black_scale']
 
     def extract_mask(self):
         """
@@ -612,9 +605,7 @@ class LookUpReconstruction:
         self.normalized: np.ndarray = ImageUtils.normalize_color(self.pattern_images,
                                                                  self.white_image,
                                                                  self.mask,
-                                                                 self.black_image,
-                                                                 self.black_scale)
-    
+                                                                 self.black_image)    
     def extract_depth(self,
                       pixel,
                       lookup) -> tuple[float, float, float, float, float] | float:
@@ -758,13 +749,14 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Constructing point cloud")
+            mask = (self.depth_map > 0).flatten()
             self.extract_point_cloud()
-            # self.extract_normals()
+            self.extract_normals()
             self.extract_colors()
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
-                                 self.point_cloud,
-                                 self.normals,
-                                 self.colors[(self.depth_map > 0).flatten()])
+                                 self.point_cloud[mask],
+                                 self.normals[mask],
+                                 self.colors[mask])
             if self.verbose:
                 print("Saved point cloud")
 

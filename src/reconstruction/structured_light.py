@@ -81,7 +81,6 @@ class StructuredLight:
                 "utils": {
                     "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
                     "black": "black.tiff",
-                    "black_scale: 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -143,13 +142,16 @@ class StructuredLight:
             print("External mask provided")
             return
         
-        if self.white_image is None or self.black_image is None:
+        white = None if 'white' not in self.structure_grammar else self.structure_grammar['white']
+        black = None if 'black' not in self.structure_grammar else self.structure_grammar['black']
+        
+        if white is None or black is None:
             cam_resolution = self.camera.get_image_shape()
             self.mask = np.full(cam_resolution, True)
             return
 
-        white = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, self.white_image), make_gray=True)
-        black = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, self.black_image), make_gray=True)
+        white = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, white), make_gray=True)
+        black = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, black), make_gray=True)
         data_type = white.dtype
         m = np.iinfo(data_type).max if data_type.kind in 'iu' else np.finfo(data_type).max
         self.mask = (abs(white-black) > m*self.minimum_contrast)
@@ -177,9 +179,9 @@ class StructuredLight:
                 else [os.path.join(self.reconstruction_directory, img) \
                       for img in self.structure_grammar['inverse_horizontal_images']]
             
-            white = None if 'inverse_vertical_images' not in self.structure_grammar \
+            white = None if 'white' not in self.structure_grammar \
                 else os.path.join(self.reconstruction_directory, self.structure_grammar['white'])
-            black = None if 'inverse_horizontal_images' not in self.structure_grammar \
+            black = None if 'black' not in self.structure_grammar \
                 else os.path.join(self.reconstruction_directory, self.structure_grammar['black'])
             thr = None if 'threshold' not in self.structure_grammar \
                 else self.structure_grammar['threshold']

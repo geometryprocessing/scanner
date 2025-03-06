@@ -662,7 +662,7 @@ class ThreeDUtils:
             R, _ = cv2.Rodrigues(R)
 
         shape = depth_map.shape
-        width, height = shape[0], shape[1]
+        width, height = shape[1], shape[0]
         x0, y0 = 0, 0
 
         if roi is not None:
@@ -670,14 +670,12 @@ class ThreeDUtils:
             y0 = roi[1]
             width = roi[2] - x0
             height = roi[3] - y0
-        # mask = depth_map[depth_map > 0]
         campixels_x, campixels_y = np.meshgrid(np.arange(x0, x0+width),
                                                np.arange(y0, y0+height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
-        
-        result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map.flatten()[:,np.newaxis]
+        depth_map = depth_map.flatten()
+        result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map[:, np.newaxis]
         result3D = np.matmul(result3D, R.T) + T
-
         return result3D
 
     @staticmethod

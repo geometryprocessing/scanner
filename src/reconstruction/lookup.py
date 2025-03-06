@@ -41,7 +41,7 @@ class LookUpCalibration:
         self.structure_grammar = {}
         self.roi = None
 
-        # flag for  verbose
+        # flag for verbose
         self.verbose = False
         # flag for parallelizing position processing
         self.parallelize_positions = False
@@ -117,7 +117,6 @@ class LookUpCalibration:
                 "utils": {
                     "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
                     "black": "black.tiff",
-                    "black_scale: 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -230,7 +229,7 @@ class LookUpCalibration:
         # depth[~idx] = 0
 
         depth = depth.reshape((height, width))
-        np.savez_compressed(folder, "depth.npz", depth=depth)
+        np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
 
     def save_lookup_table(self,
                             lookup_table: np.ndarray,
@@ -248,7 +247,6 @@ class LookUpCalibration:
         pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
         white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
         black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
-        black_scale = None if 'black_scale' not in utils else float(utils['black_scale'])
 
         if self.depth_already_exists(folder):            
             if self.verbose:
@@ -258,13 +256,20 @@ class LookUpCalibration:
             if self.verbose:
                 print('-' * 15)
                 print("Extracting depth from white image")
-                self.find_depth(white_image)
+            self.find_depth(folder, white_image)
 
-        normalized = ImageUtils.normalize_color(color_image=pattern_images,
-                                                white_image=white_image,
-                                                black_image=black_image,
-                                                black_scale=black_scale)
-        np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
+        if os.path.exists(os.path.join(folder, f'{table_name}.npz')):
+            if self.verbose:
+                print('-' * 15)
+                print("Found normalized -- skipping normalization")
+        else:
+            if self.verbose:
+                print('-' * 15)
+                print("Normalizing image")
+            normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                    white_image=white_image,
+                                                    black_image=black_image)
+            np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
 
     def calibrate_positions(self):
         if self.verbose:
@@ -354,11 +359,11 @@ class LookUpReconstruction:
         self.samples = 1000
         self.roi = None
         self.white_image = None
+        self.color_image = None
         self.thr = None # threshold for mask
         self.mask = None
         self.pattern_images = None
         self.black_image = None
-        self.black_scale = 0.1
         self.normalized = None
 
         # flag for debugging and verbose
@@ -449,8 +454,8 @@ class LookUpReconstruction:
                 },
                 "utils": {
                     "white": "white.tiff",
+                    "colors: "white.tiff,
                     "black": "black.tiff",
-                    "black_scale": 0.1
                 }
             }
         The list of strings are the images which will be used
@@ -568,8 +573,15 @@ class LookUpReconstruction:
         utils: dict = self.structure_grammar['utils']
         self.pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, image)))[y0:y0+height,x0:x0+width] for image in images], axis=2)
         self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['white']))[y0:y0+height,x0:x0+width]
-        self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
-        self.black_scale = utils['black_scale']
+
+        if 'colors' in utils:
+            if utils['white'] == utils['colors']:
+                self.color_image = self.white_image # to avoid loading it twice
+            else:
+                self.color_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors']))[y0:y0+height,x0:x0+width]
+        
+        if 'black' in utils:
+            self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
 
     def extract_mask(self):
         """
@@ -593,9 +605,7 @@ class LookUpReconstruction:
         self.normalized: np.ndarray = ImageUtils.normalize_color(self.pattern_images,
                                                                  self.white_image,
                                                                  self.mask,
-                                                                 self.black_image,
-                                                                 self.black_scale)
-    
+                                                                 self.black_image)    
     def extract_depth(self,
                       pixel,
                       lookup) -> tuple[float, float, float, float, float] | float:
@@ -606,12 +616,12 @@ class LookUpReconstruction:
         """
         color = lookup[::-1, :-1]
         depth = lookup[::-1, -1]
-        if self.structure_grammar['table']['interpolant']['active']:
-            knots = self.structure_grammar['table']['interpolant']['knots']
-            samples = self.structure_grammar['table']['interpolant']['samples']
+        if self.structure_grammar['interpolant']['active']:
+            knots = self.structure_grammar['interpolant']['knots']
+            samples = self.structure_grammar['interpolant']['samples']
             color = spline_interpolant(depth, color, knots, samples)
 
-        loss = calculate_loss(color, pixel, ord=self.structure_grammar['table']['loss']['order'])
+        loss = calculate_loss(color, pixel, ord=self.structure_grammar['loss']['order'])
 
         if self.debug:
             k_indices = k_smallest_indices(loss, 2)
@@ -634,11 +644,13 @@ class LookUpReconstruction:
         colors
             numpy array of the colors of the scene
         """
+        if self.color_image is None:
+            print("No color image set, therefore no color extraction for point cloud")
         if self.verbose:
             print("Extracting colors for point cloud")
-        minimum = np.min(self.white_image)
-        maximum = np.max(self.white_image)
-        self.colors: np.ndarray = ((self.white_image - minimum) / (maximum - minimum)).reshape((-1,3))
+        minimum = np.min(self.color_image)
+        maximum = np.max(self.color_image)
+        self.colors: np.ndarray = ((self.color_image - minimum) / (maximum - minimum)).reshape((-1,3))
 
     def extract_point_cloud(self):
         self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
@@ -737,13 +749,14 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Constructing point cloud")
+            mask = (self.depth_map > 0).flatten()
             self.extract_point_cloud()
             self.extract_normals()
             self.extract_colors()
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
-                                 self.point_cloud,
-                                 self.normals,
-                                 self.colors)
+                                 self.point_cloud[mask],
+                                 self.normals[mask],
+                                 self.colors[mask])
             if self.verbose:
                 print("Saved point cloud")
 

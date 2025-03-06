@@ -16,7 +16,7 @@ class ImageUtils:
                                 P: np.ndarray=None) -> np.ndarray:
         """
         This function, by default, takes a array of 2D pixel coordinates (x,y)
-        and returns normalized, homogenous coordinates (u,v,1).
+        and returns normalized coordinates (u,v).
 
         Parameters
         ----------
@@ -122,8 +122,7 @@ class ImageUtils:
     def normalize_color(color_image: str | np.ndarray,
                         white_image: str | np.ndarray,
                         mask: str | np.ndarray = None,
-                        black_image: str | np.ndarray = None,
-                        black_scale: float=1.0) -> np.ndarray:
+                        black_image: str | np.ndarray = None) -> np.ndarray:
         """
         Take a color image and a white image, apply a Gaussian blur
         on both and get color divided by white.
@@ -160,7 +159,6 @@ class ImageUtils:
             if isinstance(black_image, str):
                 black_image = ImageUtils.load_ldr(black_image)
             black_image = np.atleast_3d(np.squeeze(black_image))
-            black_image = black_image * black_scale
             # it seems that keeping black_image as uint16 is problematic...
             # TODO: need further investigation
 

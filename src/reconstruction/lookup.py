@@ -43,6 +43,7 @@ class LookUpCalibration:
 
         # flag for verbose
         self.verbose = False
+        self.debug = False
         # flag for parallelizing position processing
         self.parallelize_positions = False
         self.num_cpus = 1
@@ -60,6 +61,7 @@ class LookUpCalibration:
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
         self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
         self.set_verbose(config['look_up_reconstruction']['verbose'])
+        self.set_debug(config['look_up_reconstruction']['debug'])
         self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
         self.set_num_cpus(config['look_up_calibration']['num_cpus'])
 
@@ -145,6 +147,16 @@ class LookUpCalibration:
             Default is False
         """
         self.verbose = verbose
+
+    def set_debug(self, debug: bool):
+        """
+        Parameters
+        ----------
+        verbose : bool
+            Whether to save extra debug results.
+            Default is False
+        """
+        self.debug = debug
 
     def set_parallelize_positions(self, parallelize: bool):
         """
@@ -239,6 +251,11 @@ class LookUpCalibration:
         Save the lookup table as a npy file.
         """
         np.save(os.path.join(self.root, filename), lookup_table)
+        if self.debug:
+            x = lookup_table.shape[1]//2
+            y = lookup_table.shape[0]//2
+            np.save(os.path.join(self.root, f'{filename}_ray_{y}_{x}'), lookup_table[y,x,:,:])
+
     
     def process_position(self, folder: str, structure_grammar: dict):
         table_name = structure_grammar['name']

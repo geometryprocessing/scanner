@@ -35,9 +35,10 @@ class StructuredLight:
     def load_config(self, config: str | dict):
         if isinstance(config, str):
             config = load_json(config)
-        self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
+        self.set_reconstruction_directory(config['structured_light']['reconstruction_directory'])
         self.set_structure_grammar(config['structured_light']['structure_grammar'])
-        self.set_camera(config['structured_light']['calibration_calibration'])
+        self.set_minimum_contrast(config['structured_light']['minimum_contrast'])
+        self.set_camera(config['structured_light']['camera_calibration'])
         self.set_projector(config['structured_light']['projector_calibration'])
         self.set_outputs(config['structured_light']['outputs'])
 
@@ -196,13 +197,14 @@ class StructuredLight:
                                                                                 thr)
         elif pattern == 'hilbert':
             # handle structure grammar for Hilbert
-            StructuredLight.decode_hilbert([os.path.join(self.reconstruction_directory, img) 
+            self.index_x = StructuredLight.decode_hilbert([os.path.join(self.reconstruction_directory, img) 
                                             for img in self.structure_grammar['images']],
                                             self.structure_grammar['num_bits'])
         elif pattern == 'phaseshift':
             # handle structure grammar for Phase Shift
             F = 1.0 if 'F' not in self.structure_grammar else self.structure_grammar['F']
-            StructuredLight.decode_phaseshift([os.path.join(self.reconstruction_directory, img) 
+            self.index_x = StructuredLight.decode_phaseshift(self.projector.width,
+                                              [os.path.join(self.reconstruction_directory, img) 
                                                for img in self.structure_grammar['images']], 
                                                F)
         else:
@@ -301,7 +303,7 @@ class StructuredLight:
         # clip RGB range to [0., 1.[
         minimum = np.min(img)
         maximum = np.max(img)
-        self.colors: np.ndarray = ((img - minimum) / (maximum - minimum)).reshape((-1,3))
+        self.colors: np.ndarray = ((img - minimum) / (maximum - minimum))[self.mask].reshape((-1,3))
 
     def extract_depth_map(self):
         assert self.point_cloud is not None, "No reconstruction yet"
@@ -318,7 +320,7 @@ class StructuredLight:
             self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
     
     def save_outputs(self):
-        name = self.structure_grammar['type']
+        name = self.structure_grammar['pattern']
 
         if self.outputs['depth_map']:
             self.extract_depth_map()
@@ -493,14 +495,16 @@ class StructuredLight:
         return index_x, index_y
     
     @staticmethod
-    def decode_phaseshift(images, F=1.0):
+    def decode_phaseshift(width, images, F=1.0):
         pattern = structuredlight.PhaseShifting(num=len(images), F=F)
+        pattern.width = width
 
         images = [ImageUtils.load_ldr(img, make_gray=True) 
                     if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
                     for img in images]
+        result = pattern.decode(images)
 
-        return pattern.decode(images)
+        return result
 
 
 if __name__ == "__main__":

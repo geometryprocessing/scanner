@@ -263,6 +263,9 @@ class LookUpCalibration:
         utils: dict = structure_grammar['utils']
         pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
         white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+        # TODO: add depth image to structure grammar -- if the same as white, point to same
+        # memory address, no need to load it again
+        # depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth']))
         black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
 
         if self.depth_already_exists(folder):            
@@ -585,6 +588,8 @@ class LookUpReconstruction:
             y0 = self.roi[1]
             width = self.roi[2] - x0
             height = self.roi[3] - y0
+
+        # TODO: if normalized image already exists, load it
             
         images: list[str] = self.structure_grammar['images']
         utils: dict = self.structure_grammar['utils']
@@ -599,6 +604,12 @@ class LookUpReconstruction:
         
         if 'black' in utils:
             self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
+
+        # TODO: move normalization to this step
+
+        # TODO: save normalized image -- will make it easier to concatenate different patterns together
+        # (example -- hilbert is monochromatic, spiral is RGB, so the way the code is written won't work)
+
 
     def extract_mask(self):
         """

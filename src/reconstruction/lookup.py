@@ -39,6 +39,7 @@ class LookUpCalibration:
         self.calibration_directory = []
         self.num_directories = 0
         self.structure_grammar = {}
+        self.num_channels = 0
         self.roi = None
 
         # flag for verbose
@@ -116,6 +117,7 @@ class LookUpCalibration:
             structure_grammar = {
                 "name": "gray",
                 "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
+                "num_channels": 3,
                 "utils": {
                     "white": "white.tiff", (or "green.tiff" if monochormatic, for instance)
                     "black": "black.tiff",
@@ -338,7 +340,7 @@ class LookUpCalibration:
             height = self.roi[3] - y0
 
         # allocate memory for massive, single float precision numpy array
-        lookup_table = np.full(shape=(height, width, self.num_directories, 4), fill_value=np.nan, dtype=np.float32)
+        lookup_table = np.full(shape=(height, width, self.num_directories, self.structure_grammar['num_channels'] + 1), fill_value=np.nan, dtype=np.float32)
         
         # optional parallelization
         if self.parallelize_positions:

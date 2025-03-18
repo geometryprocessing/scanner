@@ -231,7 +231,6 @@ class StructuredLight:
         cam_resolution = self.camera.get_image_shape()
         campixels_x, campixels_y = np.meshgrid(np.arange(cam_resolution[0]),
                                                np.arange(cam_resolution[1]))
-        
         campixels = np.stack([campixels_x, campixels_y], axis=-1)[self.mask].reshape((-1,2))
 
         if self.index_x is not None and self.index_y is not None:
@@ -462,7 +461,7 @@ class StructuredLight:
                   if isinstance(black_image, str) else ImageUtils.convert_to_gray(black_image) 
             thresh = 0.5*white_image + 0.5*black_image
 
-        if len(horizontal_images) > 0:
+        if horizontal_images:
             gray_horizontal = [ImageUtils.load_ldr(img, make_gray=True) 
                                if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
                                for img in horizontal_images]
@@ -477,7 +476,7 @@ class StructuredLight:
                 horizontal_second_argument = thresh
             index_y = pattern.decode(gray_horizontal, horizontal_second_argument)
 
-        if len(vertical_images) > 0:
+        if vertical_images:
             gray_vertical = [ImageUtils.load_ldr(img, make_gray=True) 
                                if isinstance(img, str) else ImageUtils.convert_to_gray(img) 
                                for img in vertical_images]

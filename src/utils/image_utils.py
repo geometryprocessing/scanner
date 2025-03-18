@@ -504,9 +504,25 @@ class ImageUtils:
             img = np.power(img, 1/gamma)
 
         return np.minimum(255 * img, 255).astype(np.uint8), thr
-
     @staticmethod
-    def generate_mask(image: np.ndarray,
+    def crop(image: np.ndarray,
+             roi: tuple):
+        
+        if roi is None:
+            return image
+    
+        x1, y1, x2, y2 = roi
+
+        return image[y1:y2, x1:x2]
+    
+    @staticmethod
+    def extract_mask(image: np.ndarray,
+                      threshold: float):
+        s = np.min(image, axis=2)
+        return s > threshold * np.max(s)
+    
+    @staticmethod
+    def generate_mask_binary_structure(image: np.ndarray,
                       threshold: float,
                       mask_sigma: float=3,
                       rank: int=2,

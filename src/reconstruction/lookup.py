@@ -19,13 +19,10 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """
     lookup_tables = [np.load(lut) for lut in lookup_tables]
     result = [lut[:, :, :, :-1] for lut in lookup_tables]
-    # append the depth from the last lookup table
-    result.append(lookup_tables[-1][:, :, :, -1])
+    result.append(lookup_tables[-1][:, :, :, -1, np.newaxis])
 
     print("Concatenating...")
-    # these are all 4D arrays, so it makes sense we are concatenating on axis=3
-    # (hard to visualize, since we only see three dimensions)
-    result = np.concatenate(lookup_tables, axis=3)
+    result = np.concatenate(result, axis=3)
     np.save(filename, result)
 
 class LookUpCalibration:
@@ -61,8 +58,8 @@ class LookUpCalibration:
         self.set_roi(config['look_up_calibration']['roi'])
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
         self.set_structure_grammar(config['look_up_calibration']['structure_grammar'])
-        self.set_verbose(config['look_up_reconstruction']['verbose'])
-        self.set_debug(config['look_up_reconstruction']['debug'])
+        self.set_verbose(config['look_up_calibration']['verbose'])
+        self.set_debug(config['look_up_calibration']['debug'])
         self.set_parallelize_positions(config['look_up_calibration']['parallelize_positions'])
         self.set_num_cpus(config['look_up_calibration']['num_cpus'])
 
@@ -233,7 +230,9 @@ class LookUpCalibration:
         origin, rays = ThreeDUtils.camera_to_ray_world(campixels, self.camera.R, self.camera.T, self.camera.K, self.camera.dist_coeffs)
         points = ThreeDUtils.intersect_line_with_plane(origin, rays, plane_q, plane_n)
 
-        depth = np.linalg.norm(points - origin, axis=1, ord=2)
+        # save only Z of the depth
+        result3D = np.matmul((points - self.camera.T.T), self.camera.R)
+        depth = result3D[:,2]
         
         # bs = np.matmul(R.T, (xs - T).T).T
         # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
@@ -265,6 +264,12 @@ class LookUpCalibration:
         utils: dict = structure_grammar['utils']
         pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
         white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+
+        if 'depth' not in utils or utils['white'] == utils['depth']:
+            depth_image = white_image # to avoid loading it twice
+        else:
+            depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth']))
+        
         # TODO: add depth image to structure grammar -- if the same as white, point to same
         # memory address, no need to load it again
         # depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth']))
@@ -278,7 +283,7 @@ class LookUpCalibration:
             if self.verbose:
                 print('-' * 15)
                 print("Extracting depth from white image")
-            self.find_depth(folder, white_image)
+            self.find_depth(folder, depth_image)
 
         if os.path.exists(os.path.join(folder, f'{table_name}.npz')):
             if self.verbose:
@@ -377,11 +382,7 @@ class LookUpReconstruction:
 
         # reconstruction utils
         self.lookup_table = None
-        self.knots = []
-        self.samples = 1000
-        self.roi = None
         self.white_image = None
-        self.color_image = None
         self.thr = None # threshold for mask
         self.mask = None
         self.pattern_images = None
@@ -578,41 +579,6 @@ class LookUpReconstruction:
         return os.path.exists(os.path.join(self.reconstruction_directory, 'mask.npy'))
 
     # reconstruction functions
-    def load_images(self):
-        if self.verbose:
-            print('-' * 15)
-            print("Loading images")
-        width, height = self.camera.get_image_shape()
-        x0, y0 = 0, 0
-
-        if self.roi is not None:
-            x0 = self.roi[0]
-            y0 = self.roi[1]
-            width = self.roi[2] - x0
-            height = self.roi[3] - y0
-
-        # TODO: if normalized image already exists, load it
-            
-        images: list[str] = self.structure_grammar['images']
-        utils: dict = self.structure_grammar['utils']
-        self.pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, image)))[y0:y0+height,x0:x0+width] for image in images], axis=2)
-        self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['white']))[y0:y0+height,x0:x0+width]
-
-        if 'colors' in utils:
-            if utils['white'] == utils['colors']:
-                self.color_image = self.white_image # to avoid loading it twice
-            else:
-                self.color_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors']))[y0:y0+height,x0:x0+width]
-        
-        if 'black' in utils:
-            self.black_image = None if utils['black'] is None else ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['black']))[y0:y0+height,x0:x0+width]
-
-        # TODO: move normalization to this step
-
-        # TODO: save normalized image -- will make it easier to concatenate different patterns together
-        # (example -- hilbert is monochromatic, spiral is RGB, so the way the code is written won't work)
-
-
     def extract_mask(self):
         """
         """
@@ -625,20 +591,11 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Extracting mask from white image")
-            s = np.min(self.white_image, axis=2)
-            self.mask: np.ndarray = s > self.thr * np.max(s)
-    
-    def normalize_color(self):
-        if self.verbose:
-            print('-' * 15)
-            print("Normalizing pattern images")
-        self.normalized: np.ndarray = ImageUtils.normalize_color(self.pattern_images,
-                                                                 self.white_image,
-                                                                 self.mask,
-                                                                 self.black_image)    
-    def extract_depth(self,
-                      pixel,
-                      lookup) -> tuple[float, float, float, float, float] | float:
+            self.mask = ImageUtils.extract_mask(self.white_image, self.thr)
+        
+    def decode_depth(self,
+                     pixel,
+                     lookup) -> tuple[float, float, float, float, float] | float:
         """
         TODO: replace slow np.argmin with some form of gradient descent
         Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
@@ -663,44 +620,7 @@ class LookUpReconstruction:
     def process_pixel(self, mask, pixel, lookup):
         if not mask:
             return None
-        return self.extract_depth(pixel, lookup)
-
-    def extract_colors(self) -> np.ndarray:
-        """
-        Extract colors PER FRAME, using the white pattern image.
-
-        Returns
-        -------
-        colors
-            numpy array of the colors of the scene
-        """
-        if self.color_image is None:
-            print("No color image set, therefore no color extraction for point cloud")
-        if self.verbose:
-            print("Extracting colors for point cloud")
-        minimum = np.min(self.color_image)
-        maximum = np.max(self.color_image)
-        self.colors: np.ndarray = ((self.color_image - minimum) / (maximum - minimum)).reshape((-1,3))
-
-    def extract_point_cloud(self):
-        self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
-                                                                  K=self.camera.K,
-                                                                  dist_coeffs=self.camera.dist_coeffs,
-                                                                  R=self.camera.R,
-                                                                  T=self.camera.T,
-                                                                  roi=self.roi)
-    def extract_normals(self):
-        """
-        Extract normals using the reconstructed point cloud.
-
-        Returns
-        -------
-        normal
-            numpy array of the normals of reconstructed point cloud
-        """
-        if self.verbose:
-            print("Extracting normals for point cloud")
-        self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
+        return self.decode_depth(pixel, lookup)
 
     def reconstruct(self):
         """
@@ -768,6 +688,8 @@ class LookUpReconstruction:
 
     def save_outputs(self):
         table_name = self.structure_grammar['name']
+        utils: dict = self.structure_grammar['utils']
+        roi: tuple = None if 'roi' not in utils else utils['roi']
 
         if self.outputs['depth_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)
@@ -779,10 +701,28 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Constructing point cloud")
+
             mask = (self.depth_map > 0).flatten()
-            self.extract_point_cloud()
-            self.extract_normals()
-            self.extract_colors()
+
+            self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
+                                                                            K=self.camera.K,
+                                                                            dist_coeffs=self.camera.dist_coeffs,
+                                                                            R=self.camera.R,
+                                                                            T=self.camera.T,
+                                                                            roi=roi)
+            if self.verbose:
+                print("Extracting normals for point cloud")
+            self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
+            if 'colors' not in utils or utils['colors'] is None:
+                print("No color image set, therefore no color extraction for point cloud")
+                return
+            if self.verbose:
+                print("Extracting colors for point cloud")
+
+            color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors'])), roi=utils['roi'])
+            minimum = np.min(color_image)
+            maximum = np.max(color_image)
+            self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
                                  self.point_cloud[mask],
                                  self.normals[mask],
@@ -807,11 +747,41 @@ class LookUpReconstruction:
                 print("Saved extra outputs because debug is set to True")
 
     def run(self):
-        self.load_images()
-        self.extract_mask()
-        self.normalize_color()
+        self.process_position(self.reconstruction_directory, self.structure_grammar)
         self.reconstruct()
         self.save_outputs()
+
+    @staticmethod
+    def process_position(folder: str, structure_grammar: dict) -> np.ndarray:
+        """
+        Processes the #N HxW pattern images and returns the normalized image (HxWxN).
+        """
+        name = structure_grammar['name']
+        images: list[str] = structure_grammar['images']
+        utils: dict = structure_grammar['utils']
+
+        roi: tuple = None if 'roi' not in utils else utils['roi']
+
+        if os.path.exists(os.path.join(folder, f'{name}.npz')):
+            print('-' * 15)
+            print("Found normalized -- skipping normalization")
+            normalized = np.load(os.path.join(folder, f"{name}.npz"))['pattern']
+        else:
+            print('-' * 15)
+            print("Normalizing image")
+
+            pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
+            white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
+            
+            if 'black' in utils:
+                black_image = None if utils['black'] is None else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
+            
+            normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                    white_image=white_image,
+                                                    black_image=black_image)
+            np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+
+        return normalized
 
 
 if __name__ == "__main__":

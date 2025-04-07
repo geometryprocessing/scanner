@@ -378,7 +378,7 @@ class ImageUtils:
                  image: np.ndarray,
                  ensure_rgb: bool=False):
         """
-        Save image with .LDR extension image using OpenCV.
+        Save image using OpenCV.
 
         Parameters
         ----------
@@ -386,7 +386,8 @@ class ImageUtils:
             path to file where image will be saved.  
         image : array_like
             image array (if only one channel, i.e. grayscale, keeps grayscale)
-        keep_rgb : boolean, optional
+        TODO: update description of this parameter
+        ensure_rgb : boolean, optional
             Flag to convert RGB image to grayscale (False) or save with all three channels (True).
             Default is False.
         """

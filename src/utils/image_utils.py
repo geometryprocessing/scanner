@@ -166,7 +166,8 @@ class ImageUtils:
         else: 
             normalized[mask] = (color_image[mask]) / (white_image[mask])
 
-        return np.clip(normalized, 0., 1.)
+        # TODO: bring back np.clip(normalized, 0., 1.)?
+        return np.clip(normalized, 0., np.inf)
 
     
     @staticmethod
@@ -378,7 +379,7 @@ class ImageUtils:
                  image: np.ndarray,
                  ensure_rgb: bool=False):
         """
-        Save image with .LDR extension image using OpenCV.
+        Save image using OpenCV.
 
         Parameters
         ----------
@@ -386,7 +387,8 @@ class ImageUtils:
             path to file where image will be saved.  
         image : array_like
             image array (if only one channel, i.e. grayscale, keeps grayscale)
-        keep_rgb : boolean, optional
+        TODO: update description of this parameter
+        ensure_rgb : boolean, optional
             Flag to convert RGB image to grayscale (False) or save with all three channels (True).
             Default is False.
         """
@@ -504,9 +506,25 @@ class ImageUtils:
             img = np.power(img, 1/gamma)
 
         return np.minimum(255 * img, 255).astype(np.uint8), thr
-
     @staticmethod
-    def generate_mask(image: np.ndarray,
+    def crop(image: np.ndarray,
+             roi: tuple):
+        
+        if roi is None:
+            return image
+    
+        x1, y1, x2, y2 = roi
+
+        return image[y1:y2, x1:x2]
+    
+    @staticmethod
+    def extract_mask(image: np.ndarray,
+                      threshold: float):
+        s = np.min(image, axis=2)
+        return s > threshold * np.max(s)
+    
+    @staticmethod
+    def generate_mask_binary_structure(image: np.ndarray,
                       threshold: float,
                       mask_sigma: float=3,
                       rank: int=2,

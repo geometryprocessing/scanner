@@ -697,6 +697,11 @@ class LookUpReconstruction:
         if self.verbose:
             print('-' * 15)
             print("Beginning reconstruction")
+        table_name = self.structure_grammar['name']
+
+        if self.normalized is None:
+            self.normalized = np.load(os.path.join(self.reconstruction_directory, f"{table_name}.npz"))['pattern']
+
         # allocate the memory for depth_map
         shape = self.normalized.shape[:2]
         self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64).flatten()
@@ -816,8 +821,10 @@ class LookUpReconstruction:
                 print('-' * 15)
                 print("Saved extra outputs because debug is set to True")
 
-    def run(self):
-        self.process_position(self.reconstruction_directory, self.structure_grammar)
+    def run(self, normalize: bool=False):
+        if normalize:
+            self.normalized = self.process_position(self.reconstruction_directory, self.structure_grammar)
+
         self.reconstruct()
         self.save_outputs()
 
@@ -829,27 +836,21 @@ class LookUpReconstruction:
         name = structure_grammar['name']
         images: list[str] = structure_grammar['images']
         utils: dict = structure_grammar['utils']
-
         roi: tuple = None if 'roi' not in utils else utils['roi']
 
-        if os.path.exists(os.path.join(folder, f'{name}.npz')):
-            print('-' * 15)
-            print("Found normalized -- skipping normalization")
-            normalized = np.load(os.path.join(folder, f"{name}.npz"))['pattern']
-        else:
-            print('-' * 15)
-            print("Normalizing image")
+        print('-' * 15)
+        print("Normalizing image")
 
-            pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
-            white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
-            
-            if 'black' in utils:
-                black_image = None if utils['black'] is None else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
-            
-            normalized = ImageUtils.normalize_color(color_image=pattern_images,
-                                                    white_image=white_image,
-                                                    black_image=black_image)
-            np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+        pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
+        white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
+        
+        if 'black' in utils:
+            black_image = None if utils['black'] is None else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
+        
+        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                white_image=white_image,
+                                                black_image=black_image)
+        np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
 
         return normalized
 
@@ -861,7 +862,7 @@ if __name__ == "__main__":
     parser.add_argument('--depth', default=False, action=argparse.BooleanOptionalAction,
                         help="Flag to set if LookUp Calibration should (Re)Calculate Depth")
     parser.add_argument('--normalize', default=False, action=argparse.BooleanOptionalAction,
-                        help="Flag to set if LookUp Calibration should (Re)Normalize Pattern")
+                        help="Flag to set if LookUp should (Re)Normalize Pattern")
     parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
                     help='Path to config JSON with parameters for LookUp Reconstruction')
 
@@ -873,4 +874,4 @@ if __name__ == "__main__":
 
     if args.reconstruction_config is not None:
         lur = LookUpReconstruction(args.reconstruction_config)
-        lur.run()
+        lur.run(args.normalize)

@@ -166,7 +166,8 @@ class ImageUtils:
         else: 
             normalized[mask] = (color_image[mask]) / (white_image[mask])
 
-        return np.clip(normalized, 0., 1.)
+        # TODO: bring back np.clip(normalized, 0., 1.)?
+        return np.clip(normalized, 0., np.inf)
 
     
     @staticmethod

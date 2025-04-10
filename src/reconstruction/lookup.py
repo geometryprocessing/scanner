@@ -52,6 +52,14 @@ class LookUpCalibration:
     def load_config(self, config: str | dict):
         if isinstance(config, str):
             config = load_json(config)
+
+        # TODO: think about replacing these hard-coded config parsing
+        # to a dynamic parsing using setattr.
+        # issue here is that some, like set_camera() actually do
+        # more than just set the attribute... think more about it
+
+        # for key, value in config['look_up_calibration'].items:
+        #     setattr(self, key, value)
         
         self.set_camera(config['look_up_calibration']['camera_calibration'])
         self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
@@ -176,74 +184,8 @@ class LookUpCalibration:
         self.num_cpus = int(max(1, num_cpus))
 
     # getters
-    def depth_already_exists(self, folder):
-        return os.path.exists(os.path.join(folder, 'depth.npz'))
-    
+
     # functions
-    def reconstruct_plane(self, white_image: str | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        """
-        assert self.camera.K is not None, "No camera defined"
-        assert self.plane_pattern is not None, "No Plane Pattern defined"
-        
-        # detect plane/board markers with camera
-        img_points, obj_points, _ = \
-            self.plane_pattern.detect_markers(white_image)
-        
-        # although plane reconstruction requires 3 points,
-        # OpenCV extrinsic calibration requires 6 points
-        if len(img_points) < 6:
-            return None, None
-        
-        # find relative position of camera and board
-        result = Calibration.calibrate_extrinsic(obj_points,
-                                                 img_points,
-                                                 self.camera.K,
-                                                 self.camera.dist_coeffs)
-        rvec = result['rvec']
-        tvec = result['tvec']
-
-        R, _ = cv2.Rodrigues(rvec)
-        T = tvec.reshape((3,1))
-
-        # move markers to world coordinate
-        R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
-        # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation
-        # has to be written as (R @ obj_points.T).T
-        # to simplify:
-        # np.matmul(R_combined, obj_points.T).T = np.matmul(obj_points, R_combined.T)
-        world_points = np.matmul(obj_points, R_combined.T) + T_combined.reshape((1,3))
-        
-        # fit plane
-        return ThreeDUtils.fit_plane(world_points)
-
-    def find_depth(self, folder: str, white_image: str | np.ndarray) -> np.ndarray:
-        """
-        TODO: finding depth will happen PER FRAME of calibration, only after it will be glued together
-        """
-        plane_q, plane_n = self.reconstruct_plane(white_image)
-        width, height = self.camera.get_image_shape()
-        campixels_x, campixels_y = np.meshgrid(np.arange(width),
-                                                    np.arange(height))
-        campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
-
-        origin, rays = ThreeDUtils.camera_to_ray_world(campixels, self.camera.R, self.camera.T, self.camera.K, self.camera.dist_coeffs)
-        points = ThreeDUtils.intersect_line_with_plane(origin, rays, plane_q, plane_n)
-
-        # save only Z of the depth
-        result3D = np.matmul((points - self.camera.T.T), self.camera.R)
-        depth = result3D[:,2]
-        
-        # bs = np.matmul(R.T, (xs - T).T).T
-        # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
-        #     (roi[1] < bs[:, 1]) & (bs[:, 1] < roi[3])
-        # bs = None
-
-        # depth[~idx] = 0
-
-        depth = depth.reshape((height, width))
-        np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
-
     def save_lookup_table(self,
                             lookup_table: np.ndarray,
                             filename):
@@ -257,62 +199,58 @@ class LookUpCalibration:
             y = lookup_table.shape[0]//2
             np.save(os.path.join(self.root, f'{filename}_ray_{y}_{x}'), lookup_table[y,x,:,:])
 
-    
-    def process_position(self, folder: str, structure_grammar: dict):
-        table_name = structure_grammar['name']
-        images: list[str] = structure_grammar['images']
-        utils: dict = structure_grammar['utils']
-        pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
-        white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
-
-        if 'depth' not in utils or utils['white'] == utils['depth']:
-            depth_image = white_image # to avoid loading it twice
-        else:
-            depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth']))
-        
-        # TODO: add depth image to structure grammar -- if the same as white, point to same
-        # memory address, no need to load it again
-        # depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth']))
-        black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
-
-        if self.depth_already_exists(folder):            
-            if self.verbose:
-                print('-' * 15)
-                print("Found depth -- skipping extraction")
-        else:
-            if self.verbose:
-                print('-' * 15)
-                print("Extracting depth from white image")
-            self.find_depth(folder, depth_image)
-
-        if os.path.exists(os.path.join(folder, f'{table_name}.npz')):
-            if self.verbose:
-                print('-' * 15)
-                print("Found normalized -- skipping normalization")
-        else:
-            if self.verbose:
-                print('-' * 15)
-                print("Normalizing image")
-            normalized = ImageUtils.normalize_color(color_image=pattern_images,
-                                                    white_image=white_image,
-                                                    black_image=black_image)
-            np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
-
-    def calibrate_positions(self):
+    def normalize_positions(self):
         if self.verbose:
             print('-' * 15)
-            print(f"Beginning calibration for all positions for LookUp Table {self.structure_grammar['name']}")
+            print(f"Beginning normalization for all positions for LookUp Table {self.structure_grammar['name']}")
         # optional parallelization
         if self.parallelize_positions:
             if self.verbose:
                 print(f"Parallelizing with {self.num_cpus} CPU cores")
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(self.process_position, folder, self.structure_grammar) for folder in self.calibration_directory]
+                futures = [executor.submit(self.normalize_pattern, folder, self.structure_grammar) for folder in self.calibration_directory]
                 concurrent.futures.wait(futures)  # Wait for all tasks to complete
         else:
         # original sequential processing
             for folder in self.calibration_directory:
-                self.process_position(folder, self.structure_grammar)
+                self.normalize_pattern(folder, self.structure_grammar)
+
+    def find_depth_positions(self):
+        if self.verbose:
+            print('-' * 15)
+            print(f"Beginning calibration for all positions for LookUp Table {self.structure_grammar['name']}")
+        
+        # optional parallelization
+        if self.parallelize_positions:
+            if self.verbose:
+                print(f"Parallelizing with {self.num_cpus} CPU cores")
+            if self.verbose:
+                print(f"Detecting markers for board trajectory")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                futures = [executor.submit(self.find_plane, self.camera, self.plane_pattern, folder, self.structure_grammar) for folder in self.calibration_directory]
+                concurrent.futures.wait(futures)  # Wait for all tasks to complete
+            if self.verbose:
+                print(f"Fitting board trajectory into line")
+            self.fit_plane_trajectory(self.calibration_directory)
+            if self.verbose:
+                print(f"Generating depth.npz for each board position")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                futures = [executor.submit(self.find_depth, self.camera, folder) for folder in self.calibration_directory]
+                concurrent.futures.wait(futures)  # Wait for all tasks to complete
+        
+        else:
+        # original sequential processing
+            if self.verbose:
+                print(f"Detecting markers for board trajectory")
+            for folder in self.calibration_directory:
+                self.find_plane(self.camera, self.plane_pattern, folder, self.structure_grammar)
+            if self.verbose:
+                print(f"Fitting board trajectory into line")
+            self.fit_plane_trajectory(self.calibration_directory)
+            if self.verbose:
+                print(f"Generating depth.npz for each board position")
+            for folder in self.calibration_directory:
+                self.find_depth(self.camera, folder)
 
     def stack_results(self):
         """
@@ -368,10 +306,141 @@ class LookUpCalibration:
                     'date': datetime.now().strftime('%m/%d/%Y, %H:%M:%S')},
                     os.path.join(self.root, f'{table_name}_calibration_info.json'))
 
-    def run(self):
-        self.calibrate_positions()
-        self.stack_results()
+    @staticmethod
+    def find_plane(camera: Camera,
+                   calibration_board: Charuco | CheckerBoard,
+                   folder: str,
+                   structure_grammar: dict):
+        utils: dict = structure_grammar['utils']
+        depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth'])) if 'depth' in utils else ImageUtils.load_ldr(os.path.join(folder, utils['white']))
 
+        # detect plane/board markers with camera
+        img_points, obj_points, _ = \
+            calibration_board.detect_markers(depth_image)
+        
+        # although plane reconstruction requires 3 points,
+        # OpenCV extrinsic calibration requires 6 points
+        if len(img_points) < 6:
+            rvec, tvec = None, None
+        else:
+            # find relative position of camera and board
+            result = Calibration.calibrate_extrinsic(obj_points,
+                                                    img_points,
+                                                    camera.K,
+                                                    camera.dist_coeffs)
+            rvec = result['rvec']
+            rvec /= np.linalg.norm(rvec)
+            tvec = result['tvec'].ravel()
+
+        save_json({
+            'original': {
+                'rvec': rvec,
+                'tvec': tvec,
+            }
+        }, os.path.join(folder, 'board.json'))
+
+    @staticmethod
+    def fit_plane_trajectory(calibration_directory):
+
+        rvecs = []
+        tvecs = []
+        
+        for folder in calibration_directory:
+            d = load_json(os.path.join(folder, 'board.json'))
+            tvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['tvec'] is None else d['original']['tvec']
+            rvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['rvec'] is None else d['original']['rvec']
+            rvecs.append(rvec)
+            tvecs.append(tvec)
+        
+        tvecs = np.squeeze(np.array(tvecs))
+        rvecs = np.squeeze(np.array(rvecs))
+        median_rvec = np.nanmean(rvecs, axis=0)
+
+        C, N = ThreeDUtils.fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
+        if np.dot(N, [0, 0, 1]) > 0:
+            # either direction in LINE can be returned, so we need to
+            # make sure our line is moving in the direction we want
+            N = -N
+        middle_index = np.nanargmin(np.linalg.norm(tvecs - C, axis=1))
+
+        steps = np.linalg.norm(np.diff(tvecs, axis=0), axis=1)
+        idx = np.abs(steps - np.nanmedian(steps)) < np.nanstd(steps)
+        stride = np.nanmean(steps[idx])
+
+        save_json({
+            'stride': stride,
+            'number_of_folders': len(calibration_directory),
+            'number_of_identified_planes': len(steps),
+            'number_steps_within_1_std': len(steps[idx])
+        }, os.path.join(get_folder_from_file(get_folder_from_file(calibration_directory[0])), 'board_trajectory.json'))
+
+        for i, folder in enumerate(calibration_directory):
+            d = load_json(os.path.join(folder, 'board.json'))
+            d['fitted'] = {
+                'rvec': median_rvec,
+                'tvec': C + (i - middle_index) * stride * N
+            }
+            save_json(d, os.path.join(folder, 'board.json'))
+
+    @staticmethod
+    def find_depth(camera: Camera,
+                   folder: str):
+        plane_data = load_json(os.path.join(folder, 'board.json'))
+        rvec, tvec = plane_data['fitted']['rvec'], plane_data['fitted']['tvec']
+        R, _ = cv2.Rodrigues(rvec)
+        T = np.array(tvec).reshape(3,1)
+
+        width, height = camera.get_image_shape()
+        campixels_x, campixels_y = np.meshgrid(np.arange(width),
+                                               np.arange(height))
+        campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
+
+        origin, rays = ThreeDUtils.camera_to_ray_world(campixels,
+                                                       R,
+                                                       T,
+                                                       camera.K,
+                                                       camera.dist_coeffs)
+        points = ThreeDUtils.intersect_line_with_plane(origin,
+                                                       rays,
+                                                       np.array([0,0,0], dtype=np.float32),
+                                                       np.array([0,0,1], dtype=np.float32))
+
+        # save only Z of the depth
+        result3D = np.matmul((points - T.T), R)
+        # depth = result3D[:,2]
+        # TODO: fix this -- should not be abs, it should simply already be positive
+        depth = np.abs(result3D[:,2])
+        
+        # bs = np.matmul(R.T, (xs - T).T).T
+        # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
+        #     (roi[1] < bs[:, 1]) & (bs[:, 1] < roi[3])
+        # bs = None
+
+        # depth[~idx] = 0
+
+        depth = depth.reshape((height, width))
+        np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
+
+    @staticmethod
+    def normalize_pattern(folder: str,
+                          structure_grammar: dict):
+        table_name = structure_grammar['name']
+        images: list[str] = structure_grammar['images']
+        utils: dict = structure_grammar['utils']
+        pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
+        white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+        black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
+        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+                                                white_image=white_image,
+                                                black_image=black_image)
+        np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
+
+    def run(self, depth: bool = False, normalize: bool = False):
+        if depth:
+            self.find_depth_positions()
+        if normalize:
+            self.normalize_positions()
+        self.stack_results()
 
 class LookUpReconstruction:
     def __init__(self, config: dict | str = None):
@@ -713,16 +782,17 @@ class LookUpReconstruction:
             if self.verbose:
                 print("Extracting normals for point cloud")
             self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
-            if 'colors' not in utils or utils['colors'] is None:
-                print("No color image set, therefore no color extraction for point cloud")
-                return
+
             if self.verbose:
                 print("Extracting colors for point cloud")
+            if 'colors' not in utils or utils['colors'] is None:
+                print("No color image set, therefore no color extraction for point cloud")
+            else:
+                color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors'])), roi=utils['roi'])
+                minimum = np.min(color_image)
+                maximum = np.max(color_image)
+                self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
 
-            color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors'])), roi=utils['roi'])
-            minimum = np.min(color_image)
-            maximum = np.max(color_image)
-            self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
             ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
                                  self.point_cloud[mask],
                                  self.normals[mask],
@@ -788,6 +858,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Look Up Calibration and Reconstruction")
     parser.add_argument('-c', '--calibration_config', type=str, default=None,
                         help="Path to config for Look Up Calibration")
+    parser.add_argument('--depth', default=False, action=argparse.BooleanOptionalAction,
+                        help="Flag to set if LookUp Calibration should (Re)Calculate Depth")
+    parser.add_argument('--normalize', default=False, action=argparse.BooleanOptionalAction,
+                        help="Flag to set if LookUp Calibration should (Re)Normalize Pattern")
     parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
                     help='Path to config JSON with parameters for LookUp Reconstruction')
 
@@ -795,7 +869,7 @@ if __name__ == "__main__":
 
     if args.calibration_config is not None:
         luc = LookUpCalibration(args.calibration_config)
-        luc.run()
+        luc.run(args.depth, args.normalize)
 
     if args.reconstruction_config is not None:
         lur = LookUpReconstruction(args.reconstruction_config)

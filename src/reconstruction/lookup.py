@@ -471,7 +471,7 @@ class LookUpReconstruction:
         self.colors = None
         self.normals = None
         # extra outputs if debug=True
-        self.loss_1 = None
+        self.loss_map = None
         self.loss_2 = None
         self.loss_12 = None
         self.depth_12 = None
@@ -706,7 +706,7 @@ class LookUpReconstruction:
         shape = self.normalized.shape[:2]
         self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64).flatten()
         if self.debug:
-            self.loss_1 = np.zeros(shape=shape, dtype=np.float64).flatten()
+            self.loss_map = np.zeros(shape=shape, dtype=np.float64).flatten()
             self.loss_2 = np.zeros(shape=shape, dtype=np.float64).flatten()
             self.loss_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
             self.depth_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
@@ -727,7 +727,7 @@ class LookUpReconstruction:
 
                 if self.debug:
                     self.depth_map[idx] = result[0]
-                    self.loss_1[idx] = result[1]
+                    self.loss_map[idx] = result[1]
                     self.loss_2[idx] = result[2]
                     self.loss_12[idx] = result[3]
                     self.depth_12[idx] = result[4]
@@ -744,7 +744,7 @@ class LookUpReconstruction:
 
                 if self.debug:
                     self.depth_map[idx] = results[0]
-                    self.loss_1[idx] = results[1]
+                    self.loss_map[idx] = results[1]
                     self.loss_2[idx] = results[2]
                     self.loss_12[idx] = results[3]
                     self.depth_12[idx] = results[4]
@@ -755,7 +755,7 @@ class LookUpReconstruction:
             print("Reshaping resulting arrays from 1D back to 2D")
         self.depth_map = self.depth_map.reshape(shape)
         if self.debug:
-            self.loss_1 = self.loss_1.reshape(shape)
+            self.loss_map = self.loss_map.reshape(shape)
             self.loss_2 = self.loss_2.reshape(shape)
             self.loss_12 = self.loss_12.reshape(shape)
             self.depth_12 = self.depth_12.reshape(shape)
@@ -765,13 +765,19 @@ class LookUpReconstruction:
         utils: dict = self.structure_grammar['utils']
         roi: tuple = None if 'roi' not in utils else utils['roi']
 
-        if self.outputs['depth_map']:
+        if ['depth_map'] in self.outputs and self.outputs['depth_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)
             if self.verbose:
                 print('-' * 15)
                 print("Saved depth map")
+        
+        if ['loss_map'] in self.outputs and self.outputs['loss_map']:
+            np.save(os.path.join(self.reconstruction_directory,f"{table_name}_loss_map.npy"), self.loss_map)
+            if self.verbose:
+                print('-' * 15)
+                print("Saved depth map")
 
-        if self.outputs['point_cloud']:
+        if ['point_cloud'] in self.outputs and self.outputs['point_cloud']:
             if self.verbose:
                 print('-' * 15)
                 print("Constructing point cloud")
@@ -805,7 +811,7 @@ class LookUpReconstruction:
             if self.verbose:
                 print("Saved point cloud")
 
-        if self.outputs['mask']:
+        if ['mask'] in self.outputs and self.outputs['mask']:
             np.save(os.path.join(self.reconstruction_directory,"mask.npy"), self.mask)
             if self.verbose:
                 print('-' * 15)
@@ -813,7 +819,7 @@ class LookUpReconstruction:
 
         if self.debug:
             np.savez_compressed(os.path.join(self.reconstruction_directory,f"{table_name}_debug.npz"),
-                            loss_1=self.loss_1,
+                            loss_1=self.loss_map,
                             loss_2=self.loss_2,
                             loss_12=self.loss_12,
                             depth_12=self.depth_12)

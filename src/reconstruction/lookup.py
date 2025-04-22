@@ -775,7 +775,7 @@ class LookUpReconstruction:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_loss_map.npy"), self.loss_map)
             if self.verbose:
                 print('-' * 15)
-                print("Saved depth map")
+                print("Saved loss map")
 
         if 'point_cloud' in self.outputs and self.outputs['point_cloud']:
             if self.verbose:

@@ -765,19 +765,19 @@ class LookUpReconstruction:
         utils: dict = self.structure_grammar['utils']
         roi: tuple = None if 'roi' not in utils else utils['roi']
 
-        if ['depth_map'] in self.outputs and self.outputs['depth_map']:
+        if 'depth_map' in self.outputs and self.outputs['depth_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)
             if self.verbose:
                 print('-' * 15)
                 print("Saved depth map")
         
-        if ['loss_map'] in self.outputs and self.outputs['loss_map']:
+        if 'loss_map' in self.outputs and self.outputs['loss_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_loss_map.npy"), self.loss_map)
             if self.verbose:
                 print('-' * 15)
                 print("Saved depth map")
 
-        if ['point_cloud'] in self.outputs and self.outputs['point_cloud']:
+        if 'point_cloud' in self.outputs and self.outputs['point_cloud']:
             if self.verbose:
                 print('-' * 15)
                 print("Constructing point cloud")
@@ -811,7 +811,7 @@ class LookUpReconstruction:
             if self.verbose:
                 print("Saved point cloud")
 
-        if ['mask'] in self.outputs and self.outputs['mask']:
+        if 'mask' in self.outputs and self.outputs['mask']:
             np.save(os.path.join(self.reconstruction_directory,"mask.npy"), self.mask)
             if self.verbose:
                 print('-' * 15)

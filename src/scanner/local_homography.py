@@ -104,10 +104,10 @@ class LocalHomographyCalibration:
         for folder in self.calibration_directory:
             structure_grammar = {
                 "pattern": "gray",
-                "vertical_images": [os.path.basename(d) for d in folder[slice(2, 2 + self.num_vertical_images, 2)]],
-                "inverse_vertical_images": [os.path.basename(d) for d in folder[slice(3, 2 + self.num_vertical_images, 2)]],
-                "horizontal_images": [os.path.basename(d) for d in folder[slice(2 + self.num_vertical_images, 2 + self.num_vertical_images + self.num_horizontal_images, 2)]],
-                "inverse_horizontal_images": [os.path.basename(d) for d in folder[slice(2 + self.num_vertical_images + 1, 2 + self.num_vertical_images + self.num_horizontal_images, 2)]]
+                "vertical_images": [f"gray_{d:02d}.tiff" for d in range(1, self.num_vertical_images, 2)],
+                "inverse_vertical_images": [f"gray_{d:02d}.tiff" for d in range(2, self.num_vertical_images + 1, 2)],
+                "horizontal_images": [f"gray_{d:02d}.tiff" for d in range(self.num_vertical_images + 1, self.num_vertical_images + self.num_horizontal_images, 2)],
+                "inverse_horizontal_images": [f"gray_{d:02d}.tiff" for d in range(self.num_vertical_images + 2, self.num_vertical_images + self.num_horizontal_images + 1, 2)]
             }
             self.structured_light.set_reconstruction_directory(get_folder_from_file(folder[0]))
             self.structured_light.set_structure_grammar(structure_grammar)
@@ -119,8 +119,8 @@ class LocalHomographyCalibration:
         """
         
         """
-        for i in range(self.num_directories):
-            white_image = self.calibration_directory[i][0]
+        for i, folder in enumerate(self.calibration_directory):
+            white_image = self.calibration_directory[i][-1]
             self.camera.intrinsic_images.append(white_image)
             self.projector.images.append(white_image)
             img_points, obj_points, _ = self.plane_pattern.detect_markers(white_image)

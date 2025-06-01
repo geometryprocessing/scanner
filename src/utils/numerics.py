@@ -1,7 +1,7 @@
 import heapq
 import numpy as np
+import torch
 import scipy.interpolate
-
 
 def k_smallest_indices(array: np.ndarray, k: int):
     """
@@ -75,3 +75,41 @@ def calculate_loss(array_1: np.ndarray, array_2: np.ndarray, ord: int | str =2, 
         ord = -np.inf
 
     return np.linalg.norm(array_1 - array_2, ord=ord, axis=axis)
+
+
+def blockLookup(L, Q, dtype, blockSize=256):
+    """
+    Given
+        lookup table L on the cpu: H x W x Z x C 
+        query image Q on the cpu: H x W x C
+        dtype of the data
+    Return:
+        minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
+        loss: H x W s.t.  loss[i,j] is min_k ||L[i,j,k] - Q[i,j]|| on the cpu
+
+    Does this in blocks on the CPU, and promotes types as needed (e.g., int16
+    -> int32 and float16 -> float32)
+    """
+    Q = Q.cuda()
+    H, W, Z, C = L.shape
+    numRowBlocks = (H // blockSize) + (1 if H % blockSize != 0 else 0)
+    numColBlocks = (W // blockSize) + (1 if W % blockSize != 0 else 0)
+    minD = torch.zeros((H,W), dtype=torch.long, device='cuda')
+    loss = torch.zeros((H,W), dtype=torch.float32, device='cuda')
+    for blockI in range(numRowBlocks):
+        sy, ey = blockI * blockSize, min(H, ((blockI+1) * blockSize))
+        for blockJ in range(numColBlocks):
+            sx, ex = blockJ * blockSize, min(W, ((blockJ+1) * blockSize))
+            # we may have to promote things to avoid blowup 
+            if dtype in [torch.float16, torch.float32]:
+                LUp = L[sy:ey,sx:ex,:,:].cuda().type(torch.float32)
+                QUp = Q[sy:ey,sx:ex,None,:].type(torch.float32)
+            elif dtype in [torch.int16, torch.int32]:
+                # if it's an int, do the arithmetic in int32 to avoid overflow
+                LUp = L[sy:ey,sx:ex,:,:].cuda().type(torch.int32)
+                QUp = Q[sy:ey,sx:ex,None,:].type(torch.int32)
+            distance = torch.sum((LUp-QUp)**2, dim=-1)
+            loss[sy:ey, sx:ex] = torch.min(distance , dim=-1)
+            minD[sy:ey, sx:ex] = torch.argmin(distance , dim=-1)
+
+    return minD.cpu(), loss.cpu()

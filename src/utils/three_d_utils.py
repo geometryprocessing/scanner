@@ -704,7 +704,7 @@ class ThreeDUtils:
         return depth_map
 
     @staticmethod
-    def save_ply(
+    def save_point_cloud(
         filename: str,
         points: np.ndarray,
         normals: np.ndarray=None,
@@ -730,7 +730,7 @@ class ThreeDUtils:
         o3d.io.write_point_cloud(filename, pcd, compressed=False, print_progress=True)
 
     @staticmethod
-    def load_ply(filename: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def load_point_cloud(filename: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Parameters
         ----------

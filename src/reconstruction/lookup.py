@@ -328,8 +328,7 @@ class LookUpCalibration:
                                                     img_points,
                                                     camera.K,
                                                     camera.dist_coeffs)
-            rvec = result['rvec']
-            rvec /= np.linalg.norm(rvec)
+            rvec = result['rvec'].ravel()
             tvec = result['tvec'].ravel()
 
         save_json({
@@ -347,8 +346,8 @@ class LookUpCalibration:
         
         for folder in calibration_directory:
             d = load_json(os.path.join(folder, 'board.json'))
-            tvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['tvec'] is None else d['original']['tvec']
-            rvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['rvec'] is None else d['original']['rvec']
+            tvec = np.full(shape=(3,), fill_value=np.nan) if d['original']['tvec'] is None else d['original']['tvec']
+            rvec = np.full(shape=(3,), fill_value=np.nan) if d['original']['rvec'] is None else d['original']['rvec']
             rvecs.append(rvec)
             tvecs.append(tvec)
         
@@ -372,7 +371,7 @@ class LookUpCalibration:
             'number_of_folders': len(calibration_directory),
             'number_of_identified_planes': len(steps),
             'number_steps_within_1_std': len(steps[idx])
-        }, os.path.join(get_folder_from_file(get_folder_from_file(calibration_directory[0])), 'board_trajectory.json'))
+        }, os.path.join(get_folder_from_file(calibration_directory[0]), 'board_trajectory.json'))
 
         for i, folder in enumerate(calibration_directory):
             d = load_json(os.path.join(folder, 'board.json'))
@@ -406,10 +405,13 @@ class LookUpCalibration:
                                                        np.array([0,0,1], dtype=np.float32))
 
         # save only Z of the depth
-        result3D = np.matmul((points - T.T), R)
-        # depth = result3D[:,2]
-        # TODO: fix this -- should not be abs, it should simply already be positive
-        depth = np.abs(result3D[:,2])
+        result3D = np.matmul(points, R.T) + T.T
+        depth = result3D[:,2]
+
+        # result3D = np.matmul((points - T.T), R)
+        # # depth = result3D[:,2]
+        # # TODO: fix this -- should not be abs, it should simply already be positive
+        # depth = np.abs(result3D[:,2])
         
         # bs = np.matmul(R.T, (xs - T).T).T
         # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
@@ -485,7 +487,6 @@ class LookUpReconstruction:
 
         self.set_camera(config['look_up_reconstruction']['camera_calibration'])
         # TODO: consider moving roi and mask_thr to structure_grammar['utils']
-        self.set_roi(config['look_up_reconstruction']['roi'])
         self.set_mask_threshold(config['look_up_reconstruction']['mask_thr'])
 
         self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
@@ -651,16 +652,18 @@ class LookUpReconstruction:
     def extract_mask(self):
         """
         """
+
         if self.mask_already_exists():
             if self.verbose:
                 print('-' * 15)
                 print("Found mask -- loading it")
             self.mask = np.load(os.path.join(self.reconstruction_directory, 'mask.npy'))
         else:
+            self.white_image = ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, self.structure_grammar['utils']['white']))
             if self.verbose:
                 print('-' * 15)
                 print("Extracting mask from white image")
-            self.mask = ImageUtils.extract_mask(self.white_image, self.thr)
+            self.mask = ImageUtils.extract_mask(np.atleast_3d(self.white_image), self.thr)
         
     def decode_depth(self,
                      pixel,
@@ -686,11 +689,6 @@ class LookUpReconstruction:
         k_indices = k_smallest_indices(loss, 1)
         return depth[k_indices[0]]
 
-    def process_pixel(self, mask, pixel, lookup):
-        if not mask:
-            return None
-        return self.decode_depth(pixel, lookup)
-
     def reconstruct(self):
         """
         """
@@ -701,55 +699,56 @@ class LookUpReconstruction:
 
         if self.normalized is None:
             self.normalized = np.load(os.path.join(self.reconstruction_directory, f"{table_name}.npz"))['pattern']
+        shape = self.normalized.shape[:2]
+        
+        if self.mask is None:
+            self.extract_mask()
+            
+        roi = self.structure_grammar['utils']['roi']
+        if self.mask.shape != shape:
+            ImageUtils.crop(self.mask, roi=roi)
+        pos = np.where(self.mask)
 
         # allocate the memory for depth_map
-        shape = self.normalized.shape[:2]
-        self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64).flatten()
+        self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64)
         if self.debug:
-            self.loss_map = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.loss_2 = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.loss_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.depth_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
+            self.loss_map = np.zeros(shape=shape, dtype=np.float64)
+            self.loss_2 = np.zeros(shape=shape, dtype=np.float64)
+            self.loss_12 = np.zeros(shape=shape, dtype=np.float64)
+            self.depth_12 = np.zeros(shape=shape, dtype=np.float64)
         
         if self.parallelize_pixels:
             if self.verbose:
                 print(f"Parallelizing with {self.num_cpus} CPU cores")
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(self.process_pixel, mask, pixel, lookup)
-                           for mask, pixel, lookup in zip(self.mask.flatten(),
-                                                          self.normalized.reshape(-1, *self.normalized.shape[2:]),
-                                                          self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))]
+                futures = [executor.submit(self.decode_depth, self.normalized[i,j,:], self.lookup_table[i,j,:])
+                           for i,j in zip(pos[0], pos[1])]
                 concurrent.futures.wait(futures)  # Wait for all tasks to complete
             for idx, results in enumerate(futures):
                 result = results.result()
-                if result is None:
-                    continue
 
+                i,j = pos[0][idx], pos[1][idx]
                 if self.debug:
-                    self.depth_map[idx] = result[0]
-                    self.loss_map[idx] = result[1]
-                    self.loss_2[idx] = result[2]
-                    self.loss_12[idx] = result[3]
-                    self.depth_12[idx] = result[4]
+                    self.depth_map[i,j] = result[0]
+                    self.loss_map[i,j] = result[1]
+                    self.loss_2[i,j] = result[2]
+                    self.loss_12[i,j] = result[3]
+                    self.depth_12[i,j] = result[4]
                 else:
-                    self.depth_map[idx] = result
+                    self.depth_map[i,j] = result
         else:
             # original sequential processing
-            for idx, (mask, pixel, lookup) in enumerate(zip(self.mask.flatten(),
-                                                            self.normalized.reshape(-1, *self.normalized.shape[2:]),
-                                                            self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))):
-                results = self.process_pixel(mask, pixel, lookup)
-                if results is None:
-                    continue
+            for i,j in zip(pos[0], pos[1]):
+                results = self.decode_depth(self.normalized[i,j,:], self.lookup_table[i,j,:])
 
                 if self.debug:
-                    self.depth_map[idx] = results[0]
-                    self.loss_map[idx] = results[1]
-                    self.loss_2[idx] = results[2]
-                    self.loss_12[idx] = results[3]
-                    self.depth_12[idx] = results[4]
+                    self.depth_map[i,j] = results[0]
+                    self.loss_map[i,j] = results[1]
+                    self.loss_2[i,j] = results[2]
+                    self.loss_12[i,j] = results[3]
+                    self.depth_12[i,j] = results[4]
                 else:
-                    self.depth_map[idx] = results
+                    self.depth_map[i,j] = results
 
         if self.verbose:
             print("Reshaping resulting arrays from 1D back to 2D")
@@ -804,7 +803,7 @@ class LookUpReconstruction:
                 maximum = np.max(color_image)
                 self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
 
-            ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
+            ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
                                  self.point_cloud[mask],
                                  self.normals[mask],
                                  self.colors[mask])

@@ -338,7 +338,7 @@ class StructuredLight:
         if self.outputs['point_cloud']:
             # self.extract_normals()
             self.extract_colors()
-            ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"structured_light_{name}_point_cloud.ply"),
+            ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"structured_light_{name}_point_cloud.ply"),
                                  self.point_cloud,
                                  self.normals,
                                  self.colors)

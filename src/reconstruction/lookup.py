@@ -12,6 +12,26 @@ from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
+def load_low_rank_RGB_table(filename: str, shape: tuple):
+    data = np.load(filename)
+
+    Lr = data['Lr']
+    Rr = data['Rr']
+    lut_r = np.matmul(Lr,Rr).reshape(shape)
+
+    Lg = data['Lg']
+    Rg = data['Rg']
+    lut_g = np.matmul(Lg,Rg).reshape(shape)
+
+    Lb = data['Lb']
+    Rb = data['Rb']
+    lut_b = np.matmul(Lb,Rb).reshape(shape)
+
+    Ld = data['Ld']
+    Rd = data['Rd']
+    lut_d = np.matmul(Ld,Rd).reshape(shape)
+
+    return np.stack([lut_r, lut_g, lut_b, lut_d], axis=-1)
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """

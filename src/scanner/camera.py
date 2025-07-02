@@ -258,7 +258,7 @@ class Camera:
         self.set_width (shape[0])
         self.set_height(shape[1])
     def discard_intrinsic_images(self):
-        self.intrinsic_images = [image for image in self.intrinsic_images if image not in self.discarded_images]
+        self.intrinsic_images = [image for image in self.intrinsic_images if id(image) not in self.discarded_images]
     def add_intrinsic_image_points(self, image_points: np.ndarray):
         """
         Appends more image points to the list intrinsic_image_points of Camera.
@@ -427,7 +427,7 @@ class Camera:
             img_points, obj_points, _ = self.calibration_pattern.detect_markers(image_path)
 
             if len(img_points) < self.min_points:
-                self.discarded_images.add(image_path)
+                self.discarded_images.add(id(image_path))
                 continue
 
             self.add_intrinsic_image_points (img_points)
@@ -502,7 +502,7 @@ class Camera:
             filtered_idxs = np.nonzero(errors < self.error_thr)[0]
 
             if len(filtered_idxs) < self.min_points:
-                self.discarded_images.add(image_path)
+                self.discarded_images.add(id(image_path))
                 continue
 
             # Filter the object and image points based on selected indexes

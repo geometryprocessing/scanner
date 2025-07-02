@@ -236,7 +236,7 @@ class Projector:
         """
         self.output = filename
     def discard_intrinsic_images(self):
-        self.images = [image for image in self.images if image not in self.discarded_images]
+        self.images = [image for image in self.images if id(image) not in self.discarded_images]
     
 
     # getters
@@ -399,7 +399,7 @@ class Projector:
             # although plane reconstruction requires 3 points,
             # OpenCV extrinsic calibration requires 6 points
             if len(cam_img_points) < max(6, self.min_points):
-                self.discarded_images.add(image_path)
+                self.discarded_images.add(id(image_path))
                 continue
             
             # find relative position of camera and board
@@ -416,7 +416,7 @@ class Projector:
                 self.calibration_pattern.detect_markers(image_path)
             
             if len(cam_img_points) < self.min_points:
-                self.discarded_images.add(image_path)
+                self.discarded_images.add(id(image_path))
                 continue
 
             # undistort pixel coordinates -> normalized coordinates

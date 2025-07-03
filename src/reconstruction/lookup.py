@@ -474,7 +474,7 @@ class LookUpReconstruction:
         # reconstruction utils
         self.lookup_table = None
         self.white_image = None
-        self.thr = None # threshold for mask
+        self.mask_thr = None # threshold for mask
         self.mask = None
         self.pattern_images = None
         self.black_image = None
@@ -492,8 +492,9 @@ class LookUpReconstruction:
         self.point_cloud = None
         self.colors = None
         self.normals = None
-        # extra outputs if debug=True
+        self.loss_thr = np.inf # threshold for loss map when creating point cloud
         self.loss_map = None
+        # extra outputs if debug=True
         self.loss_2 = None
         self.loss_12 = None
         self.depth_12 = None
@@ -508,6 +509,7 @@ class LookUpReconstruction:
         self.set_camera(config['look_up_reconstruction']['camera_calibration'])
         # TODO: consider moving roi and mask_thr to structure_grammar['utils']
         self.set_mask_threshold(config['look_up_reconstruction']['mask_thr'])
+        self.set_loss_threshold(config['look_up_reconstruction']['loss_thr'])
 
         self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
         self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
@@ -596,7 +598,17 @@ class LookUpReconstruction:
         thr : float
             
         """
-        self.thr = min(1., max(0., float(thr)))
+        self.mask_thr = min(1., max(0., float(thr)))
+
+    def set_loss_threshold(self, thr: float):
+        """
+
+        Parameters
+        ----------
+        thr : float
+            
+        """
+        self.loss_thr = max(0., float(thr))
 
     def set_parallelize_pixels(self, parallelize: bool):
         """
@@ -683,7 +695,7 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Extracting mask from white image")
-            self.mask = ImageUtils.extract_mask(np.atleast_3d(self.white_image), self.thr)
+            self.mask = ImageUtils.extract_mask(np.atleast_3d(self.white_image), self.mask_thr)
         
     def decode_depth(self,
                      pixel,
@@ -770,15 +782,6 @@ class LookUpReconstruction:
                 else:
                     self.depth_map[i,j] = results
 
-        if self.verbose:
-            print("Reshaping resulting arrays from 1D back to 2D")
-        self.depth_map = self.depth_map.reshape(shape)
-        if self.debug:
-            self.loss_map = self.loss_map.reshape(shape)
-            self.loss_2 = self.loss_2.reshape(shape)
-            self.loss_12 = self.loss_12.reshape(shape)
-            self.depth_12 = self.depth_12.reshape(shape)
-
     def save_outputs(self):
         table_name = self.structure_grammar['name']
         utils: dict = self.structure_grammar['utils']
@@ -801,7 +804,7 @@ class LookUpReconstruction:
                 print('-' * 15)
                 print("Constructing point cloud")
 
-            mask = (self.depth_map > 0).flatten()
+            mask = (self.depth_map > 0).flatten() & (self.loss_map < self.loss_thr).flatten()
 
             self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
                                                                             K=self.camera.K,
@@ -868,9 +871,7 @@ class LookUpReconstruction:
 
         pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
         white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
-        
-        if 'black' in utils:
-            black_image = None if utils['black'] is None else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
+        black_image = None if (('black' not in utils) or (utils['black'] is None)) else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
         
         normalized = ImageUtils.normalize_color(color_image=pattern_images,
                                                 white_image=white_image,

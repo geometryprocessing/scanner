@@ -675,7 +675,7 @@ class ThreeDUtils:
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
         depth_map = depth_map.flatten()
         result3D = ImageUtils.homogeneous_coordinates(ImageUtils.undistort_camera_points(campixels, K, dist_coeffs)) * depth_map[:, np.newaxis]
-        result3D = np.matmul(result3D, R.T) + T
+        result3D = np.matmul(result3D - T, R)
         return result3D
 
     @staticmethod

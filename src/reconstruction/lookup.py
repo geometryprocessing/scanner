@@ -719,7 +719,7 @@ class LookUpReconstruction:
             return depth[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
         
         k_indices = k_smallest_indices(loss, 1)
-        return depth[k_indices[0]]
+        return depth[k_indices[0]], loss[k_indices]
 
     def reconstruct(self):
         """
@@ -743,8 +743,8 @@ class LookUpReconstruction:
 
         # allocate the memory for depth_map
         self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64)
+        self.loss_map = np.zeros(shape=shape, dtype=np.float64)
         if self.debug:
-            self.loss_map = np.zeros(shape=shape, dtype=np.float64)
             self.loss_2 = np.zeros(shape=shape, dtype=np.float64)
             self.loss_12 = np.zeros(shape=shape, dtype=np.float64)
             self.depth_12 = np.zeros(shape=shape, dtype=np.float64)
@@ -760,27 +760,24 @@ class LookUpReconstruction:
                 result = results.result()
 
                 i,j = pos[0][idx], pos[1][idx]
+                self.depth_map[i,j] = result[0]
+                self.loss_map[i,j] = result[1]
                 if self.debug:
-                    self.depth_map[i,j] = result[0]
-                    self.loss_map[i,j] = result[1]
                     self.loss_2[i,j] = result[2]
                     self.loss_12[i,j] = result[3]
                     self.depth_12[i,j] = result[4]
-                else:
-                    self.depth_map[i,j] = result
+
         else:
             # original sequential processing
             for i,j in zip(pos[0], pos[1]):
                 results = self.decode_depth(self.normalized[i,j,:], self.lookup_table[i,j,:])
 
+                self.depth_map[i,j] = results[0]
+                self.loss_map[i,j] = results[1]
                 if self.debug:
-                    self.depth_map[i,j] = results[0]
-                    self.loss_map[i,j] = results[1]
                     self.loss_2[i,j] = results[2]
                     self.loss_12[i,j] = results[3]
                     self.depth_12[i,j] = results[4]
-                else:
-                    self.depth_map[i,j] = results
 
     def save_outputs(self):
         table_name = self.structure_grammar['name']

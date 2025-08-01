@@ -815,18 +815,26 @@ class LookUpReconstruction:
 
             if self.verbose:
                 print("Extracting colors for point cloud")
-            if 'colors' not in utils or utils['colors'] is None:
+
+            if self.colors is None and ('colors' not in utils or utils['colors'] is None):
                 print("No color image set, therefore no color extraction for point cloud")
+                ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
+                    self.point_cloud.reshape((-1,3))[mask],
+                    self.normals.reshape((-1,3))[mask])
+            elif self.colors is not None:
+                ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
+                                    self.point_cloud.reshape((-1,3))[mask],
+                                    self.normals.reshape((-1,3))[mask],
+                                    self.colors.reshape((-1,3))[mask])
             else:
                 color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors'])), roi=utils['roi'])
                 minimum = np.min(color_image)
                 maximum = np.max(color_image)
-                self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
-
-            ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
-                                 self.point_cloud[mask],
-                                 self.normals[mask],
-                                 self.colors[mask])
+                self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum))
+                ThreeDUtils.save_point_cloud(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
+                                    self.point_cloud.reshape((-1,3))[mask],
+                                    self.normals.reshape((-1,3))[mask],
+                                    self.colors.reshape((-1,3))[mask])
             if self.verbose:
                 print("Saved point cloud")
 

@@ -881,7 +881,7 @@ class LookUpReconstruction:
         if normalize:
             self.normalized = self.process_position(self.reconstruction_directory, self.structure_grammar)
 
-        self.reconstruct()
+        self.reconstruct(gpu=gpu)
         self.save_outputs()
 
     @staticmethod

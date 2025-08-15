@@ -93,7 +93,7 @@ def blockLookup(L, Q, dtype, blockSize=256):
     HW, Z, C = L.shape
     numBlocks = (HW // blockSize) + (1 if HW % blockSize != 0 else 0)
     minD = torch.zeros((HW), dtype=torch.long, device='cuda')
-    loss = torch.zeros((HW), dtype=torch.long, device='cuda')
+    loss = torch.zeros((HW), dtype=(torch.float32 if dtype in [torch.float16, torch.float32] else torch.int32), device='cuda')
     for block in range(numBlocks):
         sy, ey = block * blockSize, min(HW, ((block+1) * blockSize))
         if dtype in [torch.float16, torch.float32]:
@@ -106,6 +106,6 @@ def blockLookup(L, Q, dtype, blockSize=256):
         distance = torch.sum((LUp-QUp)**2, dim=-1)
         minIndex = torch.argmin(distance , dim=-1)
         minD[sy:ey] = minIndex
-        loss[sy:ey] = distance.gather(dim=0, index=minIndex.unsqueeze(-1)).squeeze(-1)  
+        loss[sy:ey] = distance.gather(dim=1, index=minIndex.unsqueeze(-1)).squeeze(-1)  
 
     return minD.cpu(), loss.cpu()

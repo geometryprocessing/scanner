@@ -4,11 +4,12 @@ import concurrent.futures
 from datetime import datetime
 import numpy as np
 import os
+import torch
 
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
-from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss
+from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss, blockLookup
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
@@ -472,13 +473,16 @@ class LookUpReconstruction:
         self.structure_grammar = {}
 
         # reconstruction utils
-        self.lookup_table = None
+        ## TODO: stopgap for GPU for now
+        self.lut = None
+        self.dep = None
         self.white_image = None
         self.mask_thr = None # threshold for mask
         self.mask = None
         self.pattern_images = None
         self.black_image = None
         self.normalized = None
+
 
         # flag for debugging and verbose
         self.debug = False
@@ -552,7 +556,8 @@ class LookUpReconstruction:
         """
         if isinstance(lookup_table, str):
             lookup_table = np.load(lookup_table)
-        self.lookup_table = lookup_table
+        self.lut = lookup_table[:,:,:,:-1]
+        self.dep = lookup_table[:,:,:,-1]
 
     def set_structure_grammar(self, structure_grammar: dict):
         """
@@ -699,29 +704,28 @@ class LookUpReconstruction:
         
     def decode_depth(self,
                      pixel,
-                     lookup) -> tuple[float, float, float, float, float] | float:
+                     lookup_colors,
+                     lookup_depths) -> tuple[float, float, float, float, float] | float:
         """
         TODO: replace slow np.argmin with some form of gradient descent
         Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
         second order derivatives of the splines with scipy.interpolate.BSpline.derivative
         """
-        color = lookup[::-1, :-1]
-        depth = lookup[::-1, -1]
         if self.structure_grammar['interpolant']['active']:
             knots = self.structure_grammar['interpolant']['knots']
             samples = self.structure_grammar['interpolant']['samples']
-            color = spline_interpolant(depth, color, knots, samples)
+            lookup_colors = spline_interpolant(lookup_depths, lookup_colors, knots, samples)
 
-        loss = calculate_loss(color, pixel, ord=self.structure_grammar['loss']['order'])
+        loss = calculate_loss(lookup_colors, pixel, ord=self.structure_grammar['loss']['order'])
 
         if self.debug:
             k_indices = k_smallest_indices(loss, 2)
-            return depth[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
+            return lookup_depths[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(lookup_colors[k_indices[0],:]-lookup_colors[k_indices[1],:]), lookup_depths[k_indices[0]] - lookup_depths[k_indices[1]]
         
         k_indices = k_smallest_indices(loss, 1)
-        return depth[k_indices[0]], loss[k_indices]
+        return lookup_depths[k_indices[0]], loss[k_indices]
 
-    def reconstruct(self):
+    def reconstruct(self, gpu: bool=False):
         """
         """
         if self.verbose:
@@ -740,44 +744,63 @@ class LookUpReconstruction:
         if self.mask.shape != shape:
             self.mask = ImageUtils.crop(self.mask, roi=roi)
         pos = np.where(self.mask)
-
         # allocate the memory for depth_map
         self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64)
         self.loss_map = np.zeros(shape=shape, dtype=np.float64)
-        if self.debug:
-            self.loss_2 = np.zeros(shape=shape, dtype=np.float64)
-            self.loss_12 = np.zeros(shape=shape, dtype=np.float64)
-            self.depth_12 = np.zeros(shape=shape, dtype=np.float64)
+
+
+        ## GPU
+        if gpu:
+            m = torch.from_numpy(self.mask)
+            no = torch.from_numpy(self.normalized[self.mask])
+
+            minD, loss_map = blockLookup(self.lut[m], no, dtype=torch.float32, blockSize=65536)
+            depth_map = self.dep[m].gather(dim=1, index=minD.unsqueeze(-1)).squeeze(-1)  
+
+            D = np.zeros(shape=self.normalized.shape[:2], dtype=np.float32)
+            L = np.zeros(shape=self.normalized.shape[:2], dtype=np.float32)
+            D[self.mask] = depth_map.cpu().numpy()
+            L[self.mask] = loss_map.cpu().numpy()
+            self.depth_map = D
+            self.loss_map = L
         
-        if self.parallelize_pixels:
-            if self.verbose:
-                print(f"Parallelizing with {self.num_cpus} CPU cores")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(self.decode_depth, self.normalized[i,j,:], self.lookup_table[i,j,:])
-                           for i,j in zip(pos[0], pos[1])]
-                concurrent.futures.wait(futures)  # Wait for all tasks to complete
-            for idx, results in enumerate(futures):
-                result = results.result()
-
-                i,j = pos[0][idx], pos[1][idx]
-                self.depth_map[i,j] = result[0]
-                self.loss_map[i,j] = result[1]
-                if self.debug:
-                    self.loss_2[i,j] = result[2]
-                    self.loss_12[i,j] = result[3]
-                    self.depth_12[i,j] = result[4]
-
+        ## CPU
         else:
-            # original sequential processing
-            for i,j in zip(pos[0], pos[1]):
-                results = self.decode_depth(self.normalized[i,j,:], self.lookup_table[i,j,:])
 
-                self.depth_map[i,j] = results[0]
-                self.loss_map[i,j] = results[1]
-                if self.debug:
-                    self.loss_2[i,j] = results[2]
-                    self.loss_12[i,j] = results[3]
-                    self.depth_12[i,j] = results[4]
+            if self.debug:
+                self.loss_2 = np.zeros(shape=shape, dtype=np.float64)
+                self.loss_12 = np.zeros(shape=shape, dtype=np.float64)
+                self.depth_12 = np.zeros(shape=shape, dtype=np.float64)
+            
+            if self.parallelize_pixels:
+                if self.verbose:
+                    print(f"Parallelizing with {self.num_cpus} CPU cores")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
+                    futures = [executor.submit(self.decode_depth, self.normalized[i,j,:], self.lut, self.dep)
+                            for i,j in zip(pos[0], pos[1])]
+                    concurrent.futures.wait(futures)  # Wait for all tasks to complete
+                for idx, results in enumerate(futures):
+                    result = results.result()
+
+                    i,j = pos[0][idx], pos[1][idx]
+                    self.depth_map[i,j] = result[0]
+                    self.loss_map[i,j] = result[1]
+                    if self.debug:
+                        self.loss_2[i,j] = result[2]
+                        self.loss_12[i,j] = result[3]
+                        self.depth_12[i,j] = result[4]
+
+            else:
+                # original sequential processing
+                for i,j in zip(pos[0], pos[1]):
+                    results = self.decode_depth(self.normalized[i,j,:], self.lut, self.dep)
+
+                    self.depth_map[i,j] = results[0]
+                    self.loss_map[i,j] = results[1]
+                    if self.debug:
+                        self.loss_2[i,j] = results[2]
+                        self.loss_12[i,j] = results[3]
+                        self.depth_12[i,j] = results[4]
 
     def save_outputs(self):
         table_name = self.structure_grammar['name']
@@ -854,7 +877,7 @@ class LookUpReconstruction:
                 print('-' * 15)
                 print("Saved extra outputs because debug is set to True")
 
-    def run(self, normalize: bool=False):
+    def run(self, normalize: bool=False, gpu: bool=False):
         if normalize:
             self.normalized = self.process_position(self.reconstruction_directory, self.structure_grammar)
 
@@ -874,7 +897,7 @@ class LookUpReconstruction:
         print('-' * 15)
         print("Normalizing image")
 
-        pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
+        pattern_images = ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
         white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
         black_image = None if (('black' not in utils) or (utils['black'] is None)) else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
         
@@ -894,6 +917,8 @@ if __name__ == "__main__":
                         help="Flag to set if LookUp Calibration should (Re)Calculate Depth")
     parser.add_argument('--normalize', default=False, action=argparse.BooleanOptionalAction,
                         help="Flag to set if LookUp should (Re)Normalize Pattern")
+    parser.add_argument('--gpu', default=False, action=argparse.BooleanOptionalAction,
+                        help="Flag to set if LookUp Reconstruction should use GPU (cuda only)")
     parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
                     help='Path to config JSON with parameters for LookUp Reconstruction')
 
@@ -905,4 +930,4 @@ if __name__ == "__main__":
 
     if args.reconstruction_config is not None:
         lur = LookUpReconstruction(args.reconstruction_config)
-        lur.run(args.normalize)
+        lur.run(args.normalize, args.gpu)

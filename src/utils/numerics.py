@@ -104,7 +104,8 @@ def blockLookup(L, Q, dtype, blockSize=256):
             LUp = L[sy:ey,:,:].cuda().type(torch.int32)
             QUp = Q[sy:ey,None,:].type(torch.int32)
         distance = torch.sum((LUp-QUp)**2, dim=-1)
-        minD[sy:ey] = torch.argmin(distance , dim=-1)
-        loss[sy:ey] = torch.min(distance , dim=-1)
+        minIndex = torch.argmin(distance , dim=-1)
+        minD[sy:ey] = minIndex
+        loss[sy:ey] = distance.gather(dim=0, index=minIndex.unsqueeze(-1)).squeeze(-1)  
 
     return minD.cpu(), loss.cpu()

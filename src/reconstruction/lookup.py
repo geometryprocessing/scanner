@@ -738,7 +738,7 @@ class LookUpReconstruction:
             
         roi = self.structure_grammar['utils']['roi']
         if self.mask.shape != shape:
-            ImageUtils.crop(self.mask, roi=roi)
+            self.mask = ImageUtils.crop(self.mask, roi=roi)
         pos = np.where(self.mask)
 
         # allocate the memory for depth_map

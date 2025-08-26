@@ -81,6 +81,37 @@ class ThreeDUtils:
         return C, N / np.linalg.norm(N)
     
     @staticmethod
+    def fit_sphere( points: list ) -> tuple[np.ndarray, float, float]:
+        """
+        Fit a sphere through list of points.
+
+        Parameters
+        ----------
+        points : array_like
+            list of N points (Nx3).
+
+        Returns
+        ----------
+        C : np.ndarray
+            center of sphere (3x1)
+        R : float
+            radius of sphere
+        res : float
+            residual of linear least square fit
+
+        """
+        # Coefficient matrix and values
+        A = np.column_stack((2*points, np.ones(len(points))))
+        b = (points**2).sum(axis=1)
+        # Solve A x = b
+        x, res, _, _ = np.linalg.lstsq(A, b, rcond=None)
+        # Sphere parameters
+        center = x[:3]
+        radius = np.sqrt(x[0]**2 + x[1]**2 + x[2]**2 + x[3])
+        
+        return center, radius, res
+    
+    @staticmethod
     def intersect_line_with_plane(line_q: np.ndarray,
                                   line_v: np.ndarray,
                                   plane_q: np.ndarray, 

@@ -13,26 +13,24 @@ from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
-def load_low_rank_RGB_table(filename: str, shape: tuple):
+def load_low_rank_table(filename: str):
     data = np.load(filename)
+    original_shape = data['shape']
+    num_channels = original_shape[-1] - 1 # subtract one because of depth
 
-    Lr = data['Lr']
-    Rr = data['Rr']
-    lut_r = np.matmul(Lr,Rr).reshape(shape)
+    lut = []
 
-    Lg = data['Lg']
-    Rg = data['Rg']
-    lut_g = np.matmul(Lg,Rg).reshape(shape)
+    # table is saved as L_{idx}, R_{idx}, with idx starting at 1
+    for ch in range(1,num_channels+1):
+        lut += [np.matmul(data[f'L_{ch}'],data[f'R_{ch}']).reshape(original_shape[:-1])]
 
-    Lb = data['Lb']
-    Rb = data['Rb']
-    lut_b = np.matmul(Lb,Rb).reshape(shape)
+    Ld = data['L_d']
+    Rd = data['R_d']
+    lut_d = np.matmul(Ld,Rd).reshape(original_shape[:-1])
 
-    Ld = data['Ld']
-    Rd = data['Rd']
-    lut_d = np.matmul(Ld,Rd).reshape(shape)
+    lut += [lut_d]
 
-    return np.stack([lut_r, lut_g, lut_b, lut_d], axis=-1)
+    return np.stack(lut, axis=-1)
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """

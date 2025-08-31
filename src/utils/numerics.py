@@ -109,3 +109,35 @@ def blockLookup(L, Q, dtype, blockSize=256):
         loss[sy:ey] = distance.gather(dim=1, index=minIndex.unsqueeze(-1)).squeeze(-1)  
 
     return minD.cpu(), loss.cpu()
+
+def blockLookupNumpy(L, Q, dtype, blockSize=256):
+    """
+    Given
+        lookup table L on the cpu: (H x W) x Z x C 
+        query image Q on the cpu: H x W x C
+        dtype of the data
+    Return:
+        minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
+
+    Does this in blocks on the CPU using numpy, and promotes types as needed (e.g., int16
+    -> int32 and float16 -> float32)
+    """
+    HW, Z, C = L.shape
+    numBlocks = (HW // blockSize) + (1 if HW % blockSize != 0 else 0)
+    minD = np.zeros((HW), dtype=np.long)
+    loss = np.zeros((HW), dtype=(np.float32 if dtype in [np.float16, np.float32] else np.int32))
+    for block in range(numBlocks):
+        sy, ey = block * blockSize, min(HW, ((block+1) * blockSize))
+        if dtype in [np.float16, np.float32]:
+            LUp = L[sy:ey,:,:].astype(np.float32)
+            QUp = Q[sy:ey,None,:].astype(np.float32)
+        elif dtype in [np.int16, np.int32]:
+            # if it's an int, do the arithmetic in int32 to avoid overflow
+            LUp = L[sy:ey,:,:].astype(np.int32)
+            QUp = Q[sy:ey,None,:].astype(np.int32)
+        distance = np.sum((LUp-QUp)**2, axis=-1)
+        minIndex = np.argmin(distance , axis=-1)
+        minD[sy:ey] = minIndex
+        loss[sy:ey] = np.squeeze(np.take_along_axis(distance,minIndex[:,None],axis=1))
+
+    return minD, loss

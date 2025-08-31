@@ -581,24 +581,23 @@ class ImageUtils:
         return mask
     
     @staticmethod
-    def replace_with_nearest(array: np.ndarray,
-                             condition: str,
-                             value: int | float,
-                             condition_array: np.ndarray = None):
+    def replace_with_nearest(condition_array: np.ndarray, 
+                             condition: str, 
+                             value: int | float, 
+                             replacement_array: np.ndarray = None):
         """
-        Takes in an array, checks for a condition and marks values as invalid,
-        replaces invalid values with nearest valid value.
         
         Parameters
         ----------
-        array : np.ndarray
-            array with values
+        condition_array : np.ndarray
+            array with values to check against condition
         condition : str
             choice between =, <, >, >=, <=
         value : int or float
             value to check condition against array
-        condition_array : np.ndarray, optional
-            if passed, array for which condition will be checked against
+        replacement_array : np.ndarray, optional
+            if passed, array which will have its invalid indices replaced
+            with nearest valid neighbors
 
         Returns
         -------
@@ -606,8 +605,8 @@ class ImageUtils:
         """
         assert condition in ['=', '==', '<', '>', '>=', '=>', '<=', '=<']
         # Find mask
-        if condition_array is None:
-            condition_array = array
+        if replacement_array is None:
+            replacement_array = condition_array
 
         if condition in ['=', '=='] :
             mask = condition_array == value
@@ -625,6 +624,6 @@ class ImageUtils:
         distances, indices = distance_transform_edt(mask, return_indices=True)
 
         # Replace zero values with their nearest nonzero neighbors
-        nearest_values = array[tuple(indices)]
+        nearest_values = replacement_array[tuple(indices)]
         
         return nearest_values

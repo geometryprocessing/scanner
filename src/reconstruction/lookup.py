@@ -9,7 +9,7 @@ import torch
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
-from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss, blockLookup
+from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss, blockLookup, blockLookupNumpy
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
@@ -44,104 +44,96 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     result = np.concatenate(result, axis=3)
     np.save(filename, result)
 
+def restrict_lut_depth_range(lut, index, delta):
+    """
+    TODO
+
+    Given a lookup table, a 2D array of indices, and an integer delta,
+    this function returns a restricted  lookup table of the values
+    around indices +- delta.
+
+    Parameters
+    ----------
+    lut (H x W x Z x C)
+        table to be reduced
+    index (H x W) : np.ndarray of int type
+
+    delta : int
+
+    Returns
+    -------
+    L (H x W x z x C)
+        table where z (< Z) is now a reducded range
+
+    start (H x W)
+    """
+    # avoid underflow, cast it to int16, then back to uint16
+    start = (index.astype(np.int16)-delta).clip(0).astype(np.uint16)
+    i, j = np.meshgrid(np.arange(lut.shape[0]), np.arange(lut.shape[1]), indexing='ij')
+    k = np.arange(2*delta)
+
+    # collect LUT only +- delta around previous_index
+    L = lut[i[..., None], j[..., None], start[..., None] + k]
+    return L, start
+
 def c2f_lut(lut, normalized_image, mask, ks, deltas):
-    previous_index = np.zeros(shape=normalized_image[::ks[0], ::ks[0], :].shape[:2], dtype=np.int16)
+    """
+    TODO
+    Returns
+    -------
+    index_map : np.ndarray
+        
+    loss_map : np.ndarray
+    """
+    previous_index = np.zeros(shape=(normalized_image.shape[:2]), dtype=np.uint16)
+    c2f_mask = np.full(shape=(normalized_image.shape[:2]), fill_value=False)
 
     for iter in range(len(ks) - 1):
         k = ks[iter]
         delta = deltas[iter]
+        c2f_mask[::k,::k] = mask[::k, ::k]
+        L = lut[c2f_mask,...]
+        n = normalized_image[c2f_mask,...]
+        p = previous_index[c2f_mask]
 
-        print(f"Beginning {iter}-th iteration")
-        
-        downsampled_normalized = normalized_image[::k, ::k, :]
-        downsampled_lookup_table = lut[::k, ::k, :, :]
-        downsampled_mask = mask[::k, ::k]
-
-        new_index = np.zeros(shape=downsampled_normalized.shape[:2], dtype=np.int16)
-
-        for i in range(downsampled_normalized.shape[0]):
-            for j in range(downsampled_normalized.shape[1]):
-
-                pixel = downsampled_normalized[i,j]
-                starting_index = round(previous_index[i,j])
-
-                if ~downsampled_mask[i,j]:
-                    continue
-
-                start = max(starting_index - delta,0)
-                finish = start + 2*delta
-
-                color = downsampled_lookup_table[i,j, start : finish, :-1]
-                depth = downsampled_lookup_table[i,j, start : finish, -1]
-                
-                loss = np.linalg.norm(color - pixel, ord=2, axis=1)
-                m = np.argmin(loss)
-                d = depth[m]
-
-                new_index[i,j] = start + m
+        L, start = restrict_lut_depth_range(L, p, delta)
+        minD, _ = blockLookupNumpy(L, n, dtype=np.float32, blockSize=1024)
+        previous_index[c2f_mask] = minD + start
 
         jump = k//ks[iter+1]
-        print("Jump ", jump)
-
-        previous_index = ImageUtils.replace_with_nearest(np.kron(new_index, np.ones(jump, jump)), '=', 0)
+        previous_index = ImageUtils.replace_with_nearest(previous_index, '=', 0)
         previous_index = ImageUtils.gaussian_blur(previous_index, sigma=jump)
     
     # FULL RESOLUTION
-    depth_map = np.full(shape=normalized_image.shape[:2], fill_value=-1, dtype=np.float32)
-    loss_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.float32)
-    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
-    print("Beginning full resolution iteration")
-
-    pos = np.where(mask)
-    for i,j in zip(pos[0], pos[1]):
-        pixel = normalized_image[i,j]
-        starting_index = round(previous_index[i,j])
-        delta = deltas[-1]
-        start = max(starting_index - delta,0)
-        finish = start + 2*delta
-        color = lut[i,j, start : finish, :-1]
-        depth = lut[i,j, start : finish, -1]
-
-        loss = np.linalg.norm(color - pixel, ord=2, axis=1)
-        m = np.argmin(loss)
-        idx = m + start
-        d = depth[m]
-        l = loss[m]
-
-        depth_map[i,j] = d
-        loss_map[i,j] = l
-        index_map[i,j] = idx
-
-    return depth_map, loss_map, index_map
-
-def tc_lut(lut, normalized_image, mask, delta, previous_index):
-    depth_map = np.full(shape=normalized_image.shape[:2], fill_value=-1, dtype=np.float32)
-    loss_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.float32)
+    loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
     index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
     
-    pos = np.where(mask)
-    for i,j in zip(pos[0], pos[1]):
+    L, start = restrict_lut_depth_range(lut, previous_index, delta)
+    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=np.float32, blockSize=1024)
+    loss_map[mask] = loss
+    index_map[mask] = minD + start[mask]
 
-        pixel = normalized_image[i,j]
+    return index_map, loss_map
 
-        starting_index = round(previous_index[i,j])
+def tc_lut(lut, normalized_image, mask, delta, previous_index):
+    """
+    TODO
 
-        start = max(starting_index - delta,0)
-        finish = start + 2*delta
-        color = lut[i,j, start : finish, :-1]
-        depth = lut[i,j, start : finish, -1]
-
-        loss = np.linalg.norm(color - pixel, ord=2, axis=1)
-        m = np.argmin(loss)
-        idx = m + start
-        d = depth[m]
-        l = loss[m]
-
-        depth_map[i,j] = d
-        index_map[i,j] = idx
-        loss_map[i,j] = l
-
-    return depth_map, loss_map, index_map
+    Returns
+    -------
+    index_map : np.ndarray
+        
+    loss_map : np.ndarray
+    """
+    loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
+    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    
+    L, start = restrict_lut_depth_range(lut, previous_index, delta)
+    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=np.float32, blockSize=1024)
+    loss_map[mask] = loss
+    index_map[mask] = minD + start[mask]
+    
+    return index_map, loss_map
 
 class LookUpCalibration:
     """

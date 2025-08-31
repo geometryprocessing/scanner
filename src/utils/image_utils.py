@@ -4,7 +4,7 @@ import Imath
 import numpy as np
 from PIL import Image, ExifTags
 import rawpy
-from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion
+from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion, distance_transform_edt
 import OpenEXR
 
 class ImageUtils:
@@ -213,8 +213,8 @@ class ImageUtils:
         return rgb
     
     @staticmethod
-    def blur(image: np.ndarray,
-             sigmas: int | float | list[float] | list[int]) -> np.ndarray:
+    def gaussian_blur(image: np.ndarray,
+                      sigmas: int | float | list[float] | list[int]) -> np.ndarray:
         """
         Take image and apply Gaussian blur kernel.
         Function creates a copy of image and returns the blurred version.
@@ -580,3 +580,51 @@ class ImageUtils:
 
         return mask
     
+    @staticmethod
+    def replace_with_nearest(array: np.ndarray,
+                             condition: str,
+                             value: int | float,
+                             condition_array: np.ndarray = None):
+        """
+        Takes in an array, checks for a condition and marks values as invalid,
+        replaces invalid values with nearest valid value.
+        
+        Parameters
+        ----------
+        array : np.ndarray
+            array with values
+        condition : str
+            choice between =, <, >, >=, <=
+        value : int or float
+            value to check condition against array
+        condition_array : np.ndarray, optional
+            if passed, array for which condition will be checked against
+
+        Returns
+        -------
+            array with masked out values with nearest
+        """
+        assert condition in ['=', '==', '<', '>', '>=', '=>', '<=', '=<']
+        # Find mask
+        if condition_array is None:
+            condition_array = array
+
+        if condition in ['=', '=='] :
+            mask = condition_array == value
+        elif condition == '<':
+            mask = condition_array < value
+        elif condition in ['<=', '=<']:
+            mask = condition_array <= value
+        elif condition == '>':
+            mask = condition_array > value
+        elif condition in ['>=', '=>']:
+            mask = condition_array >= value
+
+        # Compute distance transform, which gives the distance to the nearest nonzero
+        # The indices of the nearest nonzero values are also returned
+        distances, indices = distance_transform_edt(mask, return_indices=True)
+
+        # Replace zero values with their nearest nonzero neighbors
+        nearest_values = array[tuple(indices)]
+        
+        return nearest_values

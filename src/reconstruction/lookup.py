@@ -44,6 +44,105 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     result = np.concatenate(result, axis=3)
     np.save(filename, result)
 
+def c2f_lut(lut, normalized_image, mask, ks, deltas):
+    previous_index = np.zeros(shape=normalized_image[::ks[0], ::ks[0], :].shape[:2], dtype=np.int16)
+
+    for iter in range(len(ks) - 1):
+        k = ks[iter]
+        delta = deltas[iter]
+
+        print(f"Beginning {iter}-th iteration")
+        
+        downsampled_normalized = normalized_image[::k, ::k, :]
+        downsampled_lookup_table = lut[::k, ::k, :, :]
+        downsampled_mask = mask[::k, ::k]
+
+        new_index = np.zeros(shape=downsampled_normalized.shape[:2], dtype=np.int16)
+
+        for i in range(downsampled_normalized.shape[0]):
+            for j in range(downsampled_normalized.shape[1]):
+
+                pixel = downsampled_normalized[i,j]
+                starting_index = round(previous_index[i,j])
+
+                if ~downsampled_mask[i,j]:
+                    continue
+
+                start = max(starting_index - delta,0)
+                finish = start + 2*delta
+
+                color = downsampled_lookup_table[i,j, start : finish, :-1]
+                depth = downsampled_lookup_table[i,j, start : finish, -1]
+                
+                loss = np.linalg.norm(color - pixel, ord=2, axis=1)
+                m = np.argmin(loss)
+                d = depth[m]
+
+                new_index[i,j] = start + m
+
+        jump = k//ks[iter+1]
+        print("Jump ", jump)
+
+        previous_index = ImageUtils.replace_with_nearest(np.kron(new_index, np.ones(jump, jump)), '=', 0)
+        previous_index = ImageUtils.gaussian_blur(previous_index, sigma=jump)
+    
+    # FULL RESOLUTION
+    depth_map = np.full(shape=normalized_image.shape[:2], fill_value=-1, dtype=np.float32)
+    loss_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.float32)
+    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    print("Beginning full resolution iteration")
+
+    pos = np.where(mask)
+    for i,j in zip(pos[0], pos[1]):
+        pixel = normalized_image[i,j]
+        starting_index = round(previous_index[i,j])
+        delta = deltas[-1]
+        start = max(starting_index - delta,0)
+        finish = start + 2*delta
+        color = lut[i,j, start : finish, :-1]
+        depth = lut[i,j, start : finish, -1]
+
+        loss = np.linalg.norm(color - pixel, ord=2, axis=1)
+        m = np.argmin(loss)
+        idx = m + start
+        d = depth[m]
+        l = loss[m]
+
+        depth_map[i,j] = d
+        loss_map[i,j] = l
+        index_map[i,j] = idx
+
+    return depth_map, loss_map, index_map
+
+def tc_lut(lut, normalized_image, mask, delta, previous_index):
+    depth_map = np.full(shape=normalized_image.shape[:2], fill_value=-1, dtype=np.float32)
+    loss_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.float32)
+    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    
+    pos = np.where(mask)
+    for i,j in zip(pos[0], pos[1]):
+
+        pixel = normalized_image[i,j]
+
+        starting_index = round(previous_index[i,j])
+
+        start = max(starting_index - delta,0)
+        finish = start + 2*delta
+        color = lut[i,j, start : finish, :-1]
+        depth = lut[i,j, start : finish, -1]
+
+        loss = np.linalg.norm(color - pixel, ord=2, axis=1)
+        m = np.argmin(loss)
+        idx = m + start
+        d = depth[m]
+        l = loss[m]
+
+        depth_map[i,j] = d
+        index_map[i,j] = idx
+        loss_map[i,j] = l
+
+    return depth_map, loss_map, index_map
+
 class LookUpCalibration:
     """
     """

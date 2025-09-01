@@ -67,9 +67,10 @@ def restrict_lut_depth_range(lut, index, delta):
 
     start (H x W)
     """
+    shape = lut.shape
     # avoid underflow, cast it to int16, then back to uint16
-    start = (index.astype(np.int16)-delta).clip(0).astype(np.uint16)
-    i, j = np.meshgrid(np.arange(lut.shape[0]), np.arange(lut.shape[1]), indexing='ij')
+    start = (index.astype(np.int16)-delta).clip(0, shape[2]-2*delta).astype(np.uint16)
+    i, j = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
     k = np.arange(2*delta)
 
     # collect LUT only +- delta around previous_index

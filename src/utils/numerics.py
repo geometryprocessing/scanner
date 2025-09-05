@@ -110,19 +110,30 @@ def blockLookup(L, Q, dtype, blockSize=256):
 
     return minD.cpu(), loss.cpu()
 
-def blockLookupNumpy(L, Q, dtype, blockSize=256):
+def blockLookupNumpy(L: np.ndarray, Q: np.ndarray, dtype: np.dtype, blockSize: int=256):
     """
     Given
-        lookup table L on the cpu: (H x W) x Z x C 
+        lookup table L on the cpu: H x W x Z x C 
         query image Q on the cpu: H x W x C
         dtype of the data
     Return:
         minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
+        loss: H x W s.t.  loss[i,j] is min_k ||L[i,j,k] - Q[i,j]|| on the cpu
 
     Does this in blocks on the CPU using numpy, and promotes types as needed (e.g., int16
     -> int32 and float16 -> float32)
     """
-    HW, Z, C = L.shape
+    shape = L.shape
+    assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
+    if len(shape) == 3:
+        HW, Z, C = L.shape
+        return_shape = HW
+    else:
+        H, W, Z, C = L.shape
+        HW = H*W
+        return_shape = (H,W)
+        L = np.reshape(L, shape=(HW, Z, C))
+        Q = np.reshape(Q, shape=(HW, C))
     numBlocks = (HW // blockSize) + (1 if HW % blockSize != 0 else 0)
     minD = np.zeros((HW), dtype=np.long)
     loss = np.zeros((HW), dtype=(np.float32 if dtype in [np.float16, np.float32] else np.int32))
@@ -140,4 +151,4 @@ def blockLookupNumpy(L, Q, dtype, blockSize=256):
         minD[sy:ey] = minIndex
         loss[sy:ey] = np.squeeze(np.take_along_axis(distance,minIndex[:,None],axis=1))
 
-    return minD, loss
+    return minD.reshape(return_shape), loss.reshape(return_shape)

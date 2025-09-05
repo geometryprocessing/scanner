@@ -87,7 +87,7 @@ def restrict_lut_depth_range(lut, index, delta):
     # in the case of original shape==3, squeeze is necessary here
     return np.squeeze(reduced_lut), np.squeeze(start)
 
-def c2f_lut(lut, normalized_image, mask, ks, deltas):
+def c2f_lut(lut, normalized_image, ks, deltas, mask=None):
     """
     TODO
     Returns
@@ -98,6 +98,9 @@ def c2f_lut(lut, normalized_image, mask, ks, deltas):
     """
     previous_index = np.zeros(shape=(normalized_image.shape[:2]), dtype=np.uint16)
     c2f_mask = np.full(shape=(normalized_image.shape[:2]), fill_value=False)
+
+    if mask is None:
+        mask = np.full(shape=(normalized_image.shape[:2]), fill_value=True)
 
     for iter in range(len(ks) - 1):
         k = ks[iter]
@@ -113,7 +116,7 @@ def c2f_lut(lut, normalized_image, mask, ks, deltas):
 
         jump = k//ks[iter+1]
         previous_index = ImageUtils.replace_with_nearest(previous_index, '=', 0)
-        previous_index = ImageUtils.gaussian_blur(previous_index, sigma=jump)
+        previous_index = ImageUtils.gaussian_blur(previous_index, sigmas=jump)
     
     # FULL RESOLUTION
     loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
@@ -126,7 +129,7 @@ def c2f_lut(lut, normalized_image, mask, ks, deltas):
 
     return index_map, loss_map
 
-def tc_lut(lut, normalized_image, mask, delta, previous_index):
+def tc_lut(lut, normalized_image, delta, previous_index, mask=None):
     """
     TODO
 
@@ -138,6 +141,8 @@ def tc_lut(lut, normalized_image, mask, delta, previous_index):
     """
     loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
     index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    if mask is None:
+        mask = np.full(shape=(normalized_image.shape[:2]), fill_value=True)
     
     L, start = restrict_lut_depth_range(lut, previous_index, delta)
     minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=np.float32, blockSize=1024)

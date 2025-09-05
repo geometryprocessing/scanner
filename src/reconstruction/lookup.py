@@ -46,8 +46,6 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
 
 def restrict_lut_depth_range(lut, index, delta):
     """
-    TODO
-
     Given a lookup table, a 2D array of indices, and an integer delta,
     this function returns a restricted  lookup table of the values
     around indices +- delta.
@@ -57,25 +55,37 @@ def restrict_lut_depth_range(lut, index, delta):
     lut (H x W x Z x C)
         table to be reduced
     index (H x W) : np.ndarray of int type
-
+        indices of the table
     delta : int
+        integer value to reduce table with values only around index +- delta
 
     Returns
     -------
-    L (H x W x z x C)
+    reduced_lut (H x W x z x C)
         table where z (< Z) is now a reducded range
+    start (H x W) : np.ndarray of int type
+        this is useful util for TC and C2F
+        it usually will be index - delta, but it gets
+        clipped between 0 and max_index - 2*delta
 
-    start (H x W)
     """
+    shape = lut.shape
+    # if lut is passed as HW x Z x C (i.e. a 3D array),
+    # make it 4D so that the code works below
+    # this can happen when it is passed with a mask
+    assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
+    if len(shape) == 3:
+        lut = lut[None,...]
+        index = index[None,...]
     shape = lut.shape
     # avoid underflow, cast it to int16, then back to uint16
     start = (index.astype(np.int16)-delta).clip(0, shape[2]-2*delta).astype(np.uint16)
     i, j = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
     k = np.arange(2*delta)
-
     # collect LUT only +- delta around previous_index
-    L = lut[i[..., None], j[..., None], start[..., None] + k]
-    return L, start
+    reduced_lut = lut[i[..., None], j[..., None], start[..., None] + k]
+    # in the case of original shape==3, squeeze is necessary here
+    return np.squeeze(reduced_lut), np.squeeze(start)
 
 def c2f_lut(lut, normalized_image, mask, ks, deltas):
     """
@@ -573,13 +583,8 @@ class LookUpReconstruction:
         self.black_image = None
         self.normalized = None
 
-
-        # flag for debugging and verbose
-        self.debug = False
+        # flag for verbose
         self.verbose = False
-        # flag for parallelizing pixel processing
-        self.parallelize_pixels = False
-        self.num_cpus = 1
 
         # reconstruction outpus
         self.depth_map = None
@@ -588,10 +593,7 @@ class LookUpReconstruction:
         self.normals = None
         self.loss_thr = np.inf # threshold for loss map when creating point cloud
         self.loss_map = None
-        # extra outputs if debug=True
-        self.loss_2 = None
-        self.loss_12 = None
-        self.depth_12 = None
+        self.index_map = None
 
         if config is not None:
             self.load_config(config)
@@ -608,9 +610,6 @@ class LookUpReconstruction:
         self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
         self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
         self.set_structure_grammar(config['look_up_reconstruction']['structure_grammar'])
-        self.set_parallelize_pixels(config['look_up_reconstruction']['parallelize_pixels'])
-        self.set_num_cpus(config['look_up_reconstruction']['num_cpus'])
-        self.set_debug(config['look_up_reconstruction']['debug'])
         self.set_verbose(config['look_up_reconstruction']['verbose'])
         self.set_outputs(config['look_up_reconstruction']['outputs'])
 
@@ -657,15 +656,11 @@ class LookUpReconstruction:
             structure_grammar = {
                 "name": "gray",
                 "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
-                "interpolant": {
-                    "active": true,
-                    "knots": [150, 160, 140],
-                    "samples": 1000
-                },
                 "utils": {
                     "white": "white.tiff",
                     "colors: "white.tiff,
                     "black": "black.tiff",
+                    "roi": [minX, minY, maxX, maxY]
                 }
             }
         The list of strings are the images which will be used
@@ -705,24 +700,6 @@ class LookUpReconstruction:
         """
         self.loss_thr = max(0., float(thr))
 
-    def set_parallelize_pixels(self, parallelize: bool):
-        """
-        Parameters
-        ----------
-        parallelize : bool
-            Whether to parallelize the pixel processing.
-        """
-        self.parallelize_pixels = parallelize
-
-    def set_num_cpus(self, num_cpus: int):
-        """
-        Parameters
-        ----------
-        num_cpus : int
-            Number of CPUs to use for parallel processing.
-        """
-        self.num_cpus = int(max(1, num_cpus))
-
     def set_verbose(self, verbose: bool):
         """
         Parameters
@@ -733,16 +710,6 @@ class LookUpReconstruction:
         """
         self.verbose = verbose
 
-    def set_debug(self, debug: bool):
-        """
-        Parameters
-        ----------
-        verbose : bool
-            Whether to save extra debug results.
-            Default is False
-        """
-        self.debug = debug
-
     def set_outputs(self, outputs: dict):
         """
         Parameters
@@ -752,22 +719,17 @@ class LookUpReconstruction:
             outputs: {
                 "depth_map": True,
                 "point_cloud": True,
-                "loss_1": True,
-                "loss_2": True,
-                "loss_12": True,
-                "depth_12": True
+                "loss_map": True,
+                "index_map": True,
+                "mask": True
             }
             Each can be set to True or False
 
         Notes: 
-        - depth_map is a HxW numpy array containing depth per pixel of the result.
+        - depth_map is a HxW numpy array (float32) containing depth per pixel of the result.
         - point_cloud is a 3D numpy array of the result.
-        - loss_1 is a HxW numpy array containing the loss from the pixel and the first nearest neighbor.
-        - loss_2 is a HxW numpy array containing the loss from the pixel and the second nearest neighbor.
-        - loss_12 is a HxW numpy array containing the loss
-            from the first nearest neighbor and the second nearest neighbor.
-        - depth_12 is a HxW numpy array containing the depth distance
-            from the first nearest neighbor and the second nearest neighbor.
+        - loss_map is a HxW numpy array (float32) containing the loss from the pixel and the first nearest neighbor.
+        - index_map is a HxW numpy array (uint16) containing the index of retrieved depth.
         """
         self.outputs = outputs
 
@@ -791,29 +753,6 @@ class LookUpReconstruction:
                 print('-' * 15)
                 print("Extracting mask from white image")
             self.mask = ImageUtils.extract_mask(np.atleast_3d(self.white_image), self.mask_thr)
-        
-    def decode_depth(self,
-                     pixel,
-                     lookup_colors,
-                     lookup_depths) -> tuple[float, float, float, float, float] | float:
-        """
-        TODO: replace slow np.argmin with some form of gradient descent
-        Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
-        second order derivatives of the splines with scipy.interpolate.BSpline.derivative
-        """
-        if self.structure_grammar['interpolant']['active']:
-            knots = self.structure_grammar['interpolant']['knots']
-            samples = self.structure_grammar['interpolant']['samples']
-            lookup_colors = spline_interpolant(lookup_depths, lookup_colors, knots, samples)
-
-        loss = calculate_loss(lookup_colors, pixel, ord=self.structure_grammar['loss']['order'])
-
-        if self.debug:
-            k_indices = k_smallest_indices(loss, 2)
-            return lookup_depths[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(lookup_colors[k_indices[0],:]-lookup_colors[k_indices[1],:]), lookup_depths[k_indices[0]] - lookup_depths[k_indices[1]]
-        
-        k_indices = k_smallest_indices(loss, 1)
-        return lookup_depths[k_indices[0]], loss[k_indices]
 
     def reconstruct(self, gpu: bool=False):
         """
@@ -833,11 +772,10 @@ class LookUpReconstruction:
         roi = self.structure_grammar['utils']['roi']
         if self.mask.shape != shape:
             self.mask = ImageUtils.crop(self.mask, roi=roi)
-        pos = np.where(self.mask)
         # allocate the memory for depth_map
         self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64)
-        self.loss_map = np.zeros(shape=shape, dtype=np.float64)
-
+        self.loss_map = np.full(shape=shape, fill_value=np.inf, dtype=np.float64)
+        self.index_map = np.zeros(shape=shape, dtype=np.uint32)
 
         ## GPU
         if gpu:
@@ -847,50 +785,18 @@ class LookUpReconstruction:
             minD, loss_map = blockLookup(self.lut[m], no, dtype=torch.float32, blockSize=65536)
             depth_map = self.dep[m].gather(dim=1, index=minD.unsqueeze(-1)).squeeze(-1)  
 
-            D = np.zeros(shape=self.normalized.shape[:2], dtype=np.float32)
-            L = np.zeros(shape=self.normalized.shape[:2], dtype=np.float32)
-            D[self.mask] = depth_map.cpu().numpy()
-            L[self.mask] = loss_map.cpu().numpy()
-            self.depth_map = D
-            self.loss_map = L
+            self.depth_map[self.mask] = depth_map.cpu().numpy()
+            self.loss_map[self.mask] = loss_map.cpu().numpy()
+            self.index_map[self.mask] = minD.cpu().numpy()
         
         ## CPU
         else:
-
-            if self.debug:
-                self.loss_2 = np.zeros(shape=shape, dtype=np.float64)
-                self.loss_12 = np.zeros(shape=shape, dtype=np.float64)
-                self.depth_12 = np.zeros(shape=shape, dtype=np.float64)
+            minD, loss_map = blockLookupNumpy(self.lut[self.mask], self.normalized[self.mask], dtype=np.float32, blockSize=65536)
+            depth_map = np.squeeze(np.take_along_axis(self.dep[self.mask],minD[:,None],axis=-1))
             
-            if self.parallelize_pixels:
-                if self.verbose:
-                    print(f"Parallelizing with {self.num_cpus} CPU cores")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                    futures = [executor.submit(self.decode_depth, self.normalized[i,j,:], self.lut, self.dep)
-                            for i,j in zip(pos[0], pos[1])]
-                    concurrent.futures.wait(futures)  # Wait for all tasks to complete
-                for idx, results in enumerate(futures):
-                    result = results.result()
-
-                    i,j = pos[0][idx], pos[1][idx]
-                    self.depth_map[i,j] = result[0]
-                    self.loss_map[i,j] = result[1]
-                    if self.debug:
-                        self.loss_2[i,j] = result[2]
-                        self.loss_12[i,j] = result[3]
-                        self.depth_12[i,j] = result[4]
-
-            else:
-                # original sequential processing
-                for i,j in zip(pos[0], pos[1]):
-                    results = self.decode_depth(self.normalized[i,j,:], self.lut, self.dep)
-
-                    self.depth_map[i,j] = results[0]
-                    self.loss_map[i,j] = results[1]
-                    if self.debug:
-                        self.loss_2[i,j] = results[2]
-                        self.loss_12[i,j] = results[3]
-                        self.depth_12[i,j] = results[4]
+            self.depth_map[self.mask] = depth_map
+            self.loss_map[self.mask] = loss_map
+            self.index_map[self.mask] = minD
 
     def save_outputs(self):
         table_name = self.structure_grammar['name']
@@ -905,6 +811,12 @@ class LookUpReconstruction:
         
         if 'loss_map' in self.outputs and self.outputs['loss_map']:
             np.save(os.path.join(self.reconstruction_directory,f"{table_name}_loss_map.npy"), self.loss_map)
+            if self.verbose:
+                print('-' * 15)
+                print("Saved loss map")
+
+        if 'index_map' in self.outputs and self.outputs['index_map']:
+            np.save(os.path.join(self.reconstruction_directory,f"{table_name}_index_map.npy"), self.index_map)
             if self.verbose:
                 print('-' * 15)
                 print("Saved loss map")
@@ -956,16 +868,6 @@ class LookUpReconstruction:
             if self.verbose:
                 print('-' * 15)
                 print("Saved mask")
-
-        if self.debug:
-            np.savez_compressed(os.path.join(self.reconstruction_directory,f"{table_name}_debug.npz"),
-                            loss_1=self.loss_map,
-                            loss_2=self.loss_2,
-                            loss_12=self.loss_12,
-                            depth_12=self.depth_12)
-            if self.verbose:
-                print('-' * 15)
-                print("Saved extra outputs because debug is set to True")
 
     def run(self, normalize: bool=False, gpu: bool=False):
         if normalize:

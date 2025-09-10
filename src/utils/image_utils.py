@@ -627,3 +627,27 @@ class ImageUtils:
         nearest_values = replacement_array[tuple(indices)]
         
         return nearest_values
+    
+    def denoise_fft(image, cutoff: int):
+        image = np.atleast_3d(image)
+        denoised_image = np.zeros_like(image)
+
+        for c in range(image.shape[2]):
+            img = image[...,c]
+            f = np.fft.fft2(img)
+            fshift = np.fft.fftshift(f)
+
+            # Create a mask with a low-pass filter
+            rows, cols = img.shape
+            crow, ccol = rows // 2, cols // 2
+            mask = np.zeros((rows, cols), np.uint8)
+            mask[crow-cutoff:crow+cutoff, ccol-cutoff:ccol+cutoff] = 1
+
+            # Apply mask and inverse FFT
+            fshift_masked = fshift * mask
+            f_ishift = np.fft.ifftshift(fshift_masked)
+            image_filtered = np.fft.ifft2(f_ishift)
+            image_filtered = np.abs(image_filtered)
+            denoised_image[...,c] = image_filtered
+
+        return denoised_image

@@ -882,14 +882,24 @@ class LookUpReconstruction:
         self.save_outputs()
 
     @staticmethod
-    def process_position(folder: str, structure_grammar: dict) -> np.ndarray:
+    def process_position(folder: str,
+                         structure_grammar: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Processes the #N HxW pattern images and returns the normalized image (HxWxN).
         """
+        mask = None
+        colors = None
+
         name = structure_grammar['name']
         images: list[str] = structure_grammar['images']
         utils: dict = structure_grammar['utils']
+        mask_thr: float = utils['mask_thr']
         roi: tuple = None if 'roi' not in utils else utils['roi']
+        use_pattern_for_mask: bool = False if 'use_pattern_for_mask' not in utils else utils['use_pattern_for_mask']
+        use_binary_mask: bool = False if 'use_binary_mask' not in utils else utils['use_binary_mask']
+        denoise_input: bool = False if 'denoise_input' not in utils else utils['denoise_input'] 
+        blur_input: bool = False if 'blur_input' not in utils else utils['blur_input']
+        save_normalized: bool = False if 'save_normalized' not in utils else utils['save_normalized']
 
         print('-' * 15)
         print("Normalizing image")
@@ -898,12 +908,30 @@ class LookUpReconstruction:
         white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
         black_image = None if (('black' not in utils) or (utils['black'] is None)) else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
         
+        image_for_mask = pattern_images if use_pattern_for_mask else white_image 
+        mask = ImageUtils.generate_mask_binary_structure(ImageUtils.convert_to_gray(image_for_mask), mask_thr) if use_binary_mask else ImageUtils.extract_mask(image_for_mask, mask_thr)
+
+
         normalized = ImageUtils.normalize_color(color_image=pattern_images,
                                                 white_image=white_image,
-                                                black_image=black_image)
-        np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+                                                black_image=black_image,
+                                                mask=mask)
+        
+        if denoise_input:
+            normalized = ImageUtils.denoise_fft(normalized, int(utils['denoise_cutoff']))
 
-        return normalized
+        if blur_input:
+            normalized = ImageUtils.gaussian_blur(normalized, sigmas=int(utils['blur_sigma']))
+
+        if save_normalized:
+            np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+
+        if colors in utils:
+            colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['colors'])), roi=roi)
+        else:
+            colors = np.sqrt(white_image / np.max(white_image)).reshape(-1,3).astype(np.float32)
+
+        return normalized, mask, colors
 
 
 if __name__ == "__main__":

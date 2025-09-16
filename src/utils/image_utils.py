@@ -233,10 +233,19 @@ class ImageUtils:
         """
         img = deepcopy(image)
         img = np.atleast_3d(img)
-        sigmas = np.atleast_1d(sigmas)
         shape = img.shape
+        if isinstance(sigmas, set) or isinstance(sigmas, tuple):
+            sigmas = list(sigmas)
+        else:
+            sigmas = [sigmas]
+        if len(sigmas) != shape[2]:
+            if len(sigmas) == 1:
+                sigmas = np.repeat(sigmas, shape[2])
+            else:
+                raise ValueError(f'Either sigmas is a single value or a list that matches the number of channels in image. Received {sigmas}')
+
         for idx in range(shape[2]):
-            img[:,:,idx] = gaussian_filter(img[:,:,idx], sigma=sigmas[idx])
+            img[:,:,idx] = gaussian_filter(img[:,:,idx], sigma=sigmas[idx], mode='nearest')
         return np.squeeze(img)
     
     @staticmethod

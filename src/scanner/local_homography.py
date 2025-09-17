@@ -84,8 +84,8 @@ class LocalHomographyCalibration:
         self.num_directories = len(dirs)
         self.calibration_directory = [get_all_paths(dir) for dir in dirs]
 
-        self.num_vertical_images      = int(2*np.ceil(np.log2(self.projector.width)))
-        self.num_horizontal_images    = int(2*np.ceil(np.log2(self.projector.height)))
+        self.num_vertical_images      = int(2*np.ceil(np.log2(self.projector.resx)))
+        self.num_horizontal_images    = int(2*np.ceil(np.log2(self.projector.resy)))
     def set_window_size(self, window: int):
         """
         Set the window (in pixels) of the neighborhood of each calibration corner to calculate the Homography.
@@ -239,5 +239,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    lhc = LocalHomographyCalibration(args.config)
+    lhc = LocalHomographyCalibration(config=args.config)
     lhc.run()

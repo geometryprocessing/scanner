@@ -204,7 +204,7 @@ class StructuredLight:
         elif pattern == 'phaseshift':
             # handle structure grammar for Phase Shift
             F = 1.0 if 'F' not in self.structure_grammar else self.structure_grammar['F']
-            self.index_x = StructuredLight.decode_phaseshift(self.projector.width,
+            self.index_x = StructuredLight.decode_phaseshift(self.projector.resx,
                                               [os.path.join(self.reconstruction_directory, img) 
                                                for img in self.structure_grammar['images']], 
                                                F)

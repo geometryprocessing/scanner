@@ -1,6 +1,7 @@
 import argparse
 import cv2
-import json
+import inspect
+import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -10,30 +11,33 @@ from src.utils.plotter import Plotter
 from src.scanner.calibration import Charuco, CheckerBoard, Calibration
 from src.scanner.camera import Camera
 
-
-# camera detects all the points and has 2D image points and 3D object points
-# use R and T to move those 3D object points into whatever coordinate system
-# the camera has
-# 
-# then, pass those 3D object points with the 2D image points as one volumetric
-# number of points to get both the intrinsic and extrinsic parameters of the
-# projector
-
 class Projector:
-    def __init__(self, config: dict | str = None):
+    def __init__(self,
+                 resx: int = None, resy: int = None,
+                 K = None,
+                 dist_coeffs = None,
+                 R = np.identity(3),
+                 T = np.zeros(shape=(3,1)),
+                 config: dict | str = None):
+        
+        self.pretty_name = 'Empty Projector'
+        self.name = 'emptyprojector'
+        self.filename = ''
+
+        self.R = R
+        self.T = T
+        self.K = K
+        self.dist_coeffs = dist_coeffs
+
         # resolution
-        self.width  = None
-        self.height = None
+        self.resx  = resx
+        self.resy = resy
         # accompanying camera
         self.camera = Camera()
         # intrinsic
-        self.K = None
-        self.dist_coeffs = None
         self.rvecs = np.zeros(shape=(3,1))
         self.tvecs = np.zeros(shape=(3,1))
-        # extrinsic
-        self.R = np.identity(3)        # projector is initialized at origin
-        self.T = np.zeros(shape=(3,1)) # projector is initialized at origin
+
         # calibration utils
         self.images = []               # image paths
         self.discarded_images = set()
@@ -58,8 +62,8 @@ class Projector:
             config = load_json(config)
 
         self.set_image_paths(config['projector_calibration']['image_folder_path'])
-        self.set_projector_height(config['projector_calibration']['height'])
-        self.set_projector_width(config['projector_calibration']['width'])
+        self.set_projector_resy(config['projector_calibration']['resy'])
+        self.set_projector_resx(config['projector_calibration']['resx'])
         self.load_camera(config['projector_calibration']['camera_calibration'])
         self.set_plane_pattern(config['projector_calibration']['plane_pattern'])
         self.set_calibration_pattern(config['projector_calibration']['calibration_pattern'])
@@ -193,27 +197,27 @@ class Projector:
             This number cannot be less than 4, otherwise it fails assertions in OpenCV.
         """
         self.min_points = int(max(4,min_points))
-    def set_projector_height(self, height: int):
+    def set_projector_resy(self, height: int):
         """
-        Set projector resolution height in pixels.
+        Set projector resolution y (height) in pixels.
 
         Parameters
         ----------
         height : int
-            Image resolution height in pixels.
+            Image resolution y (height) in pixels.
         """
         assert height > 0, "Incorrect value for height, has to be nonnegative"
-        self.height = int(height)
-    def set_projector_width(self, width: int):
+        self.resy = int(height)
+    def set_projector_resx(self, width: int):
         """
-        Set projector image resolution width in pixels.
+        Set projector image resolution x (width) in pixels.
 
         Parameters
         ----------
         width : int
-            Image resolution width in pixels.
+            Image resolution x (width) in pixels.
         """
-        self.width = int(width)
+        self.resx = int(width)
     def set_projector_shape(self, shape: tuple[int, int]):
         """
         Set image resolution in pixels.
@@ -222,10 +226,10 @@ class Projector:
         Parameters
         ----------
         shape : tuple
-            Image resolution in (width: int, height: int).
+            Image resolution in (width / resx: int, height / resy: int).
         """
-        self.set_projector_width (shape[0])
-        self.set_projector_height(shape[1])
+        self.set_projector_resx(shape[0])
+        self.set_projector_resy(shape[1])
     def set_output(self, filename: str):
         """
         
@@ -303,28 +307,28 @@ class Projector:
         return self.min_points
     def get_image_shape(self):
         """
-        Returns camera image resolution in pixels as (height, width).
+        Returns camera image resolution in pixels as (resx, resy).
 
         Returns
         -------
-        width 
-            camera width resolution in pixels.
-        height
-            camera height resolution in pixels
+        resx
+            camera resolution x (width) in pixels.
+        resy
+            camera resolution y (height) in pixels
         """
-        return (self.camera.width, self.camera.height)
+        return (self.camera.resx, self.camera.resy)
     def get_projector_shape(self):
         """
-        Returns projector image resolution in pixels as (width, height).
+        Returns projector image resolution in pixels as (resx, resy).
 
         Returns
         -------
-        height
-            projector height resolution in pixels
-        width 
-            projector width resolution in pixels.
+        resx
+            projector resolution x (width) in pixels.
+        resy
+            projector resolution y (height) in pixels
         """
-        return (self.width, self.height)
+        return (self.resx, self.resy)
 
     # functions
     def reconstruct_plane(self, image_path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -464,7 +468,7 @@ class Projector:
         """
         assert len(self.image_points) > 0, "There are no 2D image points"
         assert len(self.object_points) > 0, "There are not 3D object points"
-        assert self.height is not None or self.width is not None, \
+        assert self.resy is not None or self.resx is not None, \
             "Projector resolution has not been defined"
 
         # run Calibration.calibrate with projector 2D coordinates and X_3D 
@@ -645,7 +649,7 @@ class Projector:
         filename : str
             path to JSON file where calibration will be saved.  
         """
-        assert self.K is not None, "Camera has not been calibrated yet"
+        assert self.K is not None, "Projector has not been calibrated yet"
         assert len(self.errors) > 0, "Reprojection error has not been calculated yet"
         save_json({
             "K": self.K,
@@ -655,19 +659,18 @@ class Projector:
             # "roi": self.roi,
             "R": self.R,
             "T": self.T,
-            "height": self.height,
-            "width": self.width,
+            "resy": self.resy,
+            "resx": self.resx,
             "error": self.get_mean_error(),
             "error_threshold": self.error_thr
         }, self.output)
 
     def load_calibration(self, calibration: str | dict):
         if type(calibration) is str:
-            with open(calibration, "r") as f:
-                calibration = json.load(f)
+            calibration = load_json(calibration)
         
-        self.set_projector_height(calibration['height'])
-        self.set_projector_width(calibration['width'])
+        self.set_projector_resy(calibration['resy'])
+        self.set_projector_resx(calibration['resx'])
 
         self.set_intrinsic_matrix(calibration['K'])
         self.set_distortion(calibration['dist_coeffs'])
@@ -677,6 +680,59 @@ class Projector:
     def run(self):
         self.calibrate_intrinsic()
         self.calibrate_extrinsics()
+        
+class TestProjector(Projector):
+    def __init__(self):
+        super.__init__(resx=200, resy=200,
+                       K = np.asarray([[100, 0, 100], 
+                             [0, 100, 100],
+                             [0,0,1]], dtype=np.float32),
+                       dist_coeffs = None)
+        self.pretty_name = 'Test Projector'
+        self.name = 'test'
+
+class DLPProjector(Projector):
+    def __init__(self):
+        super.__init__(resx=1920, resy=1080,
+                       K = np.asarray([[2.86463085e+03, 0.00000000e+00, 9.46935454e+02],
+                                        [0.00000000e+00, 2.87024447e+03, 1.10580621e+03],
+                                        [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]], dtype=np.float32),
+                       dist_coeffs = np.asarray([-0.02902245, -0.30154025,  0.00232378, -0.00189861,  1.03203233], dtype=np.float32),
+                       R = np.asarray([[ 0.878584  , -0.01702959,  0.4772841 ],
+                                        [ 0.01292312,  0.99984586,  0.01188583],
+                                        [-0.47741294, -0.0042747 ,  0.87866867]], dtype=np.float32),
+                       T = np.asarray([-395.79297, -81.8893, -250.9899 ], dtype=np.float32))
+        self.pretty_name = 'TexasInstruments DLP Projector'
+        self.short_pretty_name = 'DLP Projector'
+        self.name = 'dlp'
+        
+class LCDProjector(Projector):
+    def __init__(self):
+        super.__init__(resx=1920, resy=1080,
+                        K = np.asarray([[2.36118237e+03, 0.00000000e+00, 1.03067073e+03],
+                                        [0.00000000e+00, 2.35098328e+03, 9.65838667e+02],
+                                        [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]], dtype=np.float32),
+                        dist_coeffs = np.asarray([ 0.02788432, -0.05765782,  0.00803185,  0.0074843 ,  0.10213349], dtype=np.float32),
+                        R = np.asarray([[ 0.9827554 , -0.05533259,  0.17643735],
+                                        [ 0.06008505,  0.9979573 , -0.02170372],
+                                        [-0.17487602,  0.03193069,  0.98407257]], dtype=np.float32),
+                        T = np.asarray([-301.79178, -23.397247, -108.09623 ], dtype=np.float32))
+        self.pretty_name = 'Full HD LCD VOPPLS Projector'
+        self.short_pretty_name = 'LCD Projector'
+        self.name = 'lcd'
+        
+CONFIGS = {name.lower(): obj
+    for name, obj in inspect.getmembers(sys.modules[__name__])
+    if inspect.isclass(obj)}
+#   TODO: 
+
+def get_proj_config(config):
+    config = config.lower()
+    if config in CONFIGS:
+        return CONFIGS[config]()
+    else:
+        raise ValueError(f"Could not find projector config {config}!")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Projector Calibration")
@@ -685,5 +741,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    proj = Projector(args.config)
+    proj = Projector(config=args.config)
     proj.run()

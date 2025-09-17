@@ -6,68 +6,14 @@ import numpy as np
 from src.utils.file_io import save_json, load_json, get_all_paths
 from src.utils.plotter import Plotter
 from src.scanner.calibration import Calibration, Charuco, CheckerBoard
-
-class CameraModel(Enum):
-        """
-        TODO: implement different camera models -- each camera model will have a set
-        of flags that will be passed down to OpenCV functions.
-        
-        These camera model names are copied from COLMAP.
-        """
-        SimplePinholeCameraModel       =  1 # fx=fy=f,cx,cy, dist=None
-        PinholeCameraModel             =  2 # fx,fy,cx,cy, dist=None
-        SimpleRadialCameraModel        =  3 # fx=fy=f,cx,cy, dist=k
-        SimpleRadialFisheyeCameraModel =  4 # fx=fy=f,cx,cy, dist=k
-        RadialCameraModel              =  5 # fx=fy=f,cx,cy, dist=k1,k2
-        RadialFisheyeCameraModel       =  6 # fx=fy=f,cx,cy, dist=k1,k2
-        OpenCVCameraModel              =  7 # fx,fy,cx,cy, dist=k1,k2,p1,p2
-        OpenCVFisheyeCameraModel       =  8 # fx,fy,cx,cy, dist=k1,k2,k3,k4
-        FullOpenCVCameraModel          =  9 # fx,fy,cx,cy, dist=k1,k2,p1,p2,k3,k4,k5,k6
-        FOVCameraModel                 = 10 # fx,fy,cx,cy, dist=omega (not able to do with OpenCV) -- Project Tango, not relevant
-        ThinPrismFisheyeCameraModel    = 11 # fx,fy,cx,cy, dist=k1,k2,p1,p2,k3,k4,sx1,sy1
-        RadTanThinPrismFisheyeModel    = 12 # fx,fy,cx,cy, dist=k1, k2,k3,k4,k5,k6,p0,p1,s0,s1,s2,s3
-
-def get_open_cv_calibration_flags(model):
-    """
-    TODO: implement function to return specific OpenCV
-    calibration flags depending on camera/projector model.
-    Example: projector with no tangent distortion should set
-    flag cv2.CALIB_FIX_TANGENT_DIST
-    """
-    flags = 0
-    match model:
-        case CameraModel('SimplePinholeCameraModel'):
-            flags = 0
-        case CameraModel('PinholeCameraModel'):
-            flags = 0
-        case CameraModel('SimpleRadialCameraModel'):
-            flags = 0
-        case CameraModel('SimpleRadialFisheyeCameraModel'):
-            flags = 0
-        case CameraModel('RadialCameraModel'):
-            flags = cv2.CALIB_ZERO_TANGENT_DIST         
-        case CameraModel('RadialFisheyeCameraModel'):
-            flags = 0
-        case CameraModel('OpenCVCameraModel'):
-            flags = 0
-        case CameraModel('OpenCVFisheyeCameraModel'):
-            flags = 0
-        case CameraModel('FullOpenCVCameraModel'):
-            flags = cv2.CALIB_RATIONAL_MODEL
-        case CameraModel('FOVCameraModel'):
-            flags = 0
-        case CameraModel('ThinPrismFisheyeCameraModel'):
-            flags = 0
-        case CameraModel('RadTanThinPrismFisheyeModel'):
-            flags = 0
-        case _:
-            print("Unrecognized camera model, settings flags to zero")
-
-    return flags
     
 class Camera:
-    def __init__(self, config: dict | str = None):
-        self.model = "to-be-implemented" # this will be the CameraModel ENUM
+    def __init__(self,
+                 K = None,
+                 dist_coeffs = None,
+                 R = np.identity(3),
+                 T = np.zeros(shape=(3,1)),
+                 config: dict | str = None):
 
         # image resolution
         self.width  = None
@@ -77,19 +23,19 @@ class Camera:
         self.discarded_images = set()
         self.intrinsic_object_points = []
         self.intrinsic_image_points = []
-        self.K = None
+        self.K = K                         # if not passed, None
         self.scaling_factor = 0
         self.newK = None
         self.roi = None
-        self.dist_coeffs = None
+        self.dist_coeffs = dist_coeffs     # if not passed, None
         self.rvecs = np.zeros(shape=(3,1))
         self.tvecs = np.zeros(shape=(3,1))
         # extrinsic
         self.extrinsic_image = None    # image paths
         self.extrinsic_object_points = []
         self.extrinsic_image_points = []
-        self.R = np.identity(3)        # camera is initialized at origin
-        self.T = np.zeros(shape=(3,1)) # camera is initialized at origin
+        self.R = R                         # if not passed, camera is initialized at origin
+        self.T = T                         # if not passed, camera is initialized at origin
         # calibration utils
         self.errors = []
         self.calibration_pattern = None
@@ -508,6 +454,10 @@ class Camera:
             # Filter the object and image points based on selected indexes
             img_filtered.append(np.array([img_points[i] for i in filtered_idxs]))
             obj_filtered.append(np.array([obj_points[i] for i in filtered_idxs]))
+
+        if len(obj_filtered) == 0:
+            print("No points left for calibration, try looser threshold.")
+            return
 
         # Perform refined calibration using the filtered points
         result = \

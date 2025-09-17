@@ -876,8 +876,11 @@ class LookUpReconstruction:
 
     def run(self, normalize: bool=False, gpu: bool=False):
         if normalize:
-            self.normalized = self.process_position(self.reconstruction_directory, self.structure_grammar)
-
+            normalized, mask, colors = self.process_position(self.reconstruction_directory, self.structure_grammar)
+            self.normalized = normalized
+            self.mask = mask
+            self.colors = colors
+            
         self.reconstruct(gpu=gpu)
         self.save_outputs()
 

@@ -5,9 +5,7 @@ import os
 
 from src.utils.file_io import save_json, load_json, get_all_paths, get_folder_from_file
 from src.utils.image_utils import ImageUtils
-from src.scanner.calibration import Charuco, CheckerBoard, Calibration
-from src.scanner.camera import Camera
-from src.scanner.projector import Projector
+from src.scanner.calibration import Charuco, CheckerBoard, Calibration, CameraCalibration, ProjectorCalibration
 from src.reconstruction.structured_light import StructuredLight
 
 class LocalHomographyCalibration:
@@ -30,8 +28,8 @@ class LocalHomographyCalibration:
         self.camera_image_points = []
         self.projector_image_points = []
 
-        self.camera = Camera()
-        self.projector = Projector()
+        self.camera = CameraCalibration()
+        self.projector = ProjectorCalibration()
 
         if config is not None:
             self.load_config(config)
@@ -91,9 +89,9 @@ class LocalHomographyCalibration:
         Set the window (in pixels) of the neighborhood of each calibration corner to calculate the Homography.
         """
         self.window_size = window
-    def load_camera(self, camera: str | dict | Camera):
-        if isinstance(camera, str) or isinstance(camera, dict):
-            self.camera.load_calibration(camera)
+    def load_camera(self, camera: str | dict | CameraCalibration):
+        if isinstance(camera, (str, dict)):
+            self.camera.load_config(camera)
         else:
             self.camera = camera
 

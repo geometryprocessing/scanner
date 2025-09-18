@@ -1,13 +1,11 @@
-import argparse
 import inspect
+import os
 import sys
 
 import cv2
 import numpy as np
 
-from src.utils.file_io import save_json, load_json, get_all_paths
-from src.utils.plotter import Plotter
-from src.scanner.calibration import Calibration, Charuco, CheckerBoard
+from src.utils.file_io import save_json, load_json
 
 class Camera:
     def __init__(self,
@@ -21,55 +19,32 @@ class Camera:
         
         self.pretty_name = 'Empty Camera'
         self.name = 'emptycamera'
-        self.filename = ''
+        # filename is used, for now, only in multiview, 
+        # where a data folder contains multiple camera folders
+        self.filename = '' 
 
-        # image resolution
         self.resx  = resx
         self.resy = resy
-
-        # intrinsic
-        self.intrinsic_images = [] # image paths
-        self.discarded_images = set()
-        self.intrinsic_object_points = []
-        self.intrinsic_image_points = []
         self.K = K                         # if not passed, None
-        self.scaling_factor = 0
-        self.newK = None
-        self.roi = None
         self.dist_coeffs = dist_coeffs     # if not passed, None
-        self.rvecs = np.zeros(shape=(3,1))
-        self.tvecs = np.zeros(shape=(3,1))
-        # extrinsic
-        self.extrinsic_image = None    # image paths
-        self.extrinsic_object_points = []
-        self.extrinsic_image_points = []
         self.R = R                         # if not passed, camera is initialized at origin
         self.T = T                         # if not passed, camera is initialized at origin
-        # calibration utils
-        self.errors = []
-        self.calibration_pattern = None
-        self.error_thr = 0
-        self.min_points = 4
 
         if config is not None:
             self.load_config(config)
 
-    def load_config(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
+    def load_config(self, calibration: str | dict):
+        if isinstance(calibration, str):
+            calibration = load_json(calibration)
 
-        self.set_intrinsic_image_paths(config['camera_calibration']['intrinsic_folder_path'])
-        self.set_extrinsic_image_path(config['camera_calibration']['extrinsic_image_path'])
-
-        self.set_resy(config['camera_calibration']['resy'])
-        self.set_resx(config['camera_calibration']['resx'])
-
-        # calibration utils
-        self.set_calibration_pattern(config['camera_calibration']['charuco'])
-        self.set_error_threshold(config['camera_calibration']['error_thr'])
-        self.set_min_points(config['camera_calibration']['min_points'])
-        self.set_scaling_factor(config['camera_calibration']['scaling_factor'])
-        self.set_output(config['camera_calibration']['output_filename'])
+        self.set_resy(calibration['resy'])
+        self.set_resx(calibration['resx'])
+        self.set_intrinsic_matrix(calibration['K'])
+        self.set_distortion(calibration['dist_coeffs'])
+        if 'R' in calibration:
+            self.set_rotation(calibration['R'])
+        if 'T' in calibration:
+            self.set_translation(calibration['T'])
 
     # setters
     def set_intrinsic_matrix(self, K):
@@ -90,15 +65,6 @@ class Camera:
             of 4, 5, 8, 12 or 14 elements.
         """
         self.dist_coeffs = np.array(dist_coeffs, dtype=np.float32)
-    def set_scaling_factor(self, alpha: float):
-        """
-        Parameters
-        ----------
-        alpha : float
-            Scaling factor for cv2.getOptimalNewCameraMatrix
-        """
-        assert alpha > 0, "Incorrect value for alpha, has to be nonnegative"
-        self.scaling_factor = float(alpha)
     def set_translation(self, T):
         """
         Parameters
@@ -120,64 +86,6 @@ class Camera:
         if r.shape!=(3,3):
             r, _ = cv2.Rodrigues(r)
         self.R = r
-    def set_calibration_pattern(self, pattern: dict | Charuco | CheckerBoard):
-        """
-        Parameters
-        ----------
-        pattern : dictionary | Charuco object | CheckerBoard object
-            Calibration pattern used for all camera calibration procedures.
-            Function only aceppts ChArUco and Checkerboard/Chessboard.
-        """
-        if isinstance(pattern, dict):
-            try: 
-                if pattern["type"] == "charuco":
-                    pattern = Charuco(board_config=pattern)
-                elif pattern["type"] == "checkerboard":
-                    pattern = CheckerBoard(board_config=pattern)
-            except:
-                pattern = Charuco(board_config=pattern)
-        self.calibration_pattern = pattern
-    def set_intrinsic_image_paths(self, image_paths: list | str):
-        """
-        Parameters
-        ----------
-        image_paths : list | string
-            List of strings containing image paths (or string for folder containing images).
-            These images will be used for intrinsic calibration of Camera.
-        """
-        self.intrinsic_images = get_all_paths(image_paths)
-    def set_extrinsic_image_path(self, image_path: str):
-        """
-        Parameters
-        ----------
-        image_path : string
-            String containing path of image to be used for extrinsic calibration of Camera.
-        """
-        self.extrinsic_image = image_path
-    def set_error_threshold(self, error_thr: float):
-        """
-        Set the reprojection error threshold (in pixels, L2 norm).
-        This needs to be set in order to call refine(), since it uses this threshold
-        to discard markers.
-
-        Parameters
-        ----------
-        error_thr : float
-            Threshold of reprojection error (in pixels) of identified markers to consider for calibration.
-            This number has to be nonnegative.
-        """
-        assert error_thr > 0, "Incorrect value for threshold, has to be nonnegative"
-        self.error_thr = float(error_thr)
-    def set_min_points(self, min_points: int):
-        """
-        Parameters
-        ----------
-        min_points : int
-            Number of minimum identified markers to consider for calibration.
-            This number cannot be less than 4, otherwise it fails assertions in OpenCV.
-        """
-        self.min_points = int(max(4,min_points))
-
     def set_resy(self, height: int):
         """
         Set image resolution y (height) in pixels.
@@ -212,147 +120,7 @@ class Camera:
         """
         self.set_resx(shape[0])
         self.set_resy(shape[1])
-    def discard_intrinsic_images(self):
-        self.intrinsic_images = [image for image in self.intrinsic_images if id(image) not in self.discarded_images]
-    def add_intrinsic_image_points(self, image_points: np.ndarray):
-        """
-        Appends more image points to the list intrinsic_image_points of Camera.
 
-        Parameters
-        ----------
-        image_points : array_like
-            Array of 2D image points of shape (N,2).
-        """
-        self.intrinsic_image_points.append(image_points)
-    def add_intrinsic_object_points(self, object_points: np.ndarray):
-        """
-        Appends more object points to the list intrinsic_object_points of Camera.
-
-        Parameters
-        ----------
-        object_points : array_like
-            Array of 3D world points of shape (N,3).
-        """
-        self.intrinsic_object_points.append(object_points)
-    def set_extrinsic_image_points(self, image_points: np.ndarray):
-        """
-        Appends more image points to the list extrinsic_image_points of Camera.
-
-        Parameters
-        ----------
-        image_points : array_like
-            Array of 2D image points of shape (N,2).
-        """
-        self.extrinsic_image_points = image_points
-    def set_extrinsic_object_points(self, object_points: np.ndarray):
-        """
-        Appends more object points to the list extrinsic_object_points of Camera.
-
-        Parameters
-        ----------
-        object_points : array_like
-            Array of 3D world points of shape (N,3).
-        """
-        self.extrinsic_object_points = object_points
-    def set_output(self, filename: str):
-        """
-        
-        Parameters
-        ----------
-        filename : str
-            path to where output will be saved as a JSON file 
-        """
-        self.output = filename
-
-    # getters
-    def get_intrinsic_matrix(self) -> np.ndarray:
-        """
-        Returns camera intrinsic matrix (shape 3x3) K.
-        """
-        return self.K
-    def get_distortion(self) -> np.ndarray:
-        """
-        Returns camera distortion coefficients.
-        """
-        return self.dist_coeffs
-    def get_scaling_factor(self) -> float:
-        """
-        Returns scaling factor used for new optimal intrinsic matrix.
-        """
-        return self.scaling_factor
-    def get_new_intrinsic_matrix(self) -> np.ndarray:
-        """
-        Returns new optimal intrinsic matrix (shape 3x3) newK.
-        """
-        return self.newK
-    def get_rvecs(self) -> list[np.ndarray]:
-        """
-        Returns the list of camera translation rotation vectors (shape Nx3,
-        where N is the number of images) found during calibration.
-        """
-        return self.rvecs
-    def get_tvecs(self) -> list[np.ndarray]:
-        """
-        Returns the list of camera translation translation vectors (shape Nx3,
-        where N is the number of images) found during calibration.
-        """
-        return self.tvecs
-    def get_translation(self) -> np.ndarray:
-        """
-        Returns the camera translation vector (shape 3x1) T.
-        """
-        return self.T
-    def get_rotation(self) -> np.ndarray:
-        """
-        Returns the camera rotation matrix (shape 3x3) R.
-        """
-        return self.R
-    def get_calibration_pattern(self) -> Charuco | CheckerBoard:
-        return self.calibration_pattern
-    def get_intrinsic_image_paths(self) -> list[str]:
-        return self.intrinsic_images
-    def get_extrinsic_image_paths(self) -> str:
-        return self.extrinsic_image
-    def get_errors(self) -> list[np.ndarray]:
-        """
-        Returns a list of the reprojection errors of every marker of every view.
-
-        Returns
-        -------
-        errors
-            list of numpy arrays, where each index of the list contains the
-            reprojection error (in pixels) for every detected marker in that index view
-        """
-        return self.errors
-    def get_per_view_error(self) -> list[float]:        
-        """
-        Returns a list of the reprojection errors for every view.
-
-        Returns
-        -------
-        errors
-            list of floats, where each index is the average reprojection
-            error (in pixels) of detected markers in that index view
-        """
-        return [float(np.mean(errors)) for errors in self.errors]
-    def get_mean_error(self) -> float:
-        """
-        Returns
-        -------
-        error
-            average error in pixels of all detected markers in all views
-        """
-        return float(np.mean(np.concatenate(self.errors)))
-    def get_error_threshold(self) -> float:
-        """
-        Returns the reprojection error threshold (in pixels).
-        """
-        return self.error_thr
-    def get_min_points(self) -> int:
-        """
-        Returns number of minimum identified markers to consider for calibration.
-        """
-        return self.min_points
     def get_image_shape(self) -> tuple[int, int]:
         """
         Returns image resolution in pixels as (width, height).
@@ -366,181 +134,6 @@ class Camera:
         """
         return (self.resx, self.resy)
     
-    # functions
-    def detect_markers_for_intrinsic(self):
-        """
-        Add markers (2D image coordinates and 3D world coordinates) for intrinsic calibration.
-        """
-        assert self.calibration_pattern is not None, "No Calibration Pattern defined"
-        assert len(self.intrinsic_images) > 0, "No intrinsic images defined"
-
-        # Empty the list of image and object points before going through list of images
-        self.intrinsic_image_points = []
-        self.intrinsic_object_points = []
-
-        for image_path in self.intrinsic_images:
-            img_points, obj_points, _ = self.calibration_pattern.detect_markers(image_path)
-
-            if len(img_points) < self.min_points:
-                self.discarded_images.add(id(image_path))
-                continue
-
-            self.add_intrinsic_image_points (img_points)
-            self.add_intrinsic_object_points(obj_points)
-
-        self.discard_intrinsic_images()
-    
-    def detect_markers_for_extrinsic(self):
-        """
-        Add markers (2D image coordinates and 3D world coordinates) for extrinsic calibration.
-        """
-        assert self.calibration_pattern is not None, "No Calibration Pattern defined"
-        assert self.extrinsic_image is not None, "No extrinsic image defined"
-
-        img_points, obj_points, _ = self.calibration_pattern.detect_markers(self.extrinsic_image)
-
-        assert len(img_points) > self.min_points, "Not enough points for extrinsic calibration"
-
-        self.set_extrinsic_image_points (img_points)
-        self.set_extrinsic_object_points(obj_points)
-
-    def calibrate_intrinsics(self):
-        """
-        Perform intrinsic camera calibration.
-        """
-        assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
-        assert len(self.intrinsic_object_points) > 0, "There are not 3D object points"
-        assert self.resy is not None or self.resx is not None, \
-            "Image resolution has not been defined"
-
-        result = \
-            Calibration.calibrate(self.intrinsic_object_points,
-                                  self.intrinsic_image_points,
-                                  self.get_image_shape())
-                
-        self.K = result['K']
-        self.dist_coeffs = result['dist_coeffs']
-        self.rvecs = result['rvecs']
-        self.tvecs = result['tvecs']
-
-    def calibrate_new_optimal_intrinsic_matrix(self):
-        result = Calibration.new_intrisic_matrix(self.get_image_shape(),
-                                        self.K,
-                                        self.dist_coeffs,
-                                        self.scaling_factor)
-        self.newK = result['newK']
-        self.roi = result['roi']
-
-    def refine(self):
-        """
-        TODO: consider saving (how?) pre- and post-refinement errors?
-
-        Perform intrinsic camera calibration with refinement.
-        Refinement can include minimum number of detected markers and maximum error.
-
-        Function calculates reprojection errors if not already done. 
-        """
-        assert self.K is not None, "Camera has not been calibrated yet"
-        assert self.error_thr > 0, "Error threshold not defined"
-        if len(self.errors) < 1: 
-            self.projection_errors()
-
-        img_filtered = []
-        obj_filtered = []
-
-        # Select points with errors below the threshold
-        for image_path, img_points, obj_points, errors \
-            in zip (self.intrinsic_images,
-                    self.intrinsic_image_points, 
-                    self.intrinsic_object_points,
-                    self.errors):
-            filtered_idxs = np.nonzero(errors < self.error_thr)[0]
-
-            if len(filtered_idxs) < self.min_points:
-                self.discarded_images.add(id(image_path))
-                continue
-
-            # Filter the object and image points based on selected indexes
-            img_filtered.append(np.array([img_points[i] for i in filtered_idxs]))
-            obj_filtered.append(np.array([obj_points[i] for i in filtered_idxs]))
-
-        if len(obj_filtered) == 0:
-            print("No points left for calibration, try looser threshold.")
-            return
-
-        # Perform refined calibration using the filtered points
-        result = \
-            Calibration.calibrate(obj_filtered,
-                                  img_filtered,
-                                  self.get_image_shape(),
-                                  self.K,
-                                  self.dist_coeffs)
-                
-        self.K = result['K']
-        self.dist_coeffs = result['dist_coeffs']
-        self.rvecs = result['rvecs']
-        self.tvecs = result['tvecs']
-
-        # Update list of image and object points before calculating refined errors
-        self.discard_intrinsic_images()
-        self.intrinsic_image_points = img_filtered
-        self.intrinsic_object_points = obj_filtered
-        self.projection_errors()
-
-    def projection_errors(self):
-        """
-        Calculate reprojection error of detected markers.
-        The error is calculated per marker per view.
-        """
-        assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
-        assert len(self.intrinsic_object_points) > 0, "There are not 3D object points"
-        assert self.K is not None, "Camera has not been calibrated yet"
-
-        self.errors = []
-
-        for img_points, obj_points, rvec, tvec \
-            in zip(self.intrinsic_image_points,
-                   self.intrinsic_object_points,
-                   self.rvecs,
-                   self.tvecs):
-            errors = Calibration.reprojection_error(obj_points,
-                                                    img_points,
-                                                    rvec,
-                                                    tvec,
-                                                    self.K,
-                                                    self.dist_coeffs)
-            self.errors.append(errors)
-
-    def calibrate_extrinsics(self):
-        """
-        Perform extrinsic camera calibration.
-
-        This function saves R and T, where R and T are the rotation and translation
-        tuple to bring the world coordinates into the camera coordinate system.
-
-        Notes
-        -----
-        lambda u = R @ p_w + T, where p_w is point in world coordinate and
-        u is normalized image coordinate (u_1, u_2, 1)
-        """
-        assert len(self.extrinsic_image_points) > 0, "There are no 2D image points"
-        assert len(self.extrinsic_object_points) > 0, "There are not 3D object points"
-        assert self.K is not None, "Camera has not been calibrated yet"
-        
-        result = Calibration.calibrate_extrinsic(self.extrinsic_object_points,
-                                                 self.extrinsic_image_points,
-                                                 self.K,
-                                                 self.dist_coeffs)
-        
-        rvec = result['rvec']
-        tvec = result['tvec']
-        
-        R, _ = cv2.Rodrigues(rvec)
-        T = tvec.reshape((3,1))
-        
-        self.R = R
-        self.T = T
-
     # plotter
     def plot_distortion(self):
         """
@@ -550,71 +143,19 @@ class Camera:
 
         Plotter.plot_distortion(self.get_image_shape(), self.K, self.dist_coeffs)
 
-    def plot_detected_markers(self):
+    def to_dict(self):
         """
-        Plot (with matplotlib) an image displaying the position
-        of detected intrinsic markers used for calibration.
+        Returns camera config as a dictionary.
         """
-        assert len(self.intrinsic_image_points) > 0, "There are no 2D image points"
-        assert self.K is not None, "Camera has not been calibrated yet"
-
-        Plotter.plot_markers(self.intrinsic_image_points, self.get_image_shape(), self.K)
-
-    def plot_errors(self):
-        """
-        TODO: implement with matplotlib
-        """
-        pass
-        
-    def save_calibration(self):
-        """
-        Save calibration into a JSON file.
-
-        Parameters
-        ----------
-        filename : str
-            path to JSON file where calibration will be saved.  
-        """
-        assert self.K is not None, "Camera has not been calibrated yet"
-        assert len(self.errors) > 0, "Reprojection error has not been calculated yet"
-        save_json({
-            "K": self.K,
-            "dist_coeffs": self.dist_coeffs,
-            "scaling_factor": self.scaling_factor,
-            "newK": self.newK,
-            "roi": self.roi,
-            "R": self.R,
-            "T": self.T,
+        return {
+            "name": self.name,
             "resy": self.resy,
             "resx": self.resx,
-            "error": self.get_mean_error(),
-            "error_threshold": self.error_thr
-        }, self.output)
-
-    def load_calibration(self, calibration: str | dict):
-        if isinstance(calibration, str):
-            calibration = load_json(calibration)
-
-        self.set_resy(calibration['resy'])
-        self.set_resx(calibration['resx'])
-        self.set_intrinsic_matrix(calibration['K'])
-        self.set_distortion(calibration['dist_coeffs'])
-        if 'R' in calibration:
-            self.set_rotation(calibration['R'])
-        if 'T' in calibration:
-            self.set_translation(calibration['T'])
-
-    def run(self):
-
-        # intrinsic
-        self.detect_markers_for_intrinsic()
-        self.calibrate_intrinsics()
-        self.refine()
-        self.calibrate_new_optimal_intrinsic_matrix()
-
-        # extrinsic (or skip if camera is origin)
-        self.detect_markers_for_extrinsic()
-        self.calibrate_extrinsics()
+            "K": self.K,
+            "dist_coeffs": self.dist_coeffs,
+            "R": self.R,
+            "T": self.T,
+        }
 
 class TestCamera(Camera):
     def __init__(self):
@@ -692,19 +233,14 @@ CONFIGS = {name.lower(): obj
     if inspect.isclass(obj)}
 
 def get_cam_config(config):
-    config = config.lower()
-    if config in CONFIGS:
-        return CONFIGS[config]()
+    """
+    Function checks first if camera config already exists,
+    then check if path to a JSON file exists,
+    finally throws an error.
+    """
+    if config.lower() in CONFIGS:
+        return CONFIGS[config.lower()]()
+    elif os.path.exists(config):
+        return Camera(config)
     else:
         raise ValueError(f"Could not find camera config {config}!")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Camera Calibration")
-    parser.add_argument('-c', '--config', type=str, required=True,
-                        help="Path to config for Camera Calibration")
-
-    args = parser.parse_args()
-
-    camera = Camera(args.config)
-    camera.run()

@@ -36,7 +36,7 @@ def low_rank(lut, r: int):
     return np.stack(lowrank_lut, axis=-1)
 
 
-def rolling_kernel(lut, window_size: int):
+def moving_average(lut, window_size: int):
     """
     
     Parameters
@@ -65,7 +65,7 @@ def rolling_kernel(lut, window_size: int):
     #return 
     return np.stack(convolved_lut, axis=-1)
 
-def fourier(lut, cutoff: int):
+def low_pass_filter(lut, cutoff: int):
     # prepare
     original_shape = lut.shape
     num_channels = original_shape[-1] - 1 # subtract one because of depth

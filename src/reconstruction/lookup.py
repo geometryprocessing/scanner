@@ -75,8 +75,9 @@ def process_position(folder: str,
         colors = None
         name = config.name
 
-        print('-' * 15)
-        print("Normalizing image")
+        if config.verbose:
+            print('-' * 15)
+            print("Normalizing image")
 
         roi = config.roi
         images: list[str] = config.images
@@ -117,8 +118,9 @@ def save_reconstruction_outputs(folder: str,
                                 depth_map = None,
                                 loss_map = None,
                                 point_cloud = None,
+                                colors = None,
                                 index_map = None,
-                                config = None):
+                                config: LookUp3DConfig = None):
     assert config is not None, "No config passed"
     table_name = config.name
 
@@ -138,7 +140,7 @@ def save_reconstruction_outputs(folder: str,
         np.save(os.path.join(folder,f"{table_name}_index_map.npy"), index_map)
         if config.verbose:
             print('-' * 15)
-            print("Saved loss map")
+            print("Saved index map")
 
     if config.save_point_cloud:
         if config.verbose:
@@ -153,33 +155,20 @@ def save_reconstruction_outputs(folder: str,
                                                                         R=config.camera.R,
                                                                         T=config.camera.T,
                                                                         roi=config.roi)
-        if config.verbose:
-            print("Extracting normals for point cloud")
-        normals = ThreeDUtils.normals_from_point_cloud(point_cloud)
 
         if config.verbose:
             print("Extracting colors for point cloud")
 
-        if self.colors is None and ('colors' not in utils or utils['colors'] is None):
+        if colors is None:
             print("No color image set, therefore no color extraction for point cloud")
             ThreeDUtils.save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
-                point_cloud.reshape((-1,3))[mask],
-                normals.reshape((-1,3))[mask])
-        elif self.colors is not None:
+                point_cloud.reshape((-1,3))[pcd_mask])
+        else:
             ThreeDUtils.save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                                 point_cloud.reshape((-1,3))[pcd_mask],
-                                normals.reshape((-1,3))[pcd_mask],
-                                colors.reshape((-1,3))[pcd_mask])
-        else:
-            color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['colors'])), roi=config.roi)
-            minimum = np.min(color_image)
-            maximum = np.max(color_image)
-            self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum))
-            ThreeDUtils.save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
-                                self.point_cloud.reshape((-1,3))[mask],
-                                self.normals.reshape((-1,3))[mask],
-                                self.colors.reshape((-1,3))[mask])
+                                colors=colors.reshape((-1,3))[pcd_mask])
         if config.verbose:
+            print('-' * 15)
             print("Saved point cloud")
 
     if config.save_mask:

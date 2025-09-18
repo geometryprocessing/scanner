@@ -1327,9 +1327,6 @@ class ProjectorCalibration:
     def load_config(self, config: str | dict):
         if isinstance(config, str):
             config = load_json(config)
-        
-        # TODO: this needs to be different if camera is already calibrated
-        # TODO: maybe move all of this to CameraCalibration class in calibration.py?
 
         self.set_image_paths(config['projector']['image_folder_path'])
         self.set_projector_resy(config['projector']['resy'])

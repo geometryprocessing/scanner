@@ -2,18 +2,17 @@ import argparse
 import os
 
 import numpy as np
-from natsort import natsorted
 
 import sys
 sys.path.append('../')
 from src.reconstruction.lookup import process_position,  save_reconstruction_outputs, naive_lut, tc_lut, c2f_lut
 from src.utils.image_utils import ImageUtils
 from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
-from src.utils.file_io import save_json
+from src.utils.file_io import save_json, get_all_folders
 
 def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
-    frames = natsorted([os.path.join(base_path, name) for name in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, name))])
+    frames = get_all_folders(base_path)
     
     # handle c2f and tc
     c2f_frames = []

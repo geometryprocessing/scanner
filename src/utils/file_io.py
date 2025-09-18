@@ -32,7 +32,7 @@ def get_folder_from_file(path: str) -> str:
 
 def get_all_folder_names(path: str) -> list[str]:
     """
-    Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).
+    Retrieves all directories' names within one level of path given.
 
     Parameters
     ----------
@@ -56,7 +56,7 @@ def get_all_folder_names(path: str) -> list[str]:
 
 def get_all_folders(path: str) -> list[str]:
     """
-    Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).
+    Retrieves all directories within one level of path given.
 
     Parameters
     ----------

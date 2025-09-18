@@ -142,7 +142,7 @@ class Projector:
         
 class TestProjector(Projector):
     def __init__(self):
-        super.__init__(resx=200, resy=200,
+        super().__init__(resx=200, resy=200,
                        K = np.asarray([[100, 0, 100], 
                              [0, 100, 100],
                              [0,0,1]], dtype=np.float32),
@@ -152,7 +152,7 @@ class TestProjector(Projector):
 
 class DLPProjector(Projector):
     def __init__(self):
-        super.__init__(resx=1920, resy=1080,
+        super().__init__(resx=1920, resy=1080,
                        K = np.asarray([[2.86463085e+03, 0.00000000e+00, 9.46935454e+02],
                                         [0.00000000e+00, 2.87024447e+03, 1.10580621e+03],
                                         [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]], dtype=np.float32),
@@ -167,7 +167,7 @@ class DLPProjector(Projector):
         
 class LCDProjector(Projector):
     def __init__(self):
-        super.__init__(resx=1920, resy=1080,
+        super().__init__(resx=1920, resy=1080,
                         K = np.asarray([[2.36118237e+03, 0.00000000e+00, 1.03067073e+03],
                                         [0.00000000e+00, 2.35098328e+03, 9.65838667e+02],
                                         [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]], dtype=np.float32),
@@ -195,6 +195,8 @@ def get_proj_config(config):
             return CONFIGS[config.lower()]()
         elif os.path.exists(config):
             return Projector(config=config)
+        else:
+            raise ValueError(f"Could not find projector config {config}!")
     elif isinstance(config, dict):
         return Projector(config=config)
     else:

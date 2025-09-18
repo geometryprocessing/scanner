@@ -150,7 +150,7 @@ class Camera:
 
 class TestCamera(Camera):
     def __init__(self):
-        super.__init__(resx=200, resy=200,
+        super().__init__(resx=200, resy=200,
                        K = np.asarray([[100, 0, 100], 
                              [0, 100, 100],
                              [0,0,1]], dtype=np.float32),
@@ -160,7 +160,7 @@ class TestCamera(Camera):
 
 class AtlasCamera(Camera):
     def __init__(self):
-        super.__init__(resx=6464, resy=4852,
+        super().__init__(resx=6464, resy=4852,
                        K = np.asarray([[1.4852e04, 0, 3.1818e03], 
                              [0, 1.48677e04, 2.46895e03],
                              [0,0,1]], dtype=np.float32),
@@ -174,7 +174,7 @@ class AtlasCamera(Camera):
 
 class ChronosCamera(Camera):
     def __init__(self):
-        super.__init__(resx=1920, resy=1080,
+        super().__init__(resx=1920, resy=1080,
                        K = np.asarray([[3580.915139167154,0.0,967.7411991347725],
                             [0.0,3578.1633141223797,509.395929381727],
                             [0.0,0.0,1.0]], dtype=np.float32),
@@ -188,7 +188,7 @@ class ChronosCamera(Camera):
 
 class Triton1Camera(Camera):
     def __init__(self):
-        super.__init__(resx=2448, resy=2048,
+        super().__init__(resx=2448, resy=2048,
                        K = np.asarray([[4398.865805444324, 0.0, 1224.998494272802],
                              [0.0,4395.209485484965,1010.5491943764957],
                              [0.0,0.0,1.0]], dtype=np.float32),
@@ -203,7 +203,7 @@ class Triton1Camera(Camera):
         
 class Triton2Camera(Camera):
     def __init__(self):
-        super.__init__(resx=2448, resy=2048,
+        super().__init__(resx=2448, resy=2048,
                        K = np.asarray([[4415.772826208225,0.0,1214.1772432727691],
                              [0.0,4412.163698025551,1041.2152001109412],
                              [0.0,0.0,1.0]], dtype=np.float32),
@@ -234,6 +234,8 @@ def get_cam_config(config):
             return CONFIGS[config.lower()]()
         elif os.path.exists(config):
             return Camera(config=config)
+        else:
+            raise ValueError(f"Could not find camera config {config}!")
     elif isinstance(config, dict):
         return Camera(config=config)
     else:

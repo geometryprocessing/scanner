@@ -133,15 +133,6 @@ class Camera:
             camera resolution y (height) in pixels
         """
         return (self.resx, self.resy)
-    
-    # plotter
-    def plot_distortion(self):
-        """
-        Plot (with matplotlib) an image displaying lens distortion.
-        """
-        assert self.K is not None, "Camera has not been calibrated yet"
-
-        Plotter.plot_distortion(self.get_image_shape(), self.K, self.dist_coeffs)
 
     def to_dict(self):
         """
@@ -238,9 +229,12 @@ def get_cam_config(config):
     then check if path to a JSON file exists,
     finally throws an error.
     """
-    if config.lower() in CONFIGS:
-        return CONFIGS[config.lower()]()
-    elif os.path.exists(config):
-        return Camera(config)
+    if isinstance(config, str):
+        if config.lower() in CONFIGS:
+            return CONFIGS[config.lower()]()
+        elif os.path.exists(config):
+            return Camera(config=config)
+    elif isinstance(config, dict):
+        return Camera(config=config)
     else:
         raise ValueError(f"Could not find camera config {config}!")

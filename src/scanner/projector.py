@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 
 from src.utils.file_io import save_json, load_json
-from src.utils.plotter import Plotter
 
 class Projector:
     def __init__(self,
@@ -128,15 +127,6 @@ class Projector:
         """
         return (self.resx, self.resy)
 
-    def plot_distortion(self):
-        """
-        Plot (with matplotlib) an image displaying lens distortion.
-        """
-        assert self.K is not None, "Projector has not been calibrated yet"
-
-        Plotter.plot_distortion(self.get_projector_shape(), self.K, self.dist_coeffs)
-        return 
-
     def to_dict(self):
         """
         Returns projector config as a dictionary.
@@ -200,9 +190,12 @@ def get_proj_config(config):
     then check if path to a JSON file exists,
     finally throws an error.
     """
-    if config.lower() in CONFIGS:
-        return CONFIGS[config.lower()]()
-    elif os.path.exists(config):
-        return Projector(config)
+    if isinstance(config, str):
+        if config.lower() in CONFIGS:
+            return CONFIGS[config.lower()]()
+        elif os.path.exists(config):
+            return Projector(config=config)
+    elif isinstance(config, dict):
+        return Projector(config=config)
     else:
-        raise ValueError(f"Could not find camera config {config}!")
+        raise ValueError(f"Could not find projector config {config}!")

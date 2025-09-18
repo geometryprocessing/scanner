@@ -52,7 +52,7 @@ def get_all_folder_names(path: str) -> list[str]:
     https://github.com/SethMMorton/natsort/wiki/How-Does-Natsort-Work%3F-(1-%E2%80%90-Basics)
     """
 
-    return natsorted([f for f in os.scandir(path) if f.is_dir()])
+    return natsorted([f.name for f in os.scandir(path) if f.is_dir()])
 
 def get_all_folders(path: str) -> list[str]:
     """

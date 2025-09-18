@@ -6,21 +6,14 @@ from natsort import natsorted
 
 import sys
 sys.path.append('../')
-from src.reconstruction.lookup import process_position,  save_reconstruction_outputs, tc_lut, c2f_lut
+from src.reconstruction.lookup import process_position,  save_reconstruction_outputs, naive_lut, tc_lut, c2f_lut
 from src.utils.image_utils import ImageUtils
-from src.utils.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
-from src.scanner.camera import get_cam_config, Camera
-from src.utils.numerics import blockLookupNumpy
+from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
+from src.utils.file_io import save_json
 
+def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
-def reconstruct(base_path: str, config: LookUp3DConfig, cam: Camera):
-
-    lut, dep = config.load_lut()
-
-    # swap this guy for the base_path?
-    # reconstruction_folder = config['reconstruction_directory']
-    reconstruction_folder = base_path
-    frames = natsorted([os.path.join(reconstruction_folder, name) for name in os.listdir(reconstruction_folder) if os.path.isdir(os.path.join(reconstruction_folder, name))])
+    frames = natsorted([os.path.join(base_path, name) for name in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, name))])
     
     # handle c2f and tc
     c2f_frames = []
@@ -37,18 +30,10 @@ def reconstruct(base_path: str, config: LookUp3DConfig, cam: Camera):
     else:
         naive_frames = frames
 
-
     # COARSE-TO-FINE
     for frame_path in c2f_frames:
         normalized, mask, colors = process_position(frame_path, config)
-
-        minD, L = c2f_lut(lut, normalized, config.c2f_ks, config.c2f_deltas, mask)
-        depth_map = np.full(shape=(normalized.shape[:2]), fill_value=-1., dtype=np.float32)
-        index_map = np.zeros(shape=(normalized.shape[:2]), dtype=np.uint16)
-        loss_map = np.full(shape=(normalized.shape[:2]), fill_value=np.inf, dtype=np.float32)
-        depth_map[mask] = np.squeeze(np.take_along_axis(dep[mask],minD[:,None],axis=-1))
-        loss_map[mask] = L
-        index_map[mask] = minD
+        depth_map, loss_map, index_map = c2f_lut(lut, dep, normalized, config.c2f_ks, config.c2f_deltas, mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -60,14 +45,7 @@ def reconstruct(base_path: str, config: LookUp3DConfig, cam: Camera):
     # NAIVE
     for frame_path in naive_frames:
         normalized, mask, colors = process_position(frame_path, config)
-
-        minD, L = blockLookupNumpy(lut[mask], normalized[mask], dtype=np.float32, blockSize=65536)
-        depth_map = np.full(shape=(normalized.shape[:2]), fill_value=-1., dtype=np.float32)
-        index_map = np.zeros(shape=(normalized.shape[:2]), dtype=np.uint16)
-        loss_map = np.full(shape=(normalized.shape[:2]), fill_value=np.inf, dtype=np.float32)
-        depth_map[mask] = np.squeeze(np.take_along_axis(dep[mask],minD[:,None],axis=-1))
-        loss_map[mask] = L
-        index_map[mask] = minD
+        depth_map, loss_map, index_map = naive_lut(lut, dep, normalized, config.block_size, config.use_gpu, mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -79,14 +57,9 @@ def reconstruct(base_path: str, config: LookUp3DConfig, cam: Camera):
     # TEMPORAL CONSISTENCY
     for frame_path in tc_frames:
         normalized, mask, colors = process_position(frame_path, config)
-
         prior_index_map = ImageUtils.gaussian_blur(ImageUtils.replace_with_nearest(index_map, '=', 0), sigmas=config.tc_blur_sigma)
         prior_index_map = ImageUtils.replace_with_nearest(loss_map, '<', config.loss_thr, prior_index_map)
-
-        minD, L = tc_lut(lut, normalized, config.tc_deltas[-1], (prior_index_map).astype(np.uint16), mask)
-        depth_map[mask] = np.squeeze(np.take_along_axis(dep[mask],minD[:,None],axis=-1))
-        loss_map[mask] = L
-        index_map[mask] = minD
+        depth_map, loss_map, index_map = tc_lut(lut, dep, normalized, config.tc_deltas[-1], (prior_index_map).astype(np.uint16), mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -99,15 +72,14 @@ def reconstruct(base_path: str, config: LookUp3DConfig, cam: Camera):
 def main(args):
     parser = argparse.ArgumentParser(description="Reconstructs scenes with LookUp3D")
     parser.add_argument('-i', '--input', type=str, default=None, required=True,
-                        help='Path to input folder containing camera folders')
-    parser.add_argument('--camconfigs', nargs='+', type=str,
-                        help='Camera configuration -- can either be a path to JSON file ' \
-                        'or a known camera config name. Check src/scanner/camera.py file.')
+                        help='Path to input folder to run reconstruction on. It should have' \
+                        'multiple frame position folders or, in the case of multiview, ' \
+                        'multiple camera folders')
     parser.add_argument('--configs', nargs='+', type=str,
                         help='LookUp3D Reconstruction configuration -- can either be a path to JSON file ' \
-                        'or a known lookup3d config name. Check src/utils/configs.py file.' \
-                        'NOTE: should be in the same order as camconfigs')
-
+                        'or a known lookup3d config name. Check src/reconstruction/configs.py file.')
+    # print params good for debugging
+    parser.add_argument('--print_params', '-pp', action='store_true', help='Print the parameters of the provided scene and exit.')
     args, uargs = parser.parse_known_args(args)
     
     if args.camconfigs is None:
@@ -118,14 +90,23 @@ def main(args):
 
     assert len(args.camconfigs) == len(args.configs), "Configs and CameraConfigs should match"
 
-    for cam_config, config_name in zip(args.camconfigs, args.configs):
-        cam = get_cam_config(cam_config)
-        config = get_config(config_name)
-        base_path = os.path.join(args.input, cam.filename)
+    for config_name in args.configs:
+        config: LookUp3DConfig = get_config(config_name)
+        lut, dep = config.load_lut()
+        base_path = os.path.join(args.input, config.cam.filename)
         
+        # TODO: with multiview, command line arguments will apply to all cameras
+        # how would I like for the ability to change each separately?
         remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
-        # print(f"Starting {base_path} folder with config {config_path}")
-        reconstruct(base_path, config, cam)
+        if config.verbose:
+            print(f"Starting {base_path} folder with config {config_name}")
+        
+        if args.print_params:
+            print(config.to_dict())
+            continue
+
+        reconstruct(lut, dep, base_path, config)
+        save_json(config.to_dict(), os.path.join(base_path), f'{config_name}_lookup_reconstruction_config.json')
 
 if __name__ == '__main__':
     main(sys.argv[1:])

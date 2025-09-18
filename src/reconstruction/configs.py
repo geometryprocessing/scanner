@@ -93,7 +93,7 @@ class LookUp3DConfig(ReconstructionConfig):
                 use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
                 loss_thr: float = 0.2,
                 is_lowrank: bool = False,
-                use_gpu: bool = False, batch_size: int = 65536,
+                use_gpu: bool = False, block_size: int = 65536,
                 use_coarse_to_fine: bool = False, c2f_ks = None, c2f_deltas = None,
                 use_temporal_consistency: bool = False, tc_deltas = None,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
@@ -112,8 +112,8 @@ class LookUp3DConfig(ReconstructionConfig):
         self.is_lowrank = is_lowrank
         
         self.use_gpu = use_gpu
-        # batch size works for both GPU and CPU
-        self.batch_size = batch_size
+        # block size works for both GPU and CPU
+        self.block_size = block_size
 
         # coarse-to-fine
         self.use_coarse_to_fine = use_coarse_to_fine
@@ -181,6 +181,7 @@ CONFIG_DICTS = [
         'mask_thr': 0.1,
         'loss_thr': 0.1,
         'use_gpu': False,
+        'block_size': 65536,
         'use_pattern_for_mask': False,
         'use_binary_mask': False,
         'denoise_input': False,
@@ -243,14 +244,14 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
 
 SCENE_CONFIGS = {}
 
-# what are they doing here?
-def create_scene_config_init_fn(name, config_class, sensors, scene_name=None, resx=128, resy=128, **kwargs):
-    if not scene_name:
-        scene_name = name
+# # what are they doing here?
+# def create_scene_config_init_fn(name, config_class, sensors, scene_name=None, resx=128, resy=128, **kwargs):
+#     if not scene_name:
+#         scene_name = name
 
-   # Store a lambda function that allows to create sensors as we need them
-    return (lambda: config_class(name, sensors=sensors_list,
-                                 resx=resx, resy=resy, **kwargs), name)
+#    # Store a lambda function that allows to create sensors as we need them
+#     return (lambda: config_class(name, sensors=sensors_list,
+#                                  resx=resx, resy=resy, **kwargs), name)
 
 
 def process_config_dicts(configs):

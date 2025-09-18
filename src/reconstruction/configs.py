@@ -14,8 +14,11 @@ from src.utils.file_io import save_json, load_json
 class ReconstructionConfig:
     def __init__(self,
                 name, camera,
+                verbose: bool = True,
                 roi: tuple = None,
+                images: str | list[str] = None,
                 white_image: str = None,
+                colors_image: str = None,
                 black_image: str = None,
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
                 save_depth_map: bool = True, save_point_cloud: bool = True):
@@ -24,12 +27,15 @@ class ReconstructionConfig:
         self.canera = camera
         if isinstance(self.camera, str):
             self.camera = get_cam_config(self.camera)
+        self.verbose=verbose
         self.roi = roi
 
         self.use_binary_mask = use_binary_mask
         self.mask_thr = mask_thr
 
+        self.images = images
         self.white_image = white_image
+        self.colors_image = colors_image
         self.black_image = black_image
 
         # outputs
@@ -62,26 +68,31 @@ class ReconstructionConfig:
 class StructuredLightConfig(ReconstructionConfig):
     def __init__(self,
                 name, camera, projector,
-                pattern: str, images: list = None,
+                pattern: str,
+                verbose: bool = True,
+                images: list = None,
+                white_image: str = None,
+                colors_image: str = None,
+                black_image: str = None,
                 vertical_images: list[str] = None, inverse_vertical_images: list[str] = None,
                 horizontal_images: list[str] = None, inverse_horizontal_images: list[str] = None, 
-                use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
+                use_binary_mask: bool = False, mask_thr: float = 0.2,
                 save_depth_map: bool = True, save_point_cloud: bool = True):
         self.pattern = pattern.lower()
         assert self.pattern in ['gray', 'binary', 'xor',
                                 'hilbert', 'phaseshift',
                                 'mps', 'microphaseshift'], "Unrecognized pattern for SL"
         
-        super().__init__(name=name, camera=camera,
-                       mask_thr=mask_thr, use_binary_mask=use_binary_mask, use_pattern_for_mask=use_pattern_for_mask,
-                       save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+        super().__init__(name=name, camera=camera, verbose=verbose, images=images,
+                         white_image=white_image, colors_image=colors_image, black_image=black_image,
+                        mask_thr=mask_thr, use_binary_mask=use_binary_mask,
+                        save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
         
         self.projector = projector
         if isinstance(self.projector, str):
             self.projector = get_proj_config(self.projector)
 
-        # images for structured light processing
-        self.images = images
+        # images exclusive to structured light processing
         self.vertical_images = vertical_images
         self.horizontal_images = horizontal_images
         self.inverse_vertical_images = inverse_vertical_images
@@ -90,7 +101,14 @@ class StructuredLightConfig(ReconstructionConfig):
 class LookUp3DConfig(ReconstructionConfig):
     def __init__(self,
                 name, camera, lut_path: str,
+                images: str | list[str] = None,
+                white_image: str = None,
+                colors_image: str = None,
+                black_image: str = None,
+                verbose: bool = True,
                 use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
+                denoise_input: bool = False, denoise_cutoff: int = 0,
+                blur_input: bool = False, blur_input_sigma: bool = 0,
                 loss_thr: float = 0.2,
                 is_lowrank: bool = False,
                 use_gpu: bool = False, block_size: int = 65536,
@@ -99,15 +117,20 @@ class LookUp3DConfig(ReconstructionConfig):
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_loss_map: bool = True, save_index_map: bool = False):
 
-        super().__init__(name=name, camera=camera,
-                       mask_thr=mask_thr, use_binary_mask=use_binary_mask,
-                       save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+        super().__init__(name=name, camera=camera, verbose=verbose, images=images, 
+                         white_image=white_image, colors_image=colors_image, black_image=black_image,
+                         mask_thr=mask_thr, use_binary_mask=use_binary_mask,
+                         save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
 
         self.lut_path = lut_path
         self.loss_thr = loss_thr
 
         # this one does not apply to SL
         self.use_pattern_for_mask = use_pattern_for_mask
+        self.denoise_input = denoise_input
+        self.denoise_cutoff = denoise_cutoff
+        self.blur_input = blur_input
+        self.blur_input_sigma = blur_input_sigma
 
         self.is_lowrank = is_lowrank
         
@@ -244,15 +267,8 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
 
 SCENE_CONFIGS = {}
 
-# # what are they doing here?
-# def create_scene_config_init_fn(name, config_class, sensors, scene_name=None, resx=128, resy=128, **kwargs):
-#     if not scene_name:
-#         scene_name = name
-
-#    # Store a lambda function that allows to create sensors as we need them
-#     return (lambda: config_class(name, sensors=sensors_list,
-#                                  resx=resx, resy=resy, **kwargs), name)
-
+def create_scene_config(name, config_class, **kwargs):
+    return (config_class(name, **kwargs), name)
 
 def process_config_dicts(configs):
     """Takes a list of config dictionary, resolves parent-child dependencies
@@ -280,9 +296,9 @@ def process_config_dicts(configs):
 
 PROCESSED_SCENE_CONFIG_DICTS = process_config_dicts(CONFIG_DICTS)
 for processed in PROCESSED_SCENE_CONFIG_DICTS:
-    fn, name = create_scene_config_init_fn(**processed)
-    SCENE_CONFIGS[name] = fn
-del fn, name
+    config, name = create_scene_config(**processed)
+    SCENE_CONFIGS[name] = config
+del config, name
 
 
 def is_valid_lookup_config(scene):
@@ -305,7 +321,7 @@ def get_config(scene, cmd_args=None):
             cmd_args = apply_cmdline_args(d, cmd_args)
 
             # 3. Instantiate the actual config
-            config = create_scene_config_init_fn(**d)[0]()
+            config = create_scene_config(**d)[0]
 
             # 4. Potentially apply args to the config after instantiation too (might be redundant)
             cmd_args = apply_cmdline_args(config, cmd_args)

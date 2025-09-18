@@ -101,15 +101,13 @@ def process_position(folder: str,
             normalized = ImageUtils.denoise_fft(normalized, int(config.denoise_cutoff))
 
         if config.blur_input:
-            normalized = ImageUtils.gaussian_blur(normalized, sigmas=int(config.blur_sigma))
+            normalized = ImageUtils.gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
 
-        if config.save_normalized:
-            np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+        # if config.save_normalized:
+            # np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
 
-        if config.colors is not None:
-            colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.colors)), roi=roi)
-        else:
-            colors = np.sqrt(white_image / np.max(white_image)).reshape(-1,3).astype(np.float32)
+        if config.colors_image is not None:
+            colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
 
         return normalized, mask, colors
 

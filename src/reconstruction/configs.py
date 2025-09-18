@@ -1,0 +1,313 @@
+"""
+MOST OF THIS IS COPIED AND INSPIRED BY DELIO VICINI AND WENZEL JAKOB
+"""
+import inspect
+import sys
+import numpy as np
+import torch
+
+from src.reconstruction.lookup import load_low_rank_table
+from src.scanner.camera import Camera, get_cam_config
+from src.scanner.projector import Projector, get_proj_config
+from src.utils.file_io import save_json, load_json
+
+class ReconstructionConfig:
+    def __init__(self,
+                name, camera,
+                roi: tuple = None,
+                white_image: str = None,
+                black_image: str = None,
+                use_binary_mask: bool = False, mask_thr: float = 0.2,
+                save_depth_map: bool = True, save_point_cloud: bool = True):
+
+        self.name = name
+        self.canera = camera
+        if isinstance(self.camera, str):
+            self.camera = get_cam_config(self.camera)
+        self.roi = roi
+
+        self.use_binary_mask = use_binary_mask
+        self.mask_thr = mask_thr
+
+        self.white_image = white_image
+        self.black_image = black_image
+
+        # outputs
+        self.save_depth_map = save_depth_map
+        self.save_point_cloud = save_point_cloud
+
+    def load_config(self, filename):
+        data = load_json(filename)
+        for k,v in data.items():
+            setattr(self, k, v)
+    
+    # need this to_dict function to handle camera and projector classes
+    # don't want to dump all of their data into a JSON file
+    def to_dict(self):
+        """
+        Returns reconstruction config as a dictionary.
+        """
+        config = {}
+        for k,v in self.__dict__:
+            if isinstance(v, (Camera, Projector)):
+                v = v.to_dict()
+            config[k] = v
+        return config
+
+    def dump_json(self, filename):
+        save_json(self.to_dict(), filename)
+    
+# TODO: Write the config class for structured light reconstruction
+# should be able to handle binary, gray, phaseshift, xor, microphaseshift, hilbert
+class StructuredLightConfig(ReconstructionConfig):
+    def __init__(self,
+                name, camera, projector,
+                pattern: str, images: list = None,
+                vertical_images: list[str] = None, inverse_vertical_images: list[str] = None,
+                horizontal_images: list[str] = None, inverse_horizontal_images: list[str] = None, 
+                use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
+                save_depth_map: bool = True, save_point_cloud: bool = True):
+        self.pattern = pattern.lower()
+        assert self.pattern in ['gray', 'binary', 'xor',
+                                'hilbert', 'phaseshift',
+                                'mps', 'microphaseshift'], "Unrecognized pattern for SL"
+        
+        super().__init__(name=name, camera=camera,
+                       mask_thr=mask_thr, use_binary_mask=use_binary_mask, use_pattern_for_mask=use_pattern_for_mask,
+                       save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+        
+        self.projector = projector
+        if isinstance(self.projector, str):
+            self.projector = get_proj_config(self.projector)
+
+        # images for structured light processing
+        self.images = images
+        self.vertical_images = vertical_images
+        self.horizontal_images = horizontal_images
+        self.inverse_vertical_images = inverse_vertical_images
+        self.inverse_horizontal_images = inverse_horizontal_images
+
+class LookUp3DConfig(ReconstructionConfig):
+    def __init__(self,
+                name, camera, lut_path: str,
+                use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
+                loss_thr: float = 0.2,
+                is_lowrank: bool = False,
+                use_gpu: bool = False, batch_size: int = 65536,
+                use_coarse_to_fine: bool = False, c2f_ks = None, c2f_deltas = None,
+                use_temporal_consistency: bool = False, tc_deltas = None,
+                save_depth_map: bool = True, save_point_cloud: bool = True,
+                save_loss_map: bool = True, save_index_map: bool = False):
+
+        super().__init__(name=name, camera=camera,
+                       mask_thr=mask_thr, use_binary_mask=use_binary_mask,
+                       save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+
+        self.lut_path = lut_path
+        self.loss_thr = loss_thr
+
+        # this one does not apply to SL
+        self.use_pattern_for_mask = use_pattern_for_mask
+
+        self.is_lowrank = is_lowrank
+        
+        self.use_gpu = use_gpu
+        # batch size works for both GPU and CPU
+        self.batch_size = batch_size
+
+        # coarse-to-fine
+        self.use_coarse_to_fine = use_coarse_to_fine
+        self.c2f_ks = c2f_ks
+        self.c2f_deltas = c2f_deltas
+
+        # temporal consistency
+        self.use_temporal_consistency = use_temporal_consistency
+        self.tc_deltas = tc_deltas
+
+        # outputs exclusive to lookup
+        self.save_loss_map = save_loss_map
+        self.save_index_map = save_index_map
+
+    def load_lut(self) -> tuple:
+        '''
+        Handles if is low rank, different shape from roi, and/or if sent to torch for CUDA.
+
+        Returns
+        -------
+            lut : stored normalized color intensity
+
+            dep : stored depth in millimeters
+
+        '''
+        lookup_table = load_low_rank_table(self.lut_path) if self.is_lowrank else np.load(self.lut_path)
+
+        # check if shape matches roi's shape
+
+        lut = lookup_table[...,:-1]
+        dep = lookup_table[...,-1]
+
+        if self.use_gpu:
+            lut = torch.from_numpy(lut)
+            dep = torch.from_numpy(dep)
+
+        return lut, dep
+
+
+
+CONFIG_DICTS = [
+    {
+        'name': 'sl-gray',
+        'config_class': StructuredLightConfig,
+        'camera': 'atlascamera',
+        'projector': 'dlpprojector',
+        'pattern': 'gray',
+        "white": "green.tiff",
+        "colors": "white.tiff",
+        "black": "black.tiff",
+        "vertical_images": ["gray_01.tiff", "gray_03.tiff", "gray_05.tiff", "gray_07.tiff", "gray_09.tiff", "gray_11.tiff", "gray_13.tiff", "gray_15.tiff", "gray_17.tiff", "gray_19.tiff", "gray_21.tiff"],
+        "inverse_vertical_images": ["gray_02.tiff", "gray_04.tiff", "gray_06.tiff", "gray_08.tiff", "gray_10.tiff", "gray_12.tiff", "gray_14.tiff", "gray_16.tiff", "gray_18.tiff", "gray_20.tiff", "gray_22.tiff"],
+        "horizontal_images": ["gray_23.tiff", "gray_25.tiff", "gray_27.tiff", "gray_29.tiff", "gray_31.tiff", "gray_33.tiff", "gray_35.tiff", "gray_37.tiff", "gray_39.tiff", "gray_41.tiff", "gray_43.tiff"],
+        "inverse_horizontal_images": ["gray_24.tiff", "gray_26.tiff", "gray_28.tiff", "gray_30.tiff", "gray_32.tiff", "gray_34.tiff", "gray_36.tiff", "gray_38.tiff", "gray_40.tiff", "gray_42.tiff", "gray_44.tiff"],
+    },
+    {
+        'name': 'cheap-sl-gray',
+        'parent': 'sl-gray',
+        'projector': 'lcdprojector',
+    },
+    {
+        'name': 'lookupbase',
+        'config_class': LookUp3DConfig,
+        'camera': 'atlascamera',
+        'mask_thr': 0.1,
+        'loss_thr': 0.1,
+        'use_gpu': False,
+        'use_pattern_for_mask': False,
+        'use_binary_mask': False,
+        'denoise_input': False,
+        'blur_input': False
+    },
+    {
+        'name': 'static-c2f',
+        'parent': 'lookupbase',
+        'use_c2f': True,
+        'c2f_k': [],
+        'c2f_delta': []
+    },
+
+]
+
+
+def apply_cmdline_args(config, unknown_args, return_dict=False):
+    """Update flat dictionnary or object from unparsed argpase arguments"""
+    return_dict |= isinstance(unknown_args, dict)  # Always return a dict if input is a dict
+    unused_args = dict() if return_dict else list()
+    if unknown_args is None:
+        return unused_args
+
+    def parse_value(dest_type, value):
+        if value == 'None':
+            return None
+        if dest_type == bool:
+            return value.lower() in ['true', '1']
+        return dest_type(value)
+
+    # Parse input list of strings key=value
+    input_args = {}
+    if isinstance(unknown_args, list):
+        for s in unknown_args:
+            if '=' in s:
+                k = s[2:s.index('=')]
+                v = s[s.index('=') + 1:]
+            else:
+                k = s[2:]
+                v = True
+            input_args[k] = v
+    else:
+        input_args = unknown_args
+
+    for k, v in input_args.items():
+        if isinstance(config, dict) and k in config:
+            old_v = config[k]
+            config[k] = parse_value(type(old_v), v)
+            print(f"Overriden parameter: {k} = {old_v} -> {config[k]}")
+        elif hasattr(config, k):
+            old_v = getattr(config, k)
+            setattr(config, k, parse_value(type(old_v), v))
+            print(f"Overriden parameter: {k} = {old_v} -> {getattr(config, k)}")
+        else:
+            if return_dict:
+                unused_args[k] = v
+            else:
+                unused_args.append('--' + k + '=' + v)
+    return unused_args
+
+SCENE_CONFIGS = {}
+
+# what are they doing here?
+def create_scene_config_init_fn(name, config_class, sensors, scene_name=None, resx=128, resy=128, **kwargs):
+    if not scene_name:
+        scene_name = name
+
+   # Store a lambda function that allows to create sensors as we need them
+    return (lambda: config_class(name, sensors=sensors_list,
+                                 resx=resx, resy=resy, **kwargs), name)
+
+
+def process_config_dicts(configs):
+    """Takes a list of config dictionary, resolves parent-child dependencies
+        and adds them to the config list"""
+    assert len({c['name'] for c in configs}) == len(configs), "Each config name has to be unique!"
+    name_map = {c['name']: c for c in configs}
+    output_dicts = []
+    for c in configs:
+        current = c
+        children = []
+        while 'parent' in current:
+            children.append(current)
+            current = name_map[current['parent']]
+            assert not current in children, "Circular dependency is not allowed!"
+
+        final = dict(current)
+        for child in reversed(children):
+            for k in child:
+                final[k] = child[k]
+        if 'parent' in final:
+            final.pop('parent')
+        output_dicts.append(final)
+    return output_dicts
+
+
+PROCESSED_SCENE_CONFIG_DICTS = process_config_dicts(CONFIG_DICTS)
+for processed in PROCESSED_SCENE_CONFIG_DICTS:
+    fn, name = create_scene_config_init_fn(**processed)
+    SCENE_CONFIGS[name] = fn
+del fn, name
+
+
+def is_valid_lookup_config(scene):
+    return scene in SCENE_CONFIGS
+
+
+def get_config(scene, cmd_args=None):
+    """Retrieve configuration options associated with a given scene"""
+    if scene in SCENE_CONFIGS:
+        if cmd_args is None:
+            return SCENE_CONFIGS[scene]()
+        else:
+            # Somewhat involved logic to allow for command line arguments to override parameters
+            # of the original config dict *and* the processed config object, plus returns any remaining args
+
+            # 1. obtain the dict with the right config name
+            d = [d for d in PROCESSED_SCENE_CONFIG_DICTS if d['name'] == scene][0]
+
+            # 2. apply args to the dict
+            cmd_args = apply_cmdline_args(d, cmd_args)
+
+            # 3. Instantiate the actual config
+            config = create_scene_config_init_fn(**d)[0]()
+
+            # 4. Potentially apply args to the config after instantiation too (might be redundant)
+            cmd_args = apply_cmdline_args(config, cmd_args)
+            return config, cmd_args
+    else:
+        raise ValueError("Invalid scene config name!")

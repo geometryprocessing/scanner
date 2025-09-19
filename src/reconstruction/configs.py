@@ -3,10 +3,7 @@ MOST OF THIS IS COPIED AND INSPIRED BY DELIO VICINI AND WENZEL JAKOB
 """
 import inspect
 import sys
-import numpy as np
-import torch
 
-from src.reconstruction.lookup import load_low_rank_table
 from src.scanner.camera import Camera, get_cam_config
 from src.scanner.projector import Projector, get_proj_config
 from src.utils.file_io import save_json, load_json
@@ -24,7 +21,7 @@ class ReconstructionConfig:
                 save_depth_map: bool = True, save_point_cloud: bool = True):
 
         self.name = name
-        self.canera = camera
+        self.camera = camera
         if isinstance(self.camera, str):
             self.camera = get_cam_config(self.camera)
         self.verbose=verbose
@@ -47,8 +44,6 @@ class ReconstructionConfig:
         for k,v in data.items():
             setattr(self, k, v)
     
-    # need this to_dict function to handle camera and projector classes
-    # don't want to dump all of their data into a JSON file
     def to_dict(self):
         """
         Returns reconstruction config as a dictionary.
@@ -63,8 +58,6 @@ class ReconstructionConfig:
     def dump_json(self, filename):
         save_json(self.to_dict(), filename)
     
-# TODO: Write the config class for structured light reconstruction
-# should be able to handle binary, gray, phaseshift, xor, microphaseshift, hilbert
 class StructuredLightConfig(ReconstructionConfig):
     def __init__(self,
                 name, camera, projector,
@@ -100,7 +93,7 @@ class StructuredLightConfig(ReconstructionConfig):
 
 class LookUp3DConfig(ReconstructionConfig):
     def __init__(self,
-                name, camera, lut_path: str,
+                name, camera, lut_path: str = None,
                 images: str | list[str] = None,
                 white_image: str = None,
                 colors_image: str = None,
@@ -111,7 +104,7 @@ class LookUp3DConfig(ReconstructionConfig):
                 blur_input: bool = False, blur_input_sigma: bool = 0,
                 loss_thr: float = 0.2,
                 is_lowrank: bool = False,
-                use_gpu: bool = False, block_size: int = 65536,
+                use_gpu: bool = False, gpu_device: int = 0, block_size: int = 65536,
                 use_coarse_to_fine: bool = False, c2f_ks = None, c2f_deltas = None,
                 use_temporal_consistency: bool = False, tc_deltas = None,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
@@ -135,6 +128,7 @@ class LookUp3DConfig(ReconstructionConfig):
         self.is_lowrank = is_lowrank
         
         self.use_gpu = use_gpu
+        self.gpu_device = gpu_device
         # block size works for both GPU and CPU
         self.block_size = block_size
 
@@ -151,32 +145,6 @@ class LookUp3DConfig(ReconstructionConfig):
         self.save_loss_map = save_loss_map
         self.save_index_map = save_index_map
 
-    def load_lut(self) -> tuple:
-        '''
-        Handles if is low rank, different shape from roi, and/or if sent to torch for CUDA.
-
-        Returns
-        -------
-            lut : stored normalized color intensity
-
-            dep : stored depth in millimeters
-
-        '''
-        lookup_table = load_low_rank_table(self.lut_path) if self.is_lowrank else np.load(self.lut_path)
-
-        # check if shape matches roi's shape
-
-        lut = lookup_table[...,:-1]
-        dep = lookup_table[...,-1]
-
-        if self.use_gpu:
-            lut = torch.from_numpy(lut)
-            dep = torch.from_numpy(dep)
-
-        return lut, dep
-
-
-
 CONFIG_DICTS = [
     {
         'name': 'sl-gray',
@@ -184,13 +152,13 @@ CONFIG_DICTS = [
         'camera': 'atlascamera',
         'projector': 'dlpprojector',
         'pattern': 'gray',
-        "white": "green.tiff",
-        "colors": "white.tiff",
-        "black": "black.tiff",
+        "white_image": "green.tiff",
+        "colors_image": "white.tiff",
+        "black_image": "black.tiff",
         "vertical_images": ["gray_01.tiff", "gray_03.tiff", "gray_05.tiff", "gray_07.tiff", "gray_09.tiff", "gray_11.tiff", "gray_13.tiff", "gray_15.tiff", "gray_17.tiff", "gray_19.tiff", "gray_21.tiff"],
         "inverse_vertical_images": ["gray_02.tiff", "gray_04.tiff", "gray_06.tiff", "gray_08.tiff", "gray_10.tiff", "gray_12.tiff", "gray_14.tiff", "gray_16.tiff", "gray_18.tiff", "gray_20.tiff", "gray_22.tiff"],
         "horizontal_images": ["gray_23.tiff", "gray_25.tiff", "gray_27.tiff", "gray_29.tiff", "gray_31.tiff", "gray_33.tiff", "gray_35.tiff", "gray_37.tiff", "gray_39.tiff", "gray_41.tiff", "gray_43.tiff"],
-        "inverse_horizontal_images": ["gray_24.tiff", "gray_26.tiff", "gray_28.tiff", "gray_30.tiff", "gray_32.tiff", "gray_34.tiff", "gray_36.tiff", "gray_38.tiff", "gray_40.tiff", "gray_42.tiff", "gray_44.tiff"],
+        "inverse_horizontal_images": ["gray_24.tiff", "gray_26.tiff", "gray_28.tiff", "gray_30.tiff", "gray_32.tiff", "gray_34.tiff", "gray_36.tiff", "gray_38.tiff", "gray_40.tiff", "gray_42.tiff", "gray_44.tiff"],        
     },
     {
         'name': 'cheap-sl-gray',
@@ -198,9 +166,12 @@ CONFIG_DICTS = [
         'projector': 'lcdprojector',
     },
     {
-        'name': 'lookupbase',
+        'name': 'lookup-static-base',
         'config_class': LookUp3DConfig,
         'camera': 'atlascamera',
+        'white_image': 'green.tiff',
+        'colors_image': 'white.tiff',
+        'black_image': 'black.tiff',
         'mask_thr': 0.1,
         'loss_thr': 0.1,
         'use_gpu': False,
@@ -208,14 +179,30 @@ CONFIG_DICTS = [
         'use_pattern_for_mask': False,
         'use_binary_mask': False,
         'denoise_input': False,
-        'blur_input': False
+        'blur_input': False,
+        'save_point_cloud': True,
+        'save_depth_map': True,
+        'save_loss_map': True,
+        'save_index_map': False
+    },
+    {
+        'name': 'half-gray',
+        'parent': 'lookup-static-base',
+        'images': ["gray_01.tiff", "gray_03.tiff", "gray_05.tiff", "gray_07.tiff",
+                    "gray_09.tiff", "gray_11.tiff", "gray_13.tiff", "gray_15.tiff", 
+                    "gray_17.tiff",  "gray_19.tiff", "gray_21.tiff" ],
+    },
+    {
+        'name': 'colors',
+        'parent': 'lookup-static-base',
+        'images': [],
     },
     {
         'name': 'static-c2f',
-        'parent': 'lookupbase',
-        'use_c2f': True,
-        'c2f_k': [],
-        'c2f_delta': []
+        'parent': 'lookup-static-base',
+        'use_coarse_to_fine': True,
+        'c2f_ks': [],
+        'c2f_deltas': []
     },
 
 ]

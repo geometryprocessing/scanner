@@ -1,11 +1,9 @@
 import argparse
 import os
 
-import numpy as np
-
 import sys
 sys.path.append('../')
-from src.reconstruction.lookup import process_position,  save_reconstruction_outputs, naive_lut, c2f_lut
+from src.reconstruction.lookup import load_lut, process_position, save_reconstruction_outputs, naive_lut, c2f_lut
 from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
 from src.utils.file_io import get_all_folder_names
 
@@ -46,7 +44,7 @@ def main(args):
 
     for config_name in args.configs:
         config: LookUp3DConfig = get_config(config_name)
-        lut, dep = config.load_lut()
+        lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)
 
         scenes = args.scenes
         if len(scenes) == 0: 

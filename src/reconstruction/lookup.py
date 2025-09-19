@@ -3,18 +3,44 @@ import cv2
 import concurrent.futures
 from datetime import datetime
 import numpy as np
+CUDA_AVAILABLE = False # constant
+# import torch ### swapping for cupy since we don't need autodiff and I prefer interoperability
+try:
+    import cupy as cp
+    print("cupy imported successfully.")
+    def get_array_module(*args):
+        return cp.get_array_module(*args)
+    CUDA_AVAILABLE = cp.cuda.is_available()
+except ImportError:
+    print("cupy not found. Using numpy fallback everywhere.")
+    def get_array_module(*args):
+        return np
 import os
-import torch
 
 from src.reconstruction.configs import LookUp3DConfig, get_config
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
-from src.utils.numerics import blockLookup, blockLookupNumpy
+from src.utils.numerics import blockLookup
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
-def load_low_rank_table(filename: str):
+def load_lut(filename: str, is_lowrank, use_gpu: bool = False, gpu_device: int = 0):
+    lookup_table = load_lowrank_table(filename) if is_lowrank else np.load(filename)
+
+    # TODO: check if shape matches roi's shape
+
+    lut = lookup_table[...,:-1]
+    dep = lookup_table[...,-1]
+
+    if use_gpu and CUDA_AVAILABLE:
+        with cp.cuda.Device(gpu_device):
+            lut = cp.ndarray(lut)
+            dep = cp.ndarray(dep)
+
+        return lut, dep
+    
+def load_lowrank_table(filename: str):
     data = np.load(filename)
     original_shape = data['shape']
     num_channels = original_shape[-1] - 1 # subtract one because of depth
@@ -46,7 +72,7 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     np.save(filename, result)
 
 def process_position(folder: str,
-                     config: LookUp3DConfig) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor, np.ndarray]:
+                     config: LookUp3DConfig) -> tuple:
         """
         Function that accepts a folder and a config file and
         returns the normalized pattern image (HxWxN), mask (HxW), and colors (HxWx3).
@@ -62,10 +88,10 @@ def process_position(folder: str,
         -------
         normalized : array_like
             array of shape HxWxN, where H is height, W is width, and N is number of channels
-            if use_gpu, returns torch tensor, else return numpy ndarray
+            if use_gpu, returns cupy ndarray, else return numpy ndarray
         mask : array_like
             array of shape HxW containing mask values to reduce computation time
-            if use_gpu, returns torch tensor, else return numpy ndarray
+            if use_gpu, returns cupy ndarray, else return numpy ndarray
         colors : np.ndarray
             array of shape HxWx3 containing RGB values
             this is passed to point cloud, so that it is stored with color
@@ -111,9 +137,10 @@ def process_position(folder: str,
         if config.colors_image is not None:
             colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
 
-        if config.use_gpu:
-            normalized = torch.from_numpy(normalized)
-            mask = torch.from_numpy(mask)
+        if config.use_gpu and CUDA_AVAILABLE:
+            with cp.cuda.Device(config.gpu_device):
+                normalized = cp.ndarray(normalized)
+                mask = cp.ndarray(mask)
 
         return normalized, mask, colors
 
@@ -125,6 +152,7 @@ def save_reconstruction_outputs(folder: str,
                                 colors = None,
                                 index_map = None,
                                 config: LookUp3DConfig = None):
+    # TODO: what does cupy need to save these?
     assert config is not None, "No config passed"
     table_name = config.name
 
@@ -175,11 +203,11 @@ def save_reconstruction_outputs(folder: str,
             print('-' * 15)
             print("Saved point cloud")
 
-    if config.save_mask:
-        np.save(os.path.join(folder,"mask.npy"), mask)
-        if config.verbose:
-            print('-' * 15)
-            print("Saved mask")
+    # if config.save_mask:
+    #     np.save(os.path.join(folder,"mask.npy"), mask)
+    #     if config.verbose:
+    #         print('-' * 15)
+    #         print("Saved mask")
 
 def restrict_lut_depth_range(lut, index, delta):
     """
@@ -205,7 +233,11 @@ def restrict_lut_depth_range(lut, index, delta):
         it usually will be index - delta, but it gets
         clipped between 0 and max_index - 2*delta
 
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
     """
+    xp = get_array_module(lut)
+
     shape = lut.shape
     # if lut is passed as HW x Z x C (i.e. a 3D array),
     # make it 4D so that the code works below
@@ -216,15 +248,20 @@ def restrict_lut_depth_range(lut, index, delta):
         index = index[None,...]
     shape = lut.shape
     # avoid underflow, cast it to int16, then back to uint16
-    start = (index.astype(np.int16)-delta).clip(0, shape[2]-2*delta).astype(np.uint16)
-    i, j = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
-    k = np.arange(2*delta)
+    start = (index.astype(xp.int16)-delta).clip(0, shape[2]-2*delta).astype(xp.uint16)
+    i, j = xp.meshgrid(xp.arange(shape[0]), xp.arange(shape[1]), indexing='ij')
+    k = xp.arange(2*delta)
     # collect LUT only +- delta around previous_index
     reduced_lut = lut[i[..., None], j[..., None], start[..., None] + k]
     # in the case of original shape==3, squeeze is necessary here
-    return np.squeeze(reduced_lut), np.squeeze(start)
+    return xp.squeeze(reduced_lut), xp.squeeze(start)
 
-def c2f_lut(lut, dep, normalized_image, ks, deltas, mask=None):
+def c2f_lut(lut,
+            dep,
+            normalized_image,
+            ks,
+            deltas,
+            mask=None):
     """
     Function to run Coarse-to-Fine (C2F) reconstruction wiht LookUp3D.
 
@@ -235,15 +272,19 @@ def c2f_lut(lut, dep, normalized_image, ks, deltas, mask=None):
     loss_map : array_like
 
     index_map : array_like
-        
+
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
     """
-    previous_index = np.zeros(shape=(normalized_image.shape[:2]), dtype=np.uint16)
-    c2f_mask = np.full(shape=(normalized_image.shape[:2]), fill_value=False)
+    xp = get_array_module(normalized_image)
+
+    previous_index = xp.zeros(shape=(normalized_image.shape[:2]), dtype=xp.uint16)
+    c2f_mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=False)
 
     # TODO: this mask operation slows down everything -- it is not free
     # why are we doing array[mask] when mask is full 
     if mask is None:
-        mask = np.full(shape=(normalized_image.shape[:2]), fill_value=True)
+        mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=True)
 
     for iter in range(len(ks) - 1):
         k = ks[iter]
@@ -254,7 +295,7 @@ def c2f_lut(lut, dep, normalized_image, ks, deltas, mask=None):
         p = previous_index[c2f_mask]
 
         L, start = restrict_lut_depth_range(L, p, delta)
-        minD, _ = blockLookupNumpy(L, n, dtype=np.float32, blockSize=1024)
+        minD, _ = blockLookupNumpy(L, n, dtype=xp.float32, block_size=1024)
         previous_index[c2f_mask] = minD + start
 
         jump = k//ks[iter+1]
@@ -262,19 +303,25 @@ def c2f_lut(lut, dep, normalized_image, ks, deltas, mask=None):
         previous_index = ImageUtils.gaussian_blur(previous_index, sigmas=jump)
     
     # FULL RESOLUTION
-    depth_map = np.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=np.float32)
-    loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
-    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
     
     L, start = restrict_lut_depth_range(lut, previous_index, delta)
-    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=np.float32, blockSize=1024)
+    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=xp.float32, block_size=1024)
     loss_map[mask] = loss
     index_map[mask] = minD + start[mask]
-    depth_map[mask] = np.squeeze(np.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
+    depth_map[mask] = xp.squeeze(xp.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
 
     return depth_map, loss_map, index_map
 
-def tc_lut(lut, dep, normalized_image, delta, previous_index, block_size: int=65536, mask=None):
+def tc_lut(lut,
+           dep,
+           normalized_image,
+           delta,
+           previous_index,
+           block_size: int=65536,
+           mask=None):
     """
     TODO: write description
 
@@ -285,10 +332,15 @@ def tc_lut(lut, dep, normalized_image, delta, previous_index, block_size: int=65
     loss_map : array_like
 
     index_map : array_like
+
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
     """
-    depth_map = np.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=np.float32)
-    loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
-    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    xp = get_array_module(normalized_image)
+
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
 
     # handle mask
     LUT = lut if mask is None else lut[mask]
@@ -297,9 +349,9 @@ def tc_lut(lut, dep, normalized_image, delta, previous_index, block_size: int=65
     PREVIOUS = previous_index if mask is None else previous_index[mask]
     
     L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
-    _minD, _loss_map = blockLookupNumpy(L, NORMALIZED, dtype=np.float32, blockSize=block_size)
+    _minD, _loss_map = blockLookup(L, NORMALIZED, dtype=xp.float32, block_size=block_size)
     _minD += start
-    _depth_map = np.squeeze(np.take_along_axis(DEP, _minD,axis=-1))
+    _depth_map = xp.squeeze(xp.take_along_axis(DEP, _minD,axis=-1))
 
     # handle mask
     if mask is None:
@@ -310,39 +362,31 @@ def tc_lut(lut, dep, normalized_image, delta, previous_index, block_size: int=65
         depth_map[mask] = _depth_map
         loss_map[mask] = _loss_map
         index_map[mask] = _minD
-        
+
     return depth_map, loss_map, index_map
 
 def naive_lut(lut,
               dep,
               normalized_image,
-              block_size: int = 256,
-              use_gpu: bool = False,
+              block_size: int = 65536,
               mask = None):
     """
-    NOTE: use_gpu=True assumes that lut, dep, normalized, and mask are already torch tensors,
-    otherwise this will cause error.
+    NOTE: if lut, dep, normalized_image, mask are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
     """
+    xp = get_array_module(normalized_image)
 
-    depth_map = np.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=np.float32)
-    loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
-    index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
 
     # handle mask
     LUT = lut if mask is None else lut[mask]
     DEP = dep if mask is None else dep[mask]
     NORMALIZED = normalized_image if mask is None else normalized_image[mask]
 
-    if use_gpu:
-        _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=torch.float32, blockSize=block_size)
-        _depth_map = DEP.gather(dim=1, index=_minD.unsqueeze(-1)).squeeze(-1)  
-
-        _depth_map = _depth_map.cpu().numpy()
-        _loss_map = _loss_map.cpu().numpy()
-        _minD = _minD.cpu().numpy()
-    else:
-        _minD, _loss_map = blockLookupNumpy(LUT, NORMALIZED, dtype=np.float32, blockSize=block_size)
-        _depth_map = np.squeeze(np.take_along_axis(DEP,_minD[:,None],axis=-1))
+    _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=xp.float32, block_size=block_size)
+    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
     
     # handle mask
     if mask is None:

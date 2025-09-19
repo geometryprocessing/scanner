@@ -1,6 +1,15 @@
 import heapq
 import numpy as np
-import torch
+# import torch ### swapping for cupy since we don't need autodiff and I prefer interoperability
+try:
+    import cupy as cp
+    print("cupy imported successfully.")
+    def get_array_module(*args):
+        return cp.get_array_module(*args)
+except ImportError:
+    print("cupy not found. Using numpy fallback everywhere.")
+    def get_array_module(*args):
+        return np
 import scipy.interpolate
 
 def k_smallest_indices(array: np.ndarray, k: int):
@@ -76,53 +85,67 @@ def calculate_loss(array_1: np.ndarray, array_2: np.ndarray, ord: int | str =2, 
 
     return np.linalg.norm(array_1 - array_2, ord=ord, axis=axis)
 
+### ORIGINAL TORCH CODE
+### SWAPPING FOR cupy
+# def blockLookup(L, Q, dtype, block_size: int=256):
+#     """
+#     Given
+#         lookup table L on the cpu: (H x W) x Z x C 
+#         query image Q on the cpu: H x W x C
+#         dtype of the data
+#     Return:
+#         minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
 
-def blockLookup(L, Q, dtype, blockSize=256):
+#     Does this in blocks on the CPU, and promotes types as needed (e.g., int16
+#     -> int32 and float16 -> float32)
+#     """
+#     # TODO: check first if torch or numpy
+
+#     Q = Q.cuda()
+#     HW, Z, C = L.shape
+#     numBlocks = (HW // block_size) + (1 if HW % block_size != 0 else 0)
+#     minD = torch.zeros((HW), dtype=torch.long, device='cuda')
+#     loss = torch.zeros((HW), dtype=(torch.float32 if dtype in [torch.float16, torch.float32] else torch.int32), device='cuda')
+#     for block in range(numBlocks):
+#         sy, ey = block * block_size, min(HW, ((block+1) * block_size))
+#         if dtype in [torch.float16, torch.float32]:
+#             LUp = L[sy:ey,:,:].cuda().type(torch.float32)
+#             QUp = Q[sy:ey,None,:].type(torch.float32)
+#         elif dtype in [torch.int16, torch.int32]:
+#             # if it's an int, do the arithmetic in int32 to avoid overflow
+#             LUp = L[sy:ey,:,:].cuda().type(torch.int32)
+#             QUp = Q[sy:ey,None,:].type(torch.int32)
+#         distance = torch.sum((LUp-QUp)**2, dim=-1)
+#         minIndex = torch.argmin(distance , dim=-1)
+#         minD[sy:ey] = minIndex
+#         loss[sy:ey] = distance.gather(dim=1, index=minIndex.unsqueeze(-1)).squeeze(-1)  
+
+#     return minD.cpu(), loss.cpu()
+
+def blockLookup(L, Q, dtype, block_size: int=256):
     """
-    Given
-        lookup table L on the cpu: (H x W) x Z x C 
-        query image Q on the cpu: H x W x C
+    Parameters
+    ----------
+        lookup table L H x W x Z x C 
+        normalized query image Q: H x W x C
         dtype of the data
-    Return:
-        minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
-
-    Does this in blocks on the CPU, and promotes types as needed (e.g., int16
-    -> int32 and float16 -> float32)
-    """
-    Q = Q.cuda()
-    HW, Z, C = L.shape
-    numBlocks = (HW // blockSize) + (1 if HW % blockSize != 0 else 0)
-    minD = torch.zeros((HW), dtype=torch.long, device='cuda')
-    loss = torch.zeros((HW), dtype=(torch.float32 if dtype in [torch.float16, torch.float32] else torch.int32), device='cuda')
-    for block in range(numBlocks):
-        sy, ey = block * blockSize, min(HW, ((block+1) * blockSize))
-        if dtype in [torch.float16, torch.float32]:
-            LUp = L[sy:ey,:,:].cuda().type(torch.float32)
-            QUp = Q[sy:ey,None,:].type(torch.float32)
-        elif dtype in [torch.int16, torch.int32]:
-            # if it's an int, do the arithmetic in int32 to avoid overflow
-            LUp = L[sy:ey,:,:].cuda().type(torch.int32)
-            QUp = Q[sy:ey,None,:].type(torch.int32)
-        distance = torch.sum((LUp-QUp)**2, dim=-1)
-        minIndex = torch.argmin(distance , dim=-1)
-        minD[sy:ey] = minIndex
-        loss[sy:ey] = distance.gather(dim=1, index=minIndex.unsqueeze(-1)).squeeze(-1)  
-
-    return minD.cpu(), loss.cpu()
-
-def blockLookupNumpy(L: np.ndarray, Q: np.ndarray, dtype: np.dtype, blockSize: int=256):
-    """
-    Given
-        lookup table L on the cpu: H x W x Z x C 
-        query image Q on the cpu: H x W x C
-        dtype of the data
-    Return:
+    
+    Returns
+    -------
         minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
         loss: H x W s.t.  loss[i,j] is min_k ||L[i,j,k] - Q[i,j]|| on the cpu
 
-    Does this in blocks on the CPU using numpy, and promotes types as needed (e.g., int16
-    -> int32 and float16 -> float32)
+    Does this in blocks on the CPU using numpy or GPU using cupy,
+    and promotes types as needed (e.g., int16 -> int32 and float16 -> float32)
+
+    NOTE: if L and Q are different modules (i.e. one is numpy the other cupy,
+    this will cause an error) 
     """
+    # code is GPU/CPU agnostic
+    # if you send cupy arrays, does everything on GPU
+    # else does it on CPU with numpy arrays
+    xp = get_array_module(L)
+
     shape = L.shape
     assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
     if len(shape) == 3:
@@ -132,23 +155,23 @@ def blockLookupNumpy(L: np.ndarray, Q: np.ndarray, dtype: np.dtype, blockSize: i
         H, W, Z, C = L.shape
         HW = H*W
         return_shape = (H,W)
-        L = np.reshape(L, shape=(HW, Z, C))
-        Q = np.reshape(Q, shape=(HW, C))
-    numBlocks = (HW // blockSize) + (1 if HW % blockSize != 0 else 0)
-    minD = np.zeros((HW), dtype=np.long)
-    loss = np.zeros((HW), dtype=(np.float32 if dtype in [np.float16, np.float32] else np.int32))
+        L = L.reshape(HW, Z, C)
+        Q = Q.reshape(HW, C)
+    numBlocks = (HW // block_size) + (1 if HW % block_size != 0 else 0)
+    minD = xp.zeros((HW), dtype=xp.long)
+    loss = xp.zeros((HW), dtype=(xp.float32 if dtype in [xp.float16, xp.float32] else xp.int32))
     for block in range(numBlocks):
-        sy, ey = block * blockSize, min(HW, ((block+1) * blockSize))
-        if dtype in [np.float16, np.float32]:
-            LUp = L[sy:ey,:,:].astype(np.float32)
-            QUp = Q[sy:ey,None,:].astype(np.float32)
-        elif dtype in [np.int16, np.int32]:
+        sy, ey = block * block_size, min(HW, ((block+1) * block_size))
+        if dtype in [xp.float16, xp.float32]:
+            LUp = L[sy:ey,:,:].astype(xp.float32)
+            QUp = Q[sy:ey,None,:].astype(xp.float32)
+        elif dtype in [xp.int16, xp.int32]:
             # if it's an int, do the arithmetic in int32 to avoid overflow
-            LUp = L[sy:ey,:,:].astype(np.int32)
-            QUp = Q[sy:ey,None,:].astype(np.int32)
-        distance = np.sum((LUp-QUp)**2, axis=-1)
-        minIndex = np.argmin(distance , axis=-1)
+            LUp = L[sy:ey,:,:].astype(xp.int32)
+            QUp = Q[sy:ey,None,:].astype(xp.int32)
+        distance = xp.sum((LUp-QUp)**2, axis=-1)
+        minIndex = xp.argmin(distance , axis=-1)
         minD[sy:ey] = minIndex
-        loss[sy:ey] = np.squeeze(np.take_along_axis(distance,minIndex[:,None],axis=1))
+        loss[sy:ey] = xp.squeeze(xp.take_along_axis(distance,minIndex[:,None],axis=1))
 
     return minD.reshape(return_shape), loss.reshape(return_shape)

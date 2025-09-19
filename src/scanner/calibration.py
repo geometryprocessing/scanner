@@ -688,7 +688,7 @@ class CameraCalibration:
         self.K = K
         self.scaling_factor = scaling_factor
         self.newK = None
-        self.roi = None
+        self.roi = ()
         self.dist_coeffs = dist_coeffs
         self.rvecs = np.zeros(shape=(3,1))
         self.tvecs = np.zeros(shape=(3,1))

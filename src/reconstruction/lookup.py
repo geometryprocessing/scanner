@@ -471,7 +471,7 @@ class LookUpCalibration:
         self.num_directories = 0
         self.structure_grammar = {}
         self.num_channels = 0
-        self.roi = None
+        self.roi = ()
 
         # flag for verbose
         self.verbose = False
@@ -710,7 +710,7 @@ class LookUpCalibration:
         width, height = self.camera.get_image_shape()
         x0, y0 = 0, 0
 
-        if self.roi is not None:
+        if len(self.roi) == 4:
             x0 = self.roi[0]
             y0 = self.roi[1]
             width = self.roi[2] - x0

@@ -41,7 +41,7 @@ def load_lut(filename: str, is_lowrank, use_gpu: bool = False, gpu_device: int =
             lut = cp.ndarray(lut)
             dep = cp.ndarray(dep)
 
-        return lut, dep
+    return lut, dep
     
 def load_lowrank_table(filename: str):
     data = np.load(filename)

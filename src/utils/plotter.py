@@ -4,7 +4,7 @@ import numpy as np
 import open3d as o3d
 
 from src.utils.image_utils import undistort_camera_points
-from src.utils.three_d_utils import ThreeDUtils
+from src.utils.three_d_utils import get_origin
 
 def array_to_cmap(values, vmin=None, vmax=None, cmap=None):
     '''
@@ -219,7 +219,7 @@ class Plotter:
 
             T = obj.get_translation()
             R = obj.get_rotation()
-            origin = ThreeDUtils.get_origin(R, T).flatten()
+            origin = get_origin(R, T).flatten()
             orientation = R.T
             # origin = T.flatten()
             basis(ax, origin, orientation, length=50)

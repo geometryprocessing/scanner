@@ -84,8 +84,6 @@ def main(args):
     if any(not is_valid_config(config) for config in args.configs):
         raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
-    assert len(args.camconfigs) == len(args.configs), "Configs and CameraConfigs should match"
-
     for config_name in args.configs:
         config: LookUp3DConfig = get_config(config_name)
         lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)

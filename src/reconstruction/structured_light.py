@@ -494,14 +494,10 @@ def main(args):
     if any(not is_valid_config(config) for config in args.configs):
         raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
-    assert len(args.camconfigs) == len(args.configs), "Configs and CameraConfigs should match"
-
     for config_name in args.configs:
         config: StructuredLightConfig = get_config(config_name)
         base_path = args.input
         
-        # TODO: with multiview, command line arguments will apply to all cameras
-        # how would I like for the ability to change each separately?
         remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if config.verbose:
             print(f"Starting {base_path} folder with config {config_name}")

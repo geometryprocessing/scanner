@@ -49,7 +49,7 @@ class ReconstructionConfig:
         Returns reconstruction config as a dictionary.
         """
         config = {}
-        for k,v in self.__dict__:
+        for k,v in self.__dict__.items():
             if isinstance(v, (Camera, Projector)):
                 v = v.to_dict()
             config[k] = v
@@ -296,7 +296,7 @@ def get_config(scene, cmd_args=None):
     """Retrieve configuration options associated with a given scene"""
     if scene in SCENE_CONFIGS:
         if cmd_args is None:
-            return SCENE_CONFIGS[scene]()
+            return SCENE_CONFIGS[scene]
         else:
             # Somewhat involved logic to allow for command line arguments to override parameters
             # of the original config dict *and* the processed config object, plus returns any remaining args

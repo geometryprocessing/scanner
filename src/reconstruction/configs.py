@@ -65,9 +65,10 @@ class ReconstructionConfig:
     
 class StructuredLightConfig(ReconstructionConfig):
     def __init__(self,
-                pattern: str,
                 name: str = '', camera: str | Camera = None, projector: str | Projector = None,
+                pattern: str = None,
                 verbose: bool = True,
+                roi: tuple = None,
                 images: list = None,
                 white_image: str = None,
                 colors_image: str = None,
@@ -80,17 +81,13 @@ class StructuredLightConfig(ReconstructionConfig):
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_index_map: bool = True):
-        self.pattern = pattern.lower()
-        assert self.pattern in ['gray', 'binary', 'xor',
-                                'hilbert', 'phaseshift',
-                                'mps', 'microphaseshift'], "Unrecognized pattern for SL"
-        
-        super().__init__(name=name, camera=camera, verbose=verbose, images=images,
+        super().__init__(name=name, camera=camera, verbose=verbose, roi=roi, images=images,
                          white_image=white_image, colors_image=colors_image, black_image=black_image,
-                        mask_thr=mask_thr, use_binary_mask=use_binary_mask,
-                        save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
-                        save_index_map=save_index_map)
+                         mask_thr=mask_thr, use_binary_mask=use_binary_mask,
+                         save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
+                         save_index_map=save_index_map)
         
+        self.pattern = pattern
         self.projector = projector
         if isinstance(self.projector, str):
             self.projector = get_proj_config(self.projector)
@@ -114,6 +111,7 @@ class LookUp3DConfig(ReconstructionConfig):
     def __init__(self,
                 name: str = '', camera: str | Camera = None, lut_path: str = None,
                 images: str | list[str] = None,
+                roi: tuple = None,
                 white_image: str = None,
                 colors_image: str = None,
                 black_image: str = None,
@@ -129,7 +127,7 @@ class LookUp3DConfig(ReconstructionConfig):
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_loss_map: bool = True, save_index_map: bool = False):
 
-        super().__init__(name=name, camera=camera, verbose=verbose, images=images, 
+        super().__init__(name=name, camera=camera, verbose=verbose, roi=roi, images=images, 
                          white_image=white_image, colors_image=colors_image, black_image=black_image,
                          mask_thr=mask_thr, use_binary_mask=use_binary_mask,
                          save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
@@ -213,10 +211,10 @@ CONFIG_DICTS = [
     {
         'name': 'lookup-half-gray',
         'parent': 'lookup-static-base',
-        'roi': [],
+        'roi': [2500, 500, 4500, 2000],
         'images': ['gray_01.tiff', 'gray_03.tiff', 'gray_05.tiff', 'gray_07.tiff',
                     'gray_09.tiff', 'gray_11.tiff', 'gray_13.tiff', 'gray_15.tiff', 
-                    'gray_17.tiff',  'gray_19.tiff', 'gray_21.tiff' ],
+                    'gray_17.tiff',  'gray_19.tiff', 'gray_21.tiff'],
     }
 ]
 

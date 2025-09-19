@@ -21,7 +21,6 @@ from src.reconstruction.configs import LookUp3DConfig, get_config
 from src.utils.three_d_utils import ThreeDUtils
 from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import ImageUtils
-from src.utils.numerics import blockLookup
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
@@ -208,6 +207,60 @@ def save_reconstruction_outputs(folder: str,
     #     if config.verbose:
     #         print('-' * 15)
     #         print("Saved mask")
+    
+def blockLookup(L, Q, dtype, block_size: int=256):
+    """
+    Parameters
+    ----------
+        lookup table L H x W x Z x C 
+        normalized query image Q: H x W x C
+        dtype of the data
+    
+    Returns
+    -------
+        minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
+        loss: H x W s.t.  loss[i,j] is min_k ||L[i,j,k] - Q[i,j]|| on the cpu
+
+    Does this in blocks on the CPU using numpy or GPU using cupy,
+    and promotes types as needed (e.g., int16 -> int32 and float16 -> float32)
+
+    NOTE: if L and Q are different modules (i.e. one is numpy the other cupy,
+    this will cause an error) 
+    """
+    # code is GPU/CPU agnostic
+    # if you send cupy arrays, does everything on GPU
+    # else does it on CPU with numpy arrays
+    xp = get_array_module(L)
+
+    shape = L.shape
+    assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
+    if len(shape) == 3:
+        HW, Z, C = L.shape
+        return_shape = HW
+    else:
+        H, W, Z, C = L.shape
+        HW = H*W
+        return_shape = (H,W)
+        L = L.reshape(HW, Z, C)
+        Q = Q.reshape(HW, C)
+    numBlocks = (HW // block_size) + (1 if HW % block_size != 0 else 0)
+    minD = xp.zeros((HW), dtype=xp.long)
+    loss = xp.zeros((HW), dtype=(xp.float32 if dtype in [xp.float16, xp.float32] else xp.int32))
+    for block in range(numBlocks):
+        sy, ey = block * block_size, min(HW, ((block+1) * block_size))
+        if dtype in [xp.float16, xp.float32]:
+            LUp = L[sy:ey,:,:].astype(xp.float32)
+            QUp = Q[sy:ey,None,:].astype(xp.float32)
+        elif dtype in [xp.int16, xp.int32]:
+            # if it's an int, do the arithmetic in int32 to avoid overflow
+            LUp = L[sy:ey,:,:].astype(xp.int32)
+            QUp = Q[sy:ey,None,:].astype(xp.int32)
+        distance = xp.sum((LUp-QUp)**2, axis=-1)
+        minIndex = xp.argmin(distance , axis=-1)
+        minD[sy:ey] = minIndex
+        loss[sy:ey] = xp.squeeze(xp.take_along_axis(distance,minIndex[:,None],axis=1))
+
+    return minD.reshape(return_shape), loss.reshape(return_shape)
 
 def restrict_lut_depth_range(lut, index, delta):
     """
@@ -351,7 +404,7 @@ def tc_lut(lut,
     L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
     _minD, _loss_map = blockLookup(L, NORMALIZED, dtype=xp.float32, block_size=block_size)
     _minD += start
-    _depth_map = xp.squeeze(xp.take_along_axis(DEP, _minD,axis=-1))
+    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
 
     # handle mask
     if mask is None:

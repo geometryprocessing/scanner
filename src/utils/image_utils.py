@@ -1,9 +1,6 @@
 import cv2
 from copy import deepcopy
-import Imath
 import numpy as np
-from PIL import Image, ExifTags
-import rawpy
 from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion, distance_transform_edt
 import OpenEXR
 
@@ -293,19 +290,6 @@ class ImageUtils:
         return img
     
     @staticmethod
-    def load_arw(source):
-        if isinstance(source, str):
-            with open(source, 'rb') as f:
-                raw = rawpy.imread(f)
-        else:
-            raw = rawpy.imread(source)
-
-        bayer = raw.raw_image_visible.astype(np.float32)
-        bayer -= 512
-        bayer /= 16372-512
-        return np.maximum(0, np.minimum(bayer, 1))
-    
-    @staticmethod
     def load_ldr(filename: str,
                  make_gray: bool = False,
                  normalize: bool = False) -> np.ndarray:
@@ -334,29 +318,6 @@ class ImageUtils:
         This function ignores the EXIF orientation tags.
         """
         try:
-            # Open the image with Pillow
-            # img = Image.open(filename)
-
-            # # Handle EXIF orientation
-            # try:
-            #     for orientation in ExifTags.TAGS.keys():
-            #         if ExifTags.TAGS[orientation] == "Orientation":
-            #             break
-
-            #     exif = img._getexif()
-            #     if exif is not None and orientation in exif:
-            #         if exif[orientation] == 3:
-            #             img = img.rotate(180, expand=True)
-            #         elif exif[orientation] == 6:
-            #             img = img.rotate(270, expand=True)
-            #         elif exif[orientation] == 8:
-            #             img = img.rotate(90, expand=True)
-            # except Exception as e:
-            #     print(f"Warning: Could not handle EXIF orientation: {e}")
-
-            # img_array = np.array(img)
-            # save the data type and shape for future operations
-
             img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
             dtype = img_array.dtype
             shape = img_array.shape

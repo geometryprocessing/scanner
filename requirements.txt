@@ -4,8 +4,6 @@ numpy
 open3d # latest is Python 3.12
 opencv_contrib_python
 OpenEXR # latest is Python 3.12
-Pillow
-rawpy
 scipy
 
 git+https://github.com/elerac/structuredlight

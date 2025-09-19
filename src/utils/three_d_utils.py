@@ -655,7 +655,7 @@ def point_cloud_from_depth_map(
     dist_coeffs: np.ndarray = None,
     R: np.ndarray = [0,0,0],
     T: np.ndarray = [0,0,0],
-    roi: np.ndarray = None) -> np.ndarray:
+    roi: tuple = ()) -> np.ndarray:
     """
 
     Parameters
@@ -695,7 +695,7 @@ def point_cloud_from_depth_map(
     width, height = shape[1], shape[0]
     x0, y0 = 0, 0
 
-    if roi is not None:
+    if len(roi) == 4:
         x0 = roi[0]
         y0 = roi[1]
         width = roi[2] - x0

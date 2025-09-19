@@ -23,7 +23,7 @@ class Camera:
         # where a data folder contains multiple camera folders
         self.filename = '' 
 
-        self.resx  = resx
+        self.resx = resx
         self.resy = resy
         self.K = K                         # if not passed, None
         self.dist_coeffs = dist_coeffs     # if not passed, None
@@ -230,7 +230,9 @@ def get_cam_config(config):
     finally throws an error.
     """
     if isinstance(config, str):
-        if config.lower() in CONFIGS:
+        if config == '':
+            return Camera()
+        elif config.lower() in CONFIGS:
             return CONFIGS[config.lower()]()
         elif os.path.exists(config):
             return Camera(config=config)

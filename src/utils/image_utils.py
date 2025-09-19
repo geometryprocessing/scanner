@@ -476,9 +476,9 @@ def linear_map(img,
     return np.minimum(255 * img, 255).astype(np.uint8), thr
 
 def crop(image: np.ndarray,
-            roi: tuple):
+            roi: tuple = ()):
     
-    if roi is None:
+    if len(roi) == 0:
         return image
 
     x1, y1, x2, y2 = roi

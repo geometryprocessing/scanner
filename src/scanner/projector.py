@@ -19,7 +19,7 @@ class Projector:
         self.pretty_name = 'Empty Projector'
         self.name = 'emptyprojector'
 
-        self.resx  = resx
+        self.resx = resx
         self.resy = resy
         self.K = K                         # if not passed, None
         self.dist_coeffs = dist_coeffs     # if not passed, None
@@ -191,6 +191,8 @@ def get_proj_config(config):
     finally throws an error.
     """
     if isinstance(config, str):
+        if config == '':
+            return Projector()
         if config.lower() in CONFIGS:
             return CONFIGS[config.lower()]()
         elif os.path.exists(config):

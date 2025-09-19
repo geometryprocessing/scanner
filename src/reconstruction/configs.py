@@ -9,13 +9,13 @@ from src.utils.file_io import save_json, load_json
 
 class ReconstructionConfig:
     def __init__(self,
-                name: str = '', camera: str | Camera = None,
+                name: str = '', camera: str | Camera = '',
                 verbose: bool = True,
-                roi: tuple = None,
-                images: str | list[str] = None,
-                white_image: str = None,
-                colors_image: str = None,
-                black_image: str = None,
+                roi: tuple = (),
+                images: list[str] = [],
+                white_image: str = '',
+                colors_image: str = '',
+                black_image: str = '',
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_index_map: bool = True):
@@ -65,19 +65,19 @@ class ReconstructionConfig:
     
 class StructuredLightConfig(ReconstructionConfig):
     def __init__(self,
-                name: str = '', camera: str | Camera = None, projector: str | Projector = None,
-                pattern: str = None,
+                name: str = '', camera: str | Camera = '', projector: str | Projector = '',
+                pattern: str = '',
                 verbose: bool = True,
-                roi: tuple = None,
-                images: list = None,
-                white_image: str = None,
-                colors_image: str = None,
-                black_image: str = None,
-                vertical_images: list[str] = None, inverse_vertical_images: list[str] = None,
-                horizontal_images: list[str] = None, inverse_horizontal_images: list[str] = None, 
-                binary_threshold: float = None, num_bits: int = 3,
-                phaseshift_frequency: float | int = None,
-                frequency_vector: list[float|int] = None, median_filter: int = None,
+                roi: tuple = (),
+                images: list = [],
+                white_image: str = '',
+                colors_image: str = '',
+                black_image: str = '',
+                vertical_images: list[str] = [], inverse_vertical_images: list[str] = [],
+                horizontal_images: list[str] = [], inverse_horizontal_images: list[str] = [], 
+                binary_threshold: float = 0, num_bits: int = 3,
+                phaseshift_frequency: float | int = 1.0,
+                frequency_vector: list[float|int] = [], median_filter: int = 5,
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_index_map: bool = True):
@@ -109,12 +109,12 @@ class StructuredLightConfig(ReconstructionConfig):
 
 class LookUp3DConfig(ReconstructionConfig):
     def __init__(self,
-                name: str = '', camera: str | Camera = None, lut_path: str = None,
-                images: str | list[str] = None,
-                roi: tuple = None,
-                white_image: str = None,
-                colors_image: str = None,
-                black_image: str = None,
+                name: str = '', camera: str | Camera = '', lut_path: str = '/path/is/required/',
+                images: str | list[str] = [],
+                roi: tuple = (),
+                white_image: str = '',
+                colors_image: str = '',
+                black_image: str = '',
                 verbose: bool = True,
                 use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
                 denoise_input: bool = False, denoise_cutoff: int = 0,
@@ -122,8 +122,8 @@ class LookUp3DConfig(ReconstructionConfig):
                 loss_thr: float = 0.2,
                 is_lowrank: bool = False,
                 use_gpu: bool = False, gpu_device: int = 0, block_size: int = 65536,
-                use_coarse_to_fine: bool = False, c2f_ks = None, c2f_deltas = None,
-                use_temporal_consistency: bool = False, tc_deltas = None,
+                use_coarse_to_fine: bool = False, c2f_ks = [], c2f_deltas = [],
+                use_temporal_consistency: bool = False, tc_deltas = [],
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_loss_map: bool = True, save_index_map: bool = False):
 
@@ -131,7 +131,7 @@ class LookUp3DConfig(ReconstructionConfig):
                          white_image=white_image, colors_image=colors_image, black_image=black_image,
                          mask_thr=mask_thr, use_binary_mask=use_binary_mask,
                          save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
-                         save_index_map=save_depth_map)
+                         save_index_map=save_index_map)
 
         self.lut_path = lut_path
         self.loss_thr = loss_thr
@@ -192,7 +192,7 @@ CONFIG_DICTS = [
         'white_image': 'green.tiff',
         'colors_image': 'white.tiff',
         'black_image': 'black.tiff',
-        'roi': None,
+        'roi': (),
         'mask_thr': 0.1,
         'loss_thr': 0.1,
         'verbose': True,
@@ -215,7 +215,7 @@ CONFIG_DICTS = [
         'images': ['gray_01.tiff', 'gray_03.tiff', 'gray_05.tiff', 'gray_07.tiff',
                     'gray_09.tiff', 'gray_11.tiff', 'gray_13.tiff', 'gray_15.tiff', 
                     'gray_17.tiff',  'gray_19.tiff', 'gray_21.tiff'],
-    }
+    },
 ]
 
 
@@ -256,6 +256,7 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
             old_v = getattr(config, k)
             setattr(config, k, parse_value(type(old_v), v))
             print(f"Overriden parameter: {k} = {old_v} -> {getattr(config, k)}")
+            #TODO: how to override camera and projector?
         else:
             if return_dict:
                 unused_args[k] = v

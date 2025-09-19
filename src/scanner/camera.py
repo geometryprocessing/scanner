@@ -170,7 +170,7 @@ class AtlasCamera(Camera):
                                        -4.9249e-04,
                                        8.8487e00], dtype=np.float32))
         self.pretty_name = 'Atlas 32Mpx Camera'
-        self.name = 'atlas'
+        self.name = 'atlascamera'
 
 class ChronosCamera(Camera):
     def __init__(self):
@@ -184,7 +184,7 @@ class ChronosCamera(Camera):
                                        -0.00031193552659360146,
                                        0.3585615042719389], dtype=np.float32))
         self.pretty_name = 'Chronos HD Camera'
-        self.name = 'chronos'
+        self.name = 'chronoscamera'
 
 class Triton1Camera(Camera):
     def __init__(self):
@@ -198,7 +198,7 @@ class Triton1Camera(Camera):
                                         0.00020178521826665733,
                                         0.11827598690686253], dtype=np.float32))
         self.pretty_name = 'Triton10 5Mpx Camera No.1'
-        self.name = 'triton1'
+        self.name = 'triton1camera'
         self.filename = 'Triton1'
         
 class Triton2Camera(Camera):
@@ -215,7 +215,7 @@ class Triton2Camera(Camera):
                        R = np.asarray([   0.02470863, -2.22986647,    0.10327809], dtype=np.float32),
                        T = np.asarray([ 562.73912308, 30.61416842, 1021.49771131], dtype=np.float32))
         self.pretty_name = 'Triton10 5Mpx Camera No.2'
-        self.name = 'triton2'
+        self.name = 'triton2camera'
         self.filename = 'Triton2'
 
 

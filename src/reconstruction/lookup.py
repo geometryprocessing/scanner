@@ -18,9 +18,13 @@ except ImportError:
 import os
 
 from src.reconstruction.configs import LookUp3DConfig, get_config
-from src.utils.three_d_utils import ThreeDUtils
-from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
-from src.utils.image_utils import ImageUtils
+from src.utils.three_d_utils import point_cloud_from_depth_map, \
+    fit_line, save_point_cloud, intersect_line_with_plane, camera_to_ray_world
+from src.utils.file_io import save_json, \
+    load_json, get_all_paths, get_all_folders, get_folder_from_file
+from src.utils.image_utils import extract_mask, normalize_color, \
+    denoise_fft, load_ldr, crop, gaussian_blur, generate_mask_binary_structure,\
+          convert_to_gray, replace_with_nearest
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
@@ -108,33 +112,33 @@ def process_position(folder: str,
 
         roi = config.roi
         images: list[str] = config.images
-        pattern_images = ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
-        white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.white_image)), roi=roi)
+        pattern_images = crop(np.concatenate([np.atleast_3d(load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
+        white_image = crop(load_ldr(os.path.join(folder, config.white_image)), roi=roi)
         black_image = None
         if config.black_image is not None:
-                black_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.black_image)), roi=roi)
+                black_image = crop(load_ldr(os.path.join(folder, config.black_image)), roi=roi)
         
         mask_thr: float = config.mask_thr
         image_for_mask = pattern_images if config.use_pattern_for_mask else white_image 
-        mask = ImageUtils.generate_mask_binary_structure(ImageUtils.convert_to_gray(image_for_mask), mask_thr) if config.use_binary_mask else ImageUtils.extract_mask(image_for_mask, mask_thr)
+        mask = generate_mask_binary_structure(convert_to_gray(image_for_mask), mask_thr) if config.use_binary_mask else extract_mask(image_for_mask, mask_thr)
 
 
-        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+        normalized = normalize_color(color_image=pattern_images,
                                                 white_image=white_image,
                                                 black_image=black_image,
                                                 mask=mask)
         
         if config.denoise_input:
-            normalized = ImageUtils.denoise_fft(normalized, int(config.denoise_cutoff))
+            normalized = denoise_fft(normalized, int(config.denoise_cutoff))
 
         if config.blur_input:
-            normalized = ImageUtils.gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
+            normalized = gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
 
         # if config.save_normalized:
             # np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
 
         if config.colors_image is not None:
-            colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
+            colors = crop(load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
 
         if config.use_gpu and CUDA_AVAILABLE:
             with cp.cuda.Device(config.gpu_device):
@@ -180,7 +184,7 @@ def save_reconstruction_outputs(folder: str,
 
         pcd_mask = (depth_map > 0).flatten() & (loss_map < config.loss_thr).flatten()
 
-        point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=depth_map,
+        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=depth_map,
                                                                         K=config.camera.K,
                                                                         dist_coeffs=config.camera.dist_coeffs,
                                                                         R=config.camera.R,
@@ -192,10 +196,10 @@ def save_reconstruction_outputs(folder: str,
 
         if colors is None:
             print("No color image set, therefore no color extraction for point cloud")
-            ThreeDUtils.save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
+            save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                 point_cloud.reshape((-1,3))[pcd_mask])
         else:
-            ThreeDUtils.save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
+            save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                                 point_cloud.reshape((-1,3))[pcd_mask],
                                 colors=colors.reshape((-1,3))[pcd_mask])
         if config.verbose:
@@ -354,8 +358,8 @@ def c2f_lut(lut,
         previous_index[c2f_mask] = minD + start
 
         jump = k//ks[iter+1]
-        previous_index = ImageUtils.replace_with_nearest(previous_index, '=', 0)
-        previous_index = ImageUtils.gaussian_blur(previous_index, sigmas=jump)
+        previous_index = replace_with_nearest(previous_index, '=', 0)
+        previous_index = gaussian_blur(previous_index, sigmas=jump)
     
     # FULL RESOLUTION
     depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
@@ -742,7 +746,7 @@ class LookUpCalibration:
                    folder: str,
                    structure_grammar: dict):
         utils: dict = structure_grammar['utils']
-        depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth'])) if 'depth' in utils else ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+        depth_image = load_ldr(os.path.join(folder, utils['depth'])) if 'depth' in utils else load_ldr(os.path.join(folder, utils['white']))
 
         # detect plane/board markers with camera
         img_points, obj_points, _ = \
@@ -785,7 +789,7 @@ class LookUpCalibration:
         rvecs = np.squeeze(np.array(rvecs))
         median_rvec = np.nanmean(rvecs, axis=0)
 
-        C, N = ThreeDUtils.fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
+        C, N = fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
         if np.dot(N, [0, 0, 1]) > 0:
             # either direction in LINE can be returned, so we need to
             # make sure our line is moving in the direction we want
@@ -824,12 +828,12 @@ class LookUpCalibration:
                                                np.arange(height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
 
-        origin, rays = ThreeDUtils.camera_to_ray_world(campixels,
+        origin, rays = camera_to_ray_world(campixels,
                                                        R,
                                                        T,
                                                        camera.K,
                                                        camera.dist_coeffs)
-        points = ThreeDUtils.intersect_line_with_plane(origin,
+        points = intersect_line_with_plane(origin,
                                                        rays,
                                                        np.array([0,0,0], dtype=np.float32),
                                                        np.array([0,0,1], dtype=np.float32))
@@ -859,10 +863,10 @@ class LookUpCalibration:
         table_name = structure_grammar['name']
         images: list[str] = structure_grammar['images']
         utils: dict = structure_grammar['utils']
-        pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
-        white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
-        black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
-        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+        pattern_images =  np.concatenate([np.atleast_3d(load_ldr(os.path.join(folder, image))) for image in images], axis=2)
+        white_image = load_ldr(os.path.join(folder, utils['white']))
+        black_image = None if 'black' not in utils else load_ldr(os.path.join(folder, utils['black']))
+        normalized = normalize_color(color_image=pattern_images,
                                                 white_image=white_image,
                                                 black_image=black_image)
         np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)

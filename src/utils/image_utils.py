@@ -4,620 +4,618 @@ import numpy as np
 from scipy.ndimage import gaussian_filter, generate_binary_structure, binary_erosion, distance_transform_edt
 import OpenEXR
 
-class ImageUtils:
-    @staticmethod
-    def undistort_camera_points(points2D: np.ndarray,
-                                K: np.ndarray,
-                                dist_coeffs: np.ndarray,
-                                R: np.ndarray=None,
-                                P: np.ndarray=None) -> np.ndarray:
-        """
-        This function, by default, takes a array of 2D pixel coordinates (x,y)
-        and returns normalized coordinates (u,v).
+def undistort_camera_points(points2D: np.ndarray,
+                            K: np.ndarray,
+                            dist_coeffs: np.ndarray,
+                            R: np.ndarray=None,
+                            P: np.ndarray=None) -> np.ndarray:
+    """
+    This function, by default, takes a array of 2D pixel coordinates (x,y)
+    and returns normalized coordinates (u,v).
 
-        Parameters
-        ----------
-        points2D : array_like
-            array (Nx2) of 2D pixel coordinates
-        K : array_like
-            3x3 camera intrinsic matrix
-        dist_coeffs : array_like
-            distortion coefficients of camera
-        R : array_like, optional
-            rotation vector (3x1)
-        P : array_like, optional
-            new camera matrix (3x3) or new projection matrix (4x3).
-            If you pass P=K, this function returns the undistorted points back in 
-            (x,y) pixel coordinates
-        """
-        return cv2.undistortPoints(np.array(points2D, dtype=np.float32).reshape((-1, 1, 2)), K, dist_coeffs, R, P).reshape((-1, 2))
+    Parameters
+    ----------
+    points2D : array_like
+        array (Nx2) of 2D pixel coordinates
+    K : array_like
+        3x3 camera intrinsic matrix
+    dist_coeffs : array_like
+        distortion coefficients of camera
+    R : array_like, optional
+        rotation vector (3x1)
+    P : array_like, optional
+        new camera matrix (3x3) or new projection matrix (4x3).
+        If you pass P=K, this function returns the undistorted points back in 
+        (x,y) pixel coordinates
+    """
+    return cv2.undistortPoints(np.array(points2D, dtype=np.float32).reshape((-1, 1, 2)), K, dist_coeffs, R, P).reshape((-1, 2))
+
+
+def undistort_image(image: np.ndarray,
+                    K: np.ndarray,
+                    dist_coeffs: np.ndarray,
+                    newK : np.ndarray=None) -> np.ndarray:
+    """
+    Take image as numpy array and undistort it using OpenCV.
+    Function creates a copy of image and returns the undistorted version.
+
+    Parameters
+    ----------
+    image : array_like
+        image array
+    K : array_like
+        3x3 camera intrinsic matrix
+    dist_coeffs : array_like
+        distortion coefficients of camera
+    newK : array_like, optional
+        3x3 new camera intrinsic matrix
+
+    Returns
+    ----------
+    undistorted copy of image
+    """
+    return cv2.undistort(deepcopy(image), K, dist_coeffs, newK)
+
+
+
+def homogeneous_coordinates(points2D: np.ndarray) -> np.ndarray:
+    """
+    Converts coordinates into homogenous form, i.e.
+    the point (u, v) becomes (u, v, 1)
+
+    Parameters
+    ----------
+    points2D : array_like
+        list of N 2D coordinates (shape Nx2).
     
-    @staticmethod
-    def undistort_image(image: np.ndarray,
-                        K: np.ndarray,
-                        dist_coeffs: np.ndarray,
-                        newK : np.ndarray=None) -> np.ndarray:
-        """
-        Take image as numpy array and undistort it using OpenCV.
-        Function creates a copy of image and returns the undistorted version.
-
-        Parameters
-        ----------
-        image : array_like
-            image array
-        K : array_like
-            3x3 camera intrinsic matrix
-        dist_coeffs : array_like
-            distortion coefficients of camera
-        newK : array_like, optional
-            3x3 new camera intrinsic matrix
-
-        Returns
-        ----------
-        undistorted copy of image
-        """
-        return cv2.undistort(deepcopy(image), K, dist_coeffs, newK)
+    Returns
+    ----------
+    homegeneous coordinates
+        array (shape Nx3) of homogenous coordinates
+    """
+    points = np.array(points2D, dtype=np.float32).reshape((-1,2))
+    return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1).reshape((-1,3))
 
 
-    @staticmethod
-    def homogeneous_coordinates(points2D: np.ndarray) -> np.ndarray:
-        """
-        Converts coordinates into homogenous form, i.e.
-        the point (u, v) becomes (u, v, 1)
+def colorize(image: np.ndarray) -> np.ndarray:
+    """
+    Take LDR image and colorize it.
+    Function creates a copy of image and returns the colorized version.
 
-        Parameters
-        ----------
-        points2D : array_like
-            list of N 2D coordinates (shape Nx2).
-        
-        Returns
-        ----------
-        homegeneous coordinates
-            array (shape Nx3) of homogenous coordinates
-        """
-        points = np.array(points2D, dtype=np.float32).reshape((-1,2))
-        return np.concatenate([points, np.ones((points.shape[0], 1))], axis=1).reshape((-1,3))
+    Parameters
+    ----------
+    image : array_like
+        image array
 
-    @staticmethod
-    def colorize(image: np.ndarray) -> np.ndarray:
-        """
-        Take LDR image and colorize it.
-        Function creates a copy of image and returns the colorized version.
+    Returns
+    ----------
+    colorized copy of image
+    """
+    img = deepcopy(image)
+    img = ((img / np.percentile(img, q=99.99)) * (2**16 - 1)).astype(np.uint16)
 
-        Parameters
-        ----------
-        image : array_like
-            image array
+    return img
 
-        Returns
-        ----------
-        colorized copy of image
-        """
-        img = deepcopy(image)
-        img = ((img / np.percentile(img, q=99.99)) * (2**16 - 1)).astype(np.uint16)
+def convert_to_gray(image: np.ndarray) -> np.ndarray:
+    """
+    Function to convert RGB image to grayscale.
 
-        return img
-    
-    def convert_to_gray(image: np.ndarray) -> np.ndarray:
-        """
-        Function to convert RGB image to grayscale.
+    Parameters
+    ----------
+    image : array_like
+        image array
 
-        Parameters
-        ----------
-        image : array_like
-            image array
+    Returns
+    ----------
+    grayscale version of image
+    """
+    return (.2989 * image[:,:,0] \
+            + .5870 * image[:,:,1] \
+            + .1140 * image[:,:,2]).astype(image.dtype)
 
-        Returns
-        ----------
-        grayscale version of image
-        """
-        return (.2989 * image[:,:,0] \
-                + .5870 * image[:,:,1] \
-                + .1140 * image[:,:,2]).astype(image.dtype)
-    
-    @staticmethod
-    def normalize_color(color_image: str | np.ndarray,
-                        white_image: str | np.ndarray,
-                        mask: str | np.ndarray = None,
-                        black_image: str | np.ndarray = None) -> np.ndarray:
-        """
-        Take a color image and a white image, apply a Gaussian blur
-        on both and get color divided by white.
-        This function is relevant to LookUp Calibration and Reconstruction.
 
-        Parameters
-        ----------
-        color_image : array_like or string
-            image when color pattern is projected onto the scene
-        white_image : array_like or string
-            image when white flash is projected onto the scene
+def normalize_color(color_image: str | np.ndarray,
+                    white_image: str | np.ndarray,
+                    mask: str | np.ndarray = None,
+                    black_image: str | np.ndarray = None) -> np.ndarray:
+    """
+    Take a color image and a white image, apply a Gaussian blur
+    on both and get color divided by white.
+    This function is relevant to LookUp Calibration and Reconstruction.
 
-        Returns
-        -------
-        normalized
-            numpy array of color_image / white_image
-        """
-        if isinstance(color_image, str):
-            color_image = ImageUtils.load_ldr(color_image)
-        color_image = np.atleast_3d(np.squeeze(color_image))
-        normalized = np.zeros_like(color_image, dtype=np.float32)
+    Parameters
+    ----------
+    color_image : array_like or string
+        image when color pattern is projected onto the scene
+    white_image : array_like or string
+        image when white flash is projected onto the scene
 
-        if isinstance(white_image, str):
-            white_image = ImageUtils.load_ldr(white_image)
-        white_image = np.atleast_3d(np.squeeze(white_image))
+    Returns
+    -------
+    normalized
+        numpy array of color_image / white_image
+    """
+    if isinstance(color_image, str):
+        color_image = load_ldr(color_image)
+    color_image = np.atleast_3d(np.squeeze(color_image))
+    normalized = np.zeros_like(color_image, dtype=np.float32)
 
-        if mask is None:
-            mask = np.full(shape=(normalized.shape[0], normalized.shape[1]), fill_value=True, dtype=np.bool)
+    if isinstance(white_image, str):
+        white_image = load_ldr(white_image)
+    white_image = np.atleast_3d(np.squeeze(white_image))
+
+    if mask is None:
+        mask = np.full(shape=(normalized.shape[0], normalized.shape[1]), fill_value=True, dtype=np.bool)
+    else:
+        if isinstance(mask, str):
+            mask = np.load(mask)
+
+    if black_image is not None:
+        if isinstance(black_image, str):
+            black_image = load_ldr(black_image)
+        black_image = np.atleast_3d(np.squeeze(black_image))
+        # it seems that keeping black_image as uint16 is problematic...
+        # TODO: need further investigation
+
+        normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
+    else: 
+        normalized[mask] = (color_image[mask]) / (white_image[mask])
+
+    # TODO: bring back np.clip(normalized, 0., 1.)?
+    return np.clip(np.nan_to_num(normalized, nan=0.), 0., np.inf)
+
+
+
+def demosaic(bayer: np.ndarray,
+                roll: bool=False) -> np.ndarray:
+    """
+    Take raw image and demosaic it, i.e. reconstruct full color image.
+    Function creates a copy of image and returns the demosaiced version.
+
+    Parameters
+    ----------
+    bayer : array_like
+        image array of Bayer
+    roll : boolean, optional
+        Flag to 'roll' (shift array elements, check numpy.roll() for more information)
+        the pixels in the column-space of array by 1 position.
+        Default is False.
+
+    Returns
+    ----------
+    demosaiced image
+    """
+    rgb = np.zeros((bayer.shape[0], bayer.shape[1], 3), dtype=np.float32)
+    if roll:
+        bayer = np.roll(bayer, 1, axis=1)
+
+    r = bayer[::2, ::2]
+    rgb[::2, ::2, 0] = r
+    rgb[::2, 1:-2:2, 0] = 0.5*(r[:, :-1] + r[:, 1:])
+    rgb[1:-2:2, ::2, 0] = 0.5*(r[:-1, :] + r[1:, :])
+    rgb[1:-2:2, 1:-2:2, 0] = 0.25*(r[:-1, :-1] + r[:-1, 1:] + r[1:, :-1] + r[1:, 1:])
+
+    rgb[:,:,1] = bayer
+    rgb[1:-2:2, 1:-2:2, 1] = 0.25*(bayer[1:-2:2, :-2:2] + bayer[1:-2:2, 2::2] + bayer[:-2:2, 1:-2:2] + bayer[2::2, 1:-2:2])
+    rgb[2::2, 2::2, 1] = 0.25*(bayer[2::2, 1:-2:2] + bayer[2::2, 3::2] + bayer[1:-2:2, 2::2] + bayer[3::2, 2::2])
+
+    b = bayer[1::2, 1::2]
+    rgb[1::2, 1::2, 2] = b
+    rgb[1::2, 2::2, 2] = 0.5*(b[:, :-1] + b[:, 1:])
+    rgb[2::2, 1::2, 2] = 0.5*(b[:-1, :] + b[1:, :])
+    rgb[2::2, 2::2, 2] = 0.25*(b[:-1, :-1] + b[:-1, 1:] + b[1:, :-1] + b[1:, 1:])
+
+    return rgb
+
+
+def gaussian_blur(image: np.ndarray,
+                    sigmas: int | float | list[float] | list[int]) -> np.ndarray:
+    """
+    Take image and apply Gaussian blur kernel.
+    Function creates a copy of image and returns the blurred version.
+
+    Parameters
+    ----------
+    image : array_like
+        image array
+    sigmas : list[float]
+        list of sigma (float) for Gaussian filter.
+        Sigma values will be applied to each image channel in the order they are passed.
+
+    Returns
+    ----------
+    blurred copy of image
+    """
+    img = deepcopy(image)
+    img = np.atleast_3d(img)
+    shape = img.shape
+    if isinstance(sigmas, set) or isinstance(sigmas, tuple):
+        sigmas = list(sigmas)
+    else:
+        sigmas = [sigmas]
+    if len(sigmas) != shape[2]:
+        if len(sigmas) == 1:
+            sigmas = np.repeat(sigmas, shape[2])
         else:
-            if isinstance(mask, str):
-                mask = np.load(mask)
+            raise ValueError(f'Either sigmas is a single value or a list that matches the number of channels in image. Received {sigmas}')
 
-        if black_image is not None:
-            if isinstance(black_image, str):
-                black_image = ImageUtils.load_ldr(black_image)
-            black_image = np.atleast_3d(np.squeeze(black_image))
-            # it seems that keeping black_image as uint16 is problematic...
-            # TODO: need further investigation
+    for idx in range(shape[2]):
+        img[:,:,idx] = gaussian_filter(img[:,:,idx], sigma=sigmas[idx], mode='nearest')
+    return np.squeeze(img)
 
-            normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
-        else: 
-            normalized[mask] = (color_image[mask]) / (white_image[mask])
 
-        # TODO: bring back np.clip(normalized, 0., 1.)?
-        return np.clip(np.nan_to_num(normalized, nan=0.), 0., np.inf)
+def replace_hot_pixels(image,
+                        dark,
+                        thr=32):
+    """
+    Take image and replace hot pixels with neighboring value.
 
-    
-    @staticmethod
-    def demosaic(bayer: np.ndarray,
-                 roll: bool=False) -> np.ndarray:
-        """
-        Take raw image and demosaic it, i.e. reconstruct full color image.
-        Function creates a copy of image and returns the demosaiced version.
+    Parameters
+    ----------
+    image : array_like
+        image array
+    dark : array_like
+        image array of the scene when no active lighting is applied
+    thr : int
+        threshold value to consider a pixel 'hot'.
 
-        Parameters
-        ----------
-        bayer : array_like
-            image array of Bayer
-        roll : boolean, optional
-            Flag to 'roll' (shift array elements, check numpy.roll() for more information)
-            the pixels in the column-space of array by 1 position.
-            Default is False.
+    Returns
+    ----------
+    copy of image with hot pixels replaced
+    """
+    img = deepcopy(image)
+    h, w = img.shape[:2]
+    rr, cc = np.nonzero(dark > thr)
 
-        Returns
-        ----------
-        demosaiced image
-        """
-        rgb = np.zeros((bayer.shape[0], bayer.shape[1], 3), dtype=np.float32)
-        if roll:
-            bayer = np.roll(bayer, 1, axis=1)
+    for r, c in zip(rr, cc):
+        v, n = 0, 0
+        if c > 0:
+            v += img[r, c - 1]
+            n += 1
+        if c < w - 1:
+            v += img[r, c + 1]
+            n += 1
+        if r > 0:
+            v += img[r - 1, c]
+            n += 1
+        if r < h - 1:
+            v += img[r + 1, c]
+            n += 1
+        img[r, c] = v / n
 
-        r = bayer[::2, ::2]
-        rgb[::2, ::2, 0] = r
-        rgb[::2, 1:-2:2, 0] = 0.5*(r[:, :-1] + r[:, 1:])
-        rgb[1:-2:2, ::2, 0] = 0.5*(r[:-1, :] + r[1:, :])
-        rgb[1:-2:2, 1:-2:2, 0] = 0.25*(r[:-1, :-1] + r[:-1, 1:] + r[1:, :-1] + r[1:, 1:])
+    # print(f"Replaced {rr.shape[0]} hot/stuck pixels with average value of their neighbours")
 
-        rgb[:,:,1] = bayer
-        rgb[1:-2:2, 1:-2:2, 1] = 0.25*(bayer[1:-2:2, :-2:2] + bayer[1:-2:2, 2::2] + bayer[:-2:2, 1:-2:2] + bayer[2::2, 1:-2:2])
-        rgb[2::2, 2::2, 1] = 0.25*(bayer[2::2, 1:-2:2] + bayer[2::2, 3::2] + bayer[1:-2:2, 2::2] + bayer[3::2, 2::2])
+    return img
 
-        b = bayer[1::2, 1::2]
-        rgb[1::2, 1::2, 2] = b
-        rgb[1::2, 2::2, 2] = 0.5*(b[:, :-1] + b[:, 1:])
-        rgb[2::2, 1::2, 2] = 0.5*(b[:-1, :] + b[1:, :])
-        rgb[2::2, 2::2, 2] = 0.25*(b[:-1, :-1] + b[:-1, 1:] + b[1:, :-1] + b[1:, 1:])
 
-        return rgb
-    
-    @staticmethod
-    def gaussian_blur(image: np.ndarray,
-                      sigmas: int | float | list[float] | list[int]) -> np.ndarray:
-        """
-        Take image and apply Gaussian blur kernel.
-        Function creates a copy of image and returns the blurred version.
+def load_ldr(filename: str,
+                make_gray: bool = False,
+                normalize: bool = False) -> np.ndarray:
+    """
+    Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
+    and/or normalize the value range to [0, 1.0) as np.float64.
 
-        Parameters
-        ----------
-        image : array_like
-            image array
-        sigmas : list[float]
-            list of sigma (float) for Gaussian filter.
-            Sigma values will be applied to each image channel in the order they are passed.
+    Parameters
+    ----------
+    filename : str
+        Path to the image file.  
+    make_gray : bool, optional
+        Flag to convert the image to grayscale (True) or keep all color channels intact (False).
+        Default is False.
+    normalize : bool, optional
+        Flag to normalize image range to single [0, 1[ (True) or keep as uint16 [0, 2**16[ (False).
+        Default is False.
 
-        Returns
-        ----------
-        blurred copy of image
-        """
-        img = deepcopy(image)
-        img = np.atleast_3d(img)
-        shape = img.shape
-        if isinstance(sigmas, set) or isinstance(sigmas, tuple):
-            sigmas = list(sigmas)
-        else:
-            sigmas = [sigmas]
-        if len(sigmas) != shape[2]:
-            if len(sigmas) == 1:
-                sigmas = np.repeat(sigmas, shape[2])
-            else:
-                raise ValueError(f'Either sigmas is a single value or a list that matches the number of channels in image. Received {sigmas}')
+    Returns
+    -------
+    np.ndarray
+        Loaded image as a NumPy array, with optional grayscale conversion and normalization applied.
 
-        for idx in range(shape[2]):
-            img[:,:,idx] = gaussian_filter(img[:,:,idx], sigma=sigmas[idx], mode='nearest')
-        return np.squeeze(img)
-    
-    @staticmethod
-    def replace_hot_pixels(image,
-                           dark,
-                           thr=32):
-        """
-        Take image and replace hot pixels with neighboring value.
+    Notes
+    -----
+    This function ignores the EXIF orientation tags.
+    """
+    try:
+        img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+        dtype = img_array.dtype
+        shape = img_array.shape
+        if len(shape) > 2 and shape[2] == 3:
+            # invert from BGR to RGB
+            img_array = img_array[:,:,::-1]
 
-        Parameters
-        ----------
-        image : array_like
-            image array
-        dark : array_like
-            image array of the scene when no active lighting is applied
-        thr : int
-            threshold value to consider a pixel 'hot'.
+        # Convert image to grayscale if requested using the first three channels
+        if make_gray and len(shape) > 2 and shape[2] == 3:
+            img_array = convert_to_gray(img_array)
 
-        Returns
-        ----------
-        copy of image with hot pixels replaced
-        """
-        img = deepcopy(image)
-        h, w = img.shape[:2]
-        rr, cc = np.nonzero(dark > thr)
+        # Normalize pixel values if requested
+        if normalize:
+            m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
+            img_array = (img_array / m).astype(np.float64)
 
-        for r, c in zip(rr, cc):
-            v, n = 0, 0
-            if c > 0:
-                v += img[r, c - 1]
-                n += 1
-            if c < w - 1:
-                v += img[r, c + 1]
-                n += 1
-            if r > 0:
-                v += img[r - 1, c]
-                n += 1
-            if r < h - 1:
-                v += img[r + 1, c]
-                n += 1
-            img[r, c] = v / n
+        return img_array
 
-        # print(f"Replaced {rr.shape[0]} hot/stuck pixels with average value of their neighbours")
+    except FileNotFoundError:
+        print(f"{filename} does not exist.")
+        return None
+    except Exception as e:
+        print(f"Error loading image: {e}")
+        return None
 
-        return img
-    
-    @staticmethod
-    def load_ldr(filename: str,
-                 make_gray: bool = False,
-                 normalize: bool = False) -> np.ndarray:
-        """
-        Load LDR (low dynamic range) image using OpenCV. Flags can be set to make it grayscale
-        and/or normalize the value range to [0, 1.0) as np.float64.
 
-        Parameters
-        ----------
-        filename : str
-            Path to the image file.  
-        make_gray : bool, optional
-            Flag to convert the image to grayscale (True) or keep all color channels intact (False).
-            Default is False.
-        normalize : bool, optional
-            Flag to normalize image range to single [0, 1[ (True) or keep as uint16 [0, 2**16[ (False).
-            Default is False.
 
-        Returns
-        -------
-        np.ndarray
-            Loaded image as a NumPy array, with optional grayscale conversion and normalization applied.
+def save_ldr(filename: str,
+                image: np.ndarray,
+                ensure_rgb: bool=False):
+    """
+    Save image using OpenCV.
 
-        Notes
-        -----
-        This function ignores the EXIF orientation tags.
-        """
-        try:
-            img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-            dtype = img_array.dtype
-            shape = img_array.shape
-            if len(shape) > 2 and shape[2] == 3:
-                # invert from BGR to RGB
-                img_array = img_array[:,:,::-1]
+    Parameters
+    ----------
+    filename : str
+        path to file where image will be saved.  
+    image : array_like
+        image array (if only one channel, i.e. grayscale, keeps grayscale)
+    TODO: update description of this parameter
+    ensure_rgb : boolean, optional
+        Flag to convert RGB image to grayscale (False) or save with all three channels (True).
+        Default is False.
+    """
+    if len(image.shape) == 2 and ensure_rgb:
+        image = np.repeat(image[:, :, None], 3, axis=2)
 
-            # Convert image to grayscale if requested using the first three channels
-            if make_gray and len(shape) > 2 and shape[2] == 3:
-                img_array = ImageUtils.convert_to_gray(img_array)
+    if len(image.shape) > 2:
+        image = image[:, :, ::-1]  # RGB to BGR for cv2 (if color)
 
-            # Normalize pixel values if requested
-            if normalize:
-                m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
-                img_array = (img_array / m).astype(np.float64)
+    cv2.imwrite(filename, image)  # expects BGR or Gray
 
-            return img_array
 
-        except FileNotFoundError:
-            print(f"{filename} does not exist.")
-            return None
-        except Exception as e:
-            print(f"Error loading image: {e}")
-            return None
+def load_openexr(filename: str,
+                    make_gray: bool=False,
+                    load_depth: bool=False):
+    """
+    Load .EXR extension image using OpenEXR. These are multi-channel,
+    high-dynamic range images.
 
-    
-    @staticmethod
-    def save_ldr(filename: str,
-                 image: np.ndarray,
-                 ensure_rgb: bool=False):
-        """
-        Save image using OpenCV.
+    Parameters
+    ----------
+    filename : str
+        path to image file.  
+    make_gray : boolean, optional
+        Flag to convert image to grayscale (True) or keep all three color channels intact (False).
+        Default is False.
+    load_depth : boolean, optional
+        Flag to load the channel distance.Y (True) or not (False).
+        Default is False.
 
-        Parameters
-        ----------
-        filename : str
-            path to file where image will be saved.  
-        image : array_like
-            image array (if only one channel, i.e. grayscale, keeps grayscale)
-        TODO: update description of this parameter
-        ensure_rgb : boolean, optional
-            Flag to convert RGB image to grayscale (False) or save with all three channels (True).
-            Default is False.
-        """
-        if len(image.shape) == 2 and ensure_rgb:
-            image = np.repeat(image[:, :, None], 3, axis=2)
+    Returns
+    -------
+    image
+        numpy array (shape NxMx3 if make_gray set to False,
+        shape NxMx1 if make_gray set to True) of image
+    depth (optional)
+        numpy array (shape NxMx1) of depth (only returned if load_depth set to True)
+    """
+    with OpenEXR.File(filename) as infile:
+        if len(infile.header()['channels']) == 3:
+            RGB = infile.channels()["RGB"].pixels
+            d = None
+        elif len(infile.header()['channels']) >= 4:
+            R = infile.header()['channels']["R"].pixels
+            G = infile.header()['channels']["G"].pixels
+            B = infile.header()['channels']["B"].pixels
+            RGB = np.stack([R, G, B], axis=2)
 
-        if len(image.shape) > 2:
-            image = image[:, :, ::-1]  # RGB to BGR for cv2 (if color)
-
-        cv2.imwrite(filename, image)  # expects BGR or Gray
-    
-    @staticmethod
-    def load_openexr(filename: str,
-                     make_gray: bool=False,
-                     load_depth: bool=False):
-        """
-        Load .EXR extension image using OpenEXR. These are multi-channel,
-        high-dynamic range images.
-
-        Parameters
-        ----------
-        filename : str
-            path to image file.  
-        make_gray : boolean, optional
-            Flag to convert image to grayscale (True) or keep all three color channels intact (False).
-            Default is False.
-        load_depth : boolean, optional
-            Flag to load the channel distance.Y (True) or not (False).
-            Default is False.
-
-        Returns
-        -------
-        image
-            numpy array (shape NxMx3 if make_gray set to False,
-            shape NxMx1 if make_gray set to True) of image
-        depth (optional)
-            numpy array (shape NxMx1) of depth (only returned if load_depth set to True)
-        """
-        with OpenEXR.File(filename) as infile:
-            if len(infile.header()['channels']) == 3:
-                RGB = infile.channels()["RGB"].pixels
-                d = None
-            elif len(infile.header()['channels']) >= 4:
-                R = infile.header()['channels']["R"].pixels
-                G = infile.header()['channels']["G"].pixels
-                B = infile.header()['channels']["B"].pixels
-                RGB = np.stack([R, G, B], axis=2)
-
-                if load_depth:
-                    d = infile.channel()["distance.Y"].pixels
-                else:
-                    d = None
-
-            img = ImageUtils.convert_to_gray(RGB) if make_gray else RGB
             if load_depth:
-                return img, d
+                d = infile.channel()["distance.Y"].pixels
             else:
-                return img
+                d = None
 
-    @staticmethod
-    def save_openexr(filename: str,
-                     image: np.ndarray,
-                     make_gray: bool=True):
-        """
-        Save image with .EXR extension using OpenEXR.
-
-        Parameters
-        ----------
-        filename : str
-            path to file where image will be saved.  
-        image : array_like
-            image array (if only one channel, i.e. grayscale, keeps grayscale)
-        make_gray : boolean, optional
-            Flag to convert RGB image to grayscale (True) or save with all three color channels (False).
-            Default is True.
-
-        Note: this function is compatible with OpenEXR 3.x, not 2.x
-        """
-        if len(image.shape) > 2:
-            if make_gray is True:
-                R = G = B = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float16)
-            else:
-                R = image[:, :, 0].astype(np.float16)
-                G = image[:, :, 1].astype(np.float16)
-                B = image[:, :, 2].astype(np.float16)
+        img = convert_to_gray(RGB) if make_gray else RGB
+        if load_depth:
+            return img, d
         else:
-            R = G = B = image.astype(np.float16)
-
-        header = {'compression': OpenEXR.PXR24_COMPRESSION}
-        channels = {'R': R,
-                    'G': G,
-                    'B': B}
-
-        with OpenEXR.File(header, channels) as outfile:
-            outfile.write(filename)
+            return img
 
 
-    @staticmethod
-    def linear_map(img,
-                   thr=None,
-                   mask=None,
-                   gamma=1.0):
-        """
-        """
-        if thr is None:
-            pixels = img[mask].ravel() if mask is not None else img.ravel()
+def save_openexr(filename: str,
+                    image: np.ndarray,
+                    make_gray: bool=True):
+    """
+    Save image with .EXR extension using OpenEXR.
 
-            if pixels.shape[0] > 1e+6:
-                pixels = pixels[::int(pixels.shape[0] / 1e+6)]
+    Parameters
+    ----------
+    filename : str
+        path to file where image will be saved.  
+    image : array_like
+        image array (if only one channel, i.e. grayscale, keeps grayscale)
+    make_gray : boolean, optional
+        Flag to convert RGB image to grayscale (True) or save with all three color channels (False).
+        Default is True.
 
-            thr = 1.2 * np.sort(pixels)[int(0.99*pixels.shape[0])]  # threshold at 99th percentile
+    Note: this function is compatible with OpenEXR 3.x, not 2.x
+    """
+    if len(image.shape) > 2:
+        if make_gray is True:
+            R = G = B = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float16)
+        else:
+            R = image[:, :, 0].astype(np.float16)
+            G = image[:, :, 1].astype(np.float16)
+            B = image[:, :, 2].astype(np.float16)
+    else:
+        R = G = B = image.astype(np.float16)
 
-        img = img / thr
-        if abs(gamma - 1.0) > 1e-6:
-            img = np.power(img, 1/gamma)
+    header = {'compression': OpenEXR.PXR24_COMPRESSION}
+    channels = {'R': R,
+                'G': G,
+                'B': B}
 
-        return np.minimum(255 * img, 255).astype(np.uint8), thr
-    @staticmethod
-    def crop(image: np.ndarray,
-             roi: tuple):
-        
-        if roi is None:
-            return image
+    with OpenEXR.File(header, channels) as outfile:
+        outfile.write(filename)
+
+
+
+def linear_map(img,
+                thr=None,
+                mask=None,
+                gamma=1.0):
+    """
+    """
+    if thr is None:
+        pixels = img[mask].ravel() if mask is not None else img.ravel()
+
+        if pixels.shape[0] > 1e+6:
+            pixels = pixels[::int(pixels.shape[0] / 1e+6)]
+
+        thr = 1.2 * np.sort(pixels)[int(0.99*pixels.shape[0])]  # threshold at 99th percentile
+
+    img = img / thr
+    if abs(gamma - 1.0) > 1e-6:
+        img = np.power(img, 1/gamma)
+
+    return np.minimum(255 * img, 255).astype(np.uint8), thr
+
+def crop(image: np.ndarray,
+            roi: tuple):
     
-        x1, y1, x2, y2 = roi
+    if roi is None:
+        return image
 
-        return image[y1:y2, x1:x2]
+    x1, y1, x2, y2 = roi
+
+    return image[y1:y2, x1:x2]
+
+
+def extract_mask(image: np.ndarray,
+                    threshold: float):
+    s = np.min(image, axis=2)
+    return s > threshold * np.max(s)
+
+
+def generate_mask_binary_structure(image: np.ndarray,
+                    threshold: float,
+                    mask_sigma: float=3,
+                    rank: int=2,
+                    connectivity: int=1,
+                    iterations: int=6):
+    """
+    Take in an image and generate a binary mask from it using scipy.ndimage
+
+    Parameters
+    ----------
+    image : array_like
+        image for which a binary mask will be generated
+    threshold : float
+        ls
+    mask_sigma : scalar or sequence of scalars, optional
+        Standard deviation for Gaussian kernel. The standard
+        deviations of the Gaussian filter are given for each axis as a
+        sequence, or as a single number, in which case it is equal for
+        all axes.
+        Default is set to 3 for all axes.
+    rank : int, optional
+        Number of dimensions of the array to which the structuring element
+        will be applied, as returned by `np.ndim`.
+        Default is set to 2 (a square).
+    connectivity : int, optional
+        `connectivity` determines which elements of the output array belong
+        to the structure, i.e., are considered as neighbors of the central
+        element. Elements up to a squared distance of `connectivity` from
+        the center are considered neighbors. `connectivity` may range from 1
+        (no diagonal elements are neighbors) to `rank` (all elements are
+        neighbors).
+        Default is set to 1 (only immediate neighbors).
+    iterations : int, optional
+        The erosion is repeated `iterations` times (one, by default).
+        If iterations is less than 1, the erosion is repeated until the
+        result does not change anymore.
+        Default is set to 6.
     
-    @staticmethod
-    def extract_mask(image: np.ndarray,
-                      threshold: float):
-        s = np.min(image, axis=2)
-        return s > threshold * np.max(s)
+    Returns
+    -------
+    mask
+        numpy array of binary mask
     
-    @staticmethod
-    def generate_mask_binary_structure(image: np.ndarray,
-                      threshold: float,
-                      mask_sigma: float=3,
-                      rank: int=2,
-                      connectivity: int=1,
-                      iterations: int=6):
-        """
-        Take in an image and generate a binary mask from it using scipy.ndimage
+    """
+    # blur image
+    ldr, thr_ldr = linear_map(gaussian_filter(image, sigma=mask_sigma))
+    # use OTSU for thresholding (avoids setting a fixed value)
+    thr_otsu, mask = cv2.threshold(ldr, threshold, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # print("Thresholds:", thr_ldr, thr_otsu)
+    # generate binary structure and erode mask
+    struct = generate_binary_structure(rank, connectivity)
+    mask = binary_erosion(mask, struct, iterations)
 
-        Parameters
-        ----------
-        image : array_like
-            image for which a binary mask will be generated
-        threshold : float
-            ls
-        mask_sigma : scalar or sequence of scalars, optional
-            Standard deviation for Gaussian kernel. The standard
-            deviations of the Gaussian filter are given for each axis as a
-            sequence, or as a single number, in which case it is equal for
-            all axes.
-            Default is set to 3 for all axes.
-        rank : int, optional
-            Number of dimensions of the array to which the structuring element
-            will be applied, as returned by `np.ndim`.
-            Default is set to 2 (a square).
-        connectivity : int, optional
-            `connectivity` determines which elements of the output array belong
-            to the structure, i.e., are considered as neighbors of the central
-            element. Elements up to a squared distance of `connectivity` from
-            the center are considered neighbors. `connectivity` may range from 1
-            (no diagonal elements are neighbors) to `rank` (all elements are
-            neighbors).
-            Default is set to 1 (only immediate neighbors).
-        iterations : int, optional
-            The erosion is repeated `iterations` times (one, by default).
-            If iterations is less than 1, the erosion is repeated until the
-            result does not change anymore.
-            Default is set to 6.
-        
-        Returns
-        -------
-        mask
-            numpy array of binary mask
-        
-        """
-        # blur image
-        ldr, thr_ldr = ImageUtils.linear_map(gaussian_filter(image, sigma=mask_sigma))
-        # use OTSU for thresholding (avoids setting a fixed value)
-        thr_otsu, mask = cv2.threshold(ldr, threshold, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        # print("Thresholds:", thr_ldr, thr_otsu)
-        # generate binary structure and erode mask
-        struct = generate_binary_structure(rank, connectivity)
-        mask = binary_erosion(mask, struct, iterations)
+    return mask
 
-        return mask
+
+def replace_with_nearest(condition_array: np.ndarray, 
+                            condition: str, 
+                            value: int | float, 
+                            replacement_array: np.ndarray = None):
+    """
     
-    @staticmethod
-    def replace_with_nearest(condition_array: np.ndarray, 
-                             condition: str, 
-                             value: int | float, 
-                             replacement_array: np.ndarray = None):
-        """
-        
-        Parameters
-        ----------
-        condition_array : np.ndarray
-            array with values to check against condition
-        condition : str
-            choice between =, <, >, >=, <=
-        value : int or float
-            value to check condition against array
-        replacement_array : np.ndarray, optional
-            if passed, array which will have its invalid indices replaced
-            with nearest valid neighbors
+    Parameters
+    ----------
+    condition_array : np.ndarray
+        array with values to check against condition
+    condition : str
+        choice between =, <, >, >=, <=
+    value : int or float
+        value to check condition against array
+    replacement_array : np.ndarray, optional
+        if passed, array which will have its invalid indices replaced
+        with nearest valid neighbors
 
-        Returns
-        -------
-            array with masked out values with nearest
-        """
-        assert condition in ['=', '==', '<', '>', '>=', '=>', '<=', '=<']
-        # Find mask
-        if replacement_array is None:
-            replacement_array = condition_array
+    Returns
+    -------
+        array with masked out values with nearest
+    """
+    assert condition in ['=', '==', '<', '>', '>=', '=>', '<=', '=<']
+    # Find mask
+    if replacement_array is None:
+        replacement_array = condition_array
 
-        if condition in ['=', '=='] :
-            mask = condition_array == value
-        elif condition == '<':
-            mask = condition_array < value
-        elif condition in ['<=', '=<']:
-            mask = condition_array <= value
-        elif condition == '>':
-            mask = condition_array > value
-        elif condition in ['>=', '=>']:
-            mask = condition_array >= value
+    if condition in ['=', '=='] :
+        mask = condition_array == value
+    elif condition == '<':
+        mask = condition_array < value
+    elif condition in ['<=', '=<']:
+        mask = condition_array <= value
+    elif condition == '>':
+        mask = condition_array > value
+    elif condition in ['>=', '=>']:
+        mask = condition_array >= value
 
-        # Compute distance transform, which gives the distance to the nearest nonzero
-        # The indices of the nearest nonzero values are also returned
-        distances, indices = distance_transform_edt(mask, return_indices=True)
+    # Compute distance transform, which gives the distance to the nearest nonzero
+    # The indices of the nearest nonzero values are also returned
+    distances, indices = distance_transform_edt(mask, return_indices=True)
 
-        # Replace zero values with their nearest nonzero neighbors
-        nearest_values = replacement_array[tuple(indices)]
-        
-        return nearest_values
+    # Replace zero values with their nearest nonzero neighbors
+    nearest_values = replacement_array[tuple(indices)]
     
-    def denoise_fft(image, cutoff: int):
-        image = np.atleast_3d(image)
-        denoised_image = np.zeros_like(image)
+    return nearest_values
 
-        for c in range(image.shape[2]):
-            img = image[...,c]
-            f = np.fft.fft2(img)
-            fshift = np.fft.fftshift(f)
+def denoise_fft(image, cutoff: int):
+    image = np.atleast_3d(image)
+    denoised_image = np.zeros_like(image)
 
-            # Create a mask with a low-pass filter
-            rows, cols = img.shape
-            crow, ccol = rows // 2, cols // 2
-            mask = np.zeros((rows, cols), np.uint8)
-            mask[crow-cutoff:crow+cutoff, ccol-cutoff:ccol+cutoff] = 1
+    for c in range(image.shape[2]):
+        img = image[...,c]
+        f = np.fft.fft2(img)
+        fshift = np.fft.fftshift(f)
 
-            # Apply mask and inverse FFT
-            fshift_masked = fshift * mask
-            f_ishift = np.fft.ifftshift(fshift_masked)
-            image_filtered = np.fft.ifft2(f_ishift)
-            image_filtered = np.abs(image_filtered)
-            denoised_image[...,c] = image_filtered
+        # Create a mask with a low-pass filter
+        rows, cols = img.shape
+        crow, ccol = rows // 2, cols // 2
+        mask = np.zeros((rows, cols), np.uint8)
+        mask[crow-cutoff:crow+cutoff, ccol-cutoff:ccol+cutoff] = 1
 
-        return denoised_image
+        # Apply mask and inverse FFT
+        fshift_masked = fshift * mask
+        f_ishift = np.fft.ifftshift(fshift_masked)
+        image_filtered = np.fft.ifft2(f_ishift)
+        image_filtered = np.abs(image_filtered)
+        denoised_image[...,c] = image_filtered
+
+    return denoised_image

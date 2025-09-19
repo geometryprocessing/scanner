@@ -4,7 +4,7 @@ import os
 import sys
 sys.path.append('../')
 from src.reconstruction.lookup import load_lut, process_position, save_reconstruction_outputs, naive_lut, c2f_lut
-from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
+from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_config
 from src.utils.file_io import get_all_folder_names
 
 
@@ -39,7 +39,7 @@ def main(args):
     parser.add_argument('--print_params', '-pp', action='store_true', help='Print the parameters of the provided scene and exit.')
     args, uargs = parser.parse_known_args(args)
 
-    if any(not is_valid_lookup_config(config) for config in args.configs):
+    if any(not is_valid_config(config) for config in args.configs):
         raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
     for config_name in args.configs:
@@ -49,6 +49,7 @@ def main(args):
         scenes = args.scenes
         if len(scenes) == 0: 
             scenes = get_all_folder_names(args.input)
+        # IF THE PATH IS JUST A FOLDER WITH THE IMAGE DATA?
         
         for scene in scenes:
             base_path = os.path.join(args.input, scene)

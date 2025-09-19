@@ -6,8 +6,8 @@ import numpy as np
 import sys
 sys.path.append('../')
 from src.reconstruction.lookup import load_lut, process_position, save_reconstruction_outputs, naive_lut, tc_lut, c2f_lut
-from src.utils.image_utils import ImageUtils
-from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
+from src.utils.image_utils import replace_with_nearest, gaussian_blur
+from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_config
 from src.utils.file_io import get_all_folders
 
 def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
@@ -56,8 +56,8 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     # TEMPORAL CONSISTENCY
     for frame_path in tc_frames:
         normalized, mask, colors = process_position(frame_path, config)
-        prior_index_map = ImageUtils.gaussian_blur(ImageUtils.replace_with_nearest(index_map, '=', 0), sigmas=config.tc_blur_sigma)
-        prior_index_map = ImageUtils.replace_with_nearest(loss_map, '<', config.loss_thr, prior_index_map)
+        prior_index_map = gaussian_blur(replace_with_nearest(index_map, '=', 0), sigmas=config.tc_blur_sigma)
+        prior_index_map = replace_with_nearest(loss_map, '<', config.loss_thr, prior_index_map)
         depth_map, loss_map, index_map = tc_lut(lut, dep, normalized, config.tc_deltas[-1], (prior_index_map).astype(np.uint16), mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
@@ -80,11 +80,8 @@ def main(args):
     # print params good for debugging
     parser.add_argument('--print_params', '-pp', action='store_true', help='Print the parameters of the provided scene and exit.')
     args, uargs = parser.parse_known_args(args)
-    
-    if args.camconfigs is None:
-        raise ValueError('Must at least specify one camera config!')
 
-    if any(not is_valid_lookup_config(config) for config in args.configs):
+    if any(not is_valid_config(config) for config in args.configs):
         raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
     assert len(args.camconfigs) == len(args.configs), "Configs and CameraConfigs should match"

@@ -163,7 +163,7 @@ class DLPProjector(Projector):
                        T = np.asarray([-395.79297, -81.8893, -250.9899 ], dtype=np.float32))
         self.pretty_name = 'TexasInstruments DLP Projector'
         self.pretty_name_short_short = 'DLP Projector'
-        self.name = 'dlp'
+        self.name = 'dlpprojector'
         
 class LCDProjector(Projector):
     def __init__(self):
@@ -178,7 +178,7 @@ class LCDProjector(Projector):
                         T = np.asarray([-301.79178, -23.397247, -108.09623 ], dtype=np.float32))
         self.pretty_name = 'Full HD LCD VOPPLS Projector'
         self.pretty_name_short = 'LCD Projector'
-        self.name = 'lcd'
+        self.name = 'lcdprojector'
         
 CONFIGS = {name.lower(): obj
     for name, obj in inspect.getmembers(sys.modules[__name__])

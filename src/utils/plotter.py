@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
-from src.utils.image_utils import ImageUtils
+from src.utils.image_utils import undistort_camera_points
 from src.utils.three_d_utils import ThreeDUtils
 
 def array_to_cmap(values, vmin=None, vmax=None, cmap=None):
@@ -103,7 +103,7 @@ class Plotter:
         points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
 
         # undistort points
-        undistorted_points = ImageUtils.undistort_camera_points(points,
+        undistorted_points = undistort_camera_points(points,
                                                      K, 
                                                      dist_coeffs,
                                                      P=K)

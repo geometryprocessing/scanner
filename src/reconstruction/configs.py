@@ -10,7 +10,7 @@ from src.utils.file_io import save_json, load_json
 
 class ReconstructionConfig:
     def __init__(self,
-                name, camera,
+                name: str = '', camera: str | Camera = None,
                 verbose: bool = True,
                 roi: tuple = None,
                 images: str | list[str] = None,
@@ -18,7 +18,8 @@ class ReconstructionConfig:
                 colors_image: str = None,
                 black_image: str = None,
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
-                save_depth_map: bool = True, save_point_cloud: bool = True):
+                save_depth_map: bool = True, save_point_cloud: bool = True,
+                save_index_map: bool = True):
 
         self.name = name
         self.camera = camera
@@ -38,6 +39,7 @@ class ReconstructionConfig:
         # outputs
         self.save_depth_map = save_depth_map
         self.save_point_cloud = save_point_cloud
+        self.save_index_map = save_index_map
 
     def load_config(self, filename):
         data = load_json(filename)
@@ -60,8 +62,8 @@ class ReconstructionConfig:
     
 class StructuredLightConfig(ReconstructionConfig):
     def __init__(self,
-                name, camera, projector,
                 pattern: str,
+                name: str = '', camera: str | Camera = None, projector: str | Projector = None,
                 verbose: bool = True,
                 images: list = None,
                 white_image: str = None,
@@ -69,8 +71,12 @@ class StructuredLightConfig(ReconstructionConfig):
                 black_image: str = None,
                 vertical_images: list[str] = None, inverse_vertical_images: list[str] = None,
                 horizontal_images: list[str] = None, inverse_horizontal_images: list[str] = None, 
+                binary_threshold: float = None, num_bits: int = 3,
+                phaseshift_frequency: float | int = None,
+                frequency_vector: list[float|int] = None, median_filter: int = None,
                 use_binary_mask: bool = False, mask_thr: float = 0.2,
-                save_depth_map: bool = True, save_point_cloud: bool = True):
+                save_depth_map: bool = True, save_point_cloud: bool = True,
+                save_index_map: bool = True):
         self.pattern = pattern.lower()
         assert self.pattern in ['gray', 'binary', 'xor',
                                 'hilbert', 'phaseshift',
@@ -79,7 +85,8 @@ class StructuredLightConfig(ReconstructionConfig):
         super().__init__(name=name, camera=camera, verbose=verbose, images=images,
                          white_image=white_image, colors_image=colors_image, black_image=black_image,
                         mask_thr=mask_thr, use_binary_mask=use_binary_mask,
-                        save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+                        save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
+                        save_index_map=save_index_map)
         
         self.projector = projector
         if isinstance(self.projector, str):
@@ -90,10 +97,19 @@ class StructuredLightConfig(ReconstructionConfig):
         self.horizontal_images = horizontal_images
         self.inverse_vertical_images = inverse_vertical_images
         self.inverse_horizontal_images = inverse_horizontal_images
+        # for XOR, Gray, Binary
+        self.binary_threshold = binary_threshold
+        # for Hilbert
+        self.num_bits = num_bits
+        # for Phaseshift
+        self.phaseshift_frequency = phaseshift_frequency
+        # for MPS
+        self.frequency_vector = frequency_vector
+        self.median_filter = median_filter
 
 class LookUp3DConfig(ReconstructionConfig):
     def __init__(self,
-                name, camera, lut_path: str = None,
+                name: str = '', camera: str | Camera = None, lut_path: str = None,
                 images: str | list[str] = None,
                 white_image: str = None,
                 colors_image: str = None,
@@ -113,12 +129,13 @@ class LookUp3DConfig(ReconstructionConfig):
         super().__init__(name=name, camera=camera, verbose=verbose, images=images, 
                          white_image=white_image, colors_image=colors_image, black_image=black_image,
                          mask_thr=mask_thr, use_binary_mask=use_binary_mask,
-                         save_depth_map=save_depth_map, save_point_cloud=save_point_cloud)
+                         save_depth_map=save_depth_map, save_point_cloud=save_point_cloud,
+                         save_index_map=save_depth_map)
 
         self.lut_path = lut_path
         self.loss_thr = loss_thr
 
-        # this one does not apply to SL
+        # input manipulation exclusive to lookup
         self.use_pattern_for_mask = use_pattern_for_mask
         self.denoise_input = denoise_input
         self.denoise_cutoff = denoise_cutoff
@@ -141,9 +158,8 @@ class LookUp3DConfig(ReconstructionConfig):
         self.use_temporal_consistency = use_temporal_consistency
         self.tc_deltas = tc_deltas
 
-        # outputs exclusive to lookup
+        # output exclusive to lookup
         self.save_loss_map = save_loss_map
-        self.save_index_map = save_index_map
 
 CONFIG_DICTS = [
     {
@@ -152,13 +168,16 @@ CONFIG_DICTS = [
         'camera': 'atlascamera',
         'projector': 'dlpprojector',
         'pattern': 'gray',
-        "white_image": "green.tiff",
-        "colors_image": "white.tiff",
-        "black_image": "black.tiff",
-        "vertical_images": ["gray_01.tiff", "gray_03.tiff", "gray_05.tiff", "gray_07.tiff", "gray_09.tiff", "gray_11.tiff", "gray_13.tiff", "gray_15.tiff", "gray_17.tiff", "gray_19.tiff", "gray_21.tiff"],
-        "inverse_vertical_images": ["gray_02.tiff", "gray_04.tiff", "gray_06.tiff", "gray_08.tiff", "gray_10.tiff", "gray_12.tiff", "gray_14.tiff", "gray_16.tiff", "gray_18.tiff", "gray_20.tiff", "gray_22.tiff"],
-        "horizontal_images": ["gray_23.tiff", "gray_25.tiff", "gray_27.tiff", "gray_29.tiff", "gray_31.tiff", "gray_33.tiff", "gray_35.tiff", "gray_37.tiff", "gray_39.tiff", "gray_41.tiff", "gray_43.tiff"],
-        "inverse_horizontal_images": ["gray_24.tiff", "gray_26.tiff", "gray_28.tiff", "gray_30.tiff", "gray_32.tiff", "gray_34.tiff", "gray_36.tiff", "gray_38.tiff", "gray_40.tiff", "gray_42.tiff", "gray_44.tiff"],        
+        'white_image': 'green.tiff',
+        'colors_image': 'white.tiff',
+        'black_image': 'black.tiff',
+        'save_index_map': True,
+        'save_point_cloud': True,
+        'save_depth_map': True,
+        "vertical_images": ['gray_01.tiff', 'gray_03.tiff', 'gray_05.tiff', 'gray_07.tiff', 'gray_09.tiff', 'gray_11.tiff', 'gray_13.tiff', 'gray_15.tiff', 'gray_17.tiff', 'gray_19.tiff', 'gray_21.tiff'],
+        "inverse_vertical_images": ['gray_02.tiff', 'gray_04.tiff', 'gray_06.tiff', 'gray_08.tiff', 'gray_10.tiff', 'gray_12.tiff', 'gray_14.tiff', 'gray_16.tiff', 'gray_18.tiff', 'gray_20.tiff', 'gray_22.tiff'],
+        "horizontal_images": ['gray_23.tiff', 'gray_25.tiff', 'gray_27.tiff', 'gray_29.tiff', 'gray_31.tiff', 'gray_33.tiff', 'gray_35.tiff', 'gray_37.tiff', 'gray_39.tiff', 'gray_41.tiff', 'gray_43.tiff'],
+        "inverse_horizontal_images": ['gray_24.tiff', 'gray_26.tiff', 'gray_28.tiff', 'gray_30.tiff', 'gray_32.tiff', 'gray_34.tiff', 'gray_36.tiff', 'gray_38.tiff', 'gray_40.tiff', 'gray_42.tiff', 'gray_44.tiff'],        
     },
     {
         'name': 'cheap-sl-gray',
@@ -172,39 +191,30 @@ CONFIG_DICTS = [
         'white_image': 'green.tiff',
         'colors_image': 'white.tiff',
         'black_image': 'black.tiff',
+        'roi': None,
         'mask_thr': 0.1,
         'loss_thr': 0.1,
+        'verbose': True,
         'use_gpu': False,
         'block_size': 65536,
         'use_pattern_for_mask': False,
         'use_binary_mask': False,
         'denoise_input': False,
         'blur_input': False,
+        'is_lowrank': False,
         'save_point_cloud': True,
         'save_depth_map': True,
         'save_loss_map': True,
         'save_index_map': False
     },
     {
-        'name': 'half-gray',
+        'name': 'lookup-half-gray',
         'parent': 'lookup-static-base',
-        'images': ["gray_01.tiff", "gray_03.tiff", "gray_05.tiff", "gray_07.tiff",
-                    "gray_09.tiff", "gray_11.tiff", "gray_13.tiff", "gray_15.tiff", 
-                    "gray_17.tiff",  "gray_19.tiff", "gray_21.tiff" ],
-    },
-    {
-        'name': 'colors',
-        'parent': 'lookup-static-base',
-        'images': [],
-    },
-    {
-        'name': 'static-c2f',
-        'parent': 'lookup-static-base',
-        'use_coarse_to_fine': True,
-        'c2f_ks': [],
-        'c2f_deltas': []
-    },
-
+        'roi': [],
+        'images': ['gray_01.tiff', 'gray_03.tiff', 'gray_05.tiff', 'gray_07.tiff',
+                    'gray_09.tiff', 'gray_11.tiff', 'gray_13.tiff', 'gray_15.tiff', 
+                    'gray_17.tiff',  'gray_19.tiff', 'gray_21.tiff' ],
+    }
 ]
 
 
@@ -288,7 +298,7 @@ for processed in PROCESSED_SCENE_CONFIG_DICTS:
 del config, name
 
 
-def is_valid_lookup_config(scene):
+def is_valid_config(scene):
     return scene in SCENE_CONFIGS
 
 

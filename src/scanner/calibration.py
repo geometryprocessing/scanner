@@ -2,8 +2,9 @@ import cv2
 import numpy as np
 
 from src.scanner.camera import Camera, get_cam_config
-from src.utils.three_d_utils import ThreeDUtils
-from src.utils.image_utils import ImageUtils
+from src.utils.three_d_utils import combine_transformations, \
+    intersect_line_with_plane, fit_plane, camera_to_ray_world
+from src.utils.image_utils import load_ldr
 from src.utils.plotter import Plotter
 from src.utils.file_io import load_json, save_json, get_all_paths
 
@@ -103,7 +104,7 @@ class CheckerBoard:
         """
 
         if isinstance(image, str):
-            image = ImageUtils.load_ldr(image, make_gray=True)
+            image = load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
@@ -251,7 +252,7 @@ class Charuco:
         """
 
         if isinstance(image, str):
-            image = ImageUtils.load_ldr(image, make_gray=True)
+            image = load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -647,9 +648,9 @@ class Calibration:
         # perform matrix multiplication that R and T mean 
         # bringing world points into second camera coordinate system
 
-        # R_combined, T_combined = ThreeDUtils.combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
-        R_combined, T_combined = ThreeDUtils.combine_transformations(R_1, T_1, R, T)
-        # R_combined, T_combined = ThreeDUtils.combine_transformations(R, T, R_1, T_1)
+        # R_combined, T_combined = combine_transformations(R_1, T_1, R.T, -np.matmul(R.T, T.flatten()))
+        R_combined, T_combined = combine_transformations(R_1, T_1, R, T)
+        # R_combined, T_combined = combine_transformations(R, T, R_1, T_1)
 
         return {
             'rms': rms,
@@ -1628,7 +1629,7 @@ class ProjectorCalibration:
         T = tvec.reshape((3,1))
         
         # move markers to world coordinate
-        R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
+        R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
         # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
         # has to be written as (R @ obj_points.T).T
         # to simplify:
@@ -1636,7 +1637,7 @@ class ProjectorCalibration:
         world_points = np.matmul(obj_points, R_combined.T) + T_combined.reshape((1,3))
 
         # fit plane
-        return ThreeDUtils.fit_plane(world_points)
+        return fit_plane(world_points)
     
     def detect_markers(self):
         """
@@ -1692,7 +1693,7 @@ class ProjectorCalibration:
 
             # undistort pixel coordinates -> normalized coordinates
             # project normalized coordinates onto Plane - X_3D
-            origin, camera_rays = ThreeDUtils.camera_to_ray_world(cam_img_points,
+            origin, camera_rays = camera_to_ray_world(cam_img_points,
                                               rvec,
                                               tvec,
                                               self.camera.K,
@@ -1700,7 +1701,7 @@ class ProjectorCalibration:
             # opencv calibration only works with PLANAR data, but where we are moving our
             # plane pattern board around and retrieving the 3D world coordinates
             # FIX THIS, OTHERWISE CANNOT RUN PROJECTOR CALIBRATION AS IS
-            objs = ThreeDUtils.intersect_line_with_plane(origin,
+            objs = intersect_line_with_plane(origin,
                                                         camera_rays,
                                                         np.array([[0., 0., 0.]]),
                                                         np.array([[0., 0., 1.]])).astype(np.float32)            
@@ -1717,7 +1718,7 @@ class ProjectorCalibration:
             T = tvec.reshape((3,1))
             
             # move markers to world coordinate
-            R_combined, T_combined = ThreeDUtils.combine_transformations(self.camera.R, self.camera.T, R, T)
+            R_combined, T_combined = combine_transformations(self.camera.R, self.camera.T, R, T)
             # NOTE: since obj_points is of shape (Nx3), the matrix multiplication with rotation 
             # has to be written as (R @ obj_points.T).T
             # to simplify:

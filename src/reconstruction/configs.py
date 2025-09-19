@@ -1,8 +1,7 @@
 """
 MOST OF THIS IS COPIED AND INSPIRED BY DELIO VICINI AND WENZEL JAKOB
 """
-import inspect
-import sys
+import os
 
 from src.scanner.camera import Camera, get_cam_config
 from src.scanner.projector import Projector, get_proj_config
@@ -327,5 +326,10 @@ def get_config(scene, cmd_args=None):
             # 4. Potentially apply args to the config after instantiation too (might be redundant)
             cmd_args = apply_cmdline_args(config, cmd_args)
             return config, cmd_args
+    elif os.path.isfile(scene):
+        # TODO: is this allowing too much mess?
+        config = ReconstructionConfig()
+        config.load_config(scene)
+        return config
     else:
         raise ValueError("Invalid scene config name!")

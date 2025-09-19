@@ -46,7 +46,7 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     np.save(filename, result)
 
 def process_position(folder: str,
-                     config: LookUp3DConfig) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                     config: LookUp3DConfig) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor, np.ndarray]:
         """
         Function that accepts a folder and a config file and
         returns the normalized pattern image (HxWxN), mask (HxW), and colors (HxWx3).
@@ -60,10 +60,12 @@ def process_position(folder: str,
         
         Returns
         -------
-        normalized : np.ndarray
+        normalized : array_like
             array of shape HxWxN, where H is height, W is width, and N is number of channels
-        mask : np.ndarray
+            if use_gpu, returns torch tensor, else return numpy ndarray
+        mask : array_like
             array of shape HxW containing mask values to reduce computation time
+            if use_gpu, returns torch tensor, else return numpy ndarray
         colors : np.ndarray
             array of shape HxWx3 containing RGB values
             this is passed to point cloud, so that it is stored with color
@@ -108,6 +110,10 @@ def process_position(folder: str,
 
         if config.colors_image is not None:
             colors = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
+
+        if config.use_gpu:
+            normalized = torch.from_numpy(normalized)
+            mask = torch.from_numpy(mask)
 
         return normalized, mask, colors
 
@@ -268,7 +274,7 @@ def c2f_lut(lut, dep, normalized_image, ks, deltas, mask=None):
 
     return depth_map, loss_map, index_map
 
-def tc_lut(lut, dep, normalized_image, delta, previous_index, mask=None):
+def tc_lut(lut, dep, normalized_image, delta, previous_index, block_size: int=65536, mask=None):
     """
     TODO: write description
 
@@ -283,17 +289,28 @@ def tc_lut(lut, dep, normalized_image, delta, previous_index, mask=None):
     depth_map = np.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=np.float32)
     loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
     index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
-    # TODO: this mask operation slows down everything -- it is not free
-    # why are we doing array[mask] when mask is full 
+
+    # handle mask
+    LUT = lut if mask is None else lut[mask]
+    DEP = dep if mask is None else dep[mask]
+    NORMALIZED = normalized_image if mask is None else normalized_image[mask]
+    PREVIOUS = previous_index if mask is None else previous_index[mask]
+    
+    L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
+    _minD, _loss_map = blockLookupNumpy(L, NORMALIZED, dtype=np.float32, blockSize=block_size)
+    _minD += start
+    _depth_map = np.squeeze(np.take_along_axis(DEP, _minD,axis=-1))
+
+    # handle mask
     if mask is None:
-        mask = np.full(shape=(normalized_image.shape[:2]), fill_value=True)
-    
-    L, start = restrict_lut_depth_range(lut, previous_index, delta)
-    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=np.float32, blockSize=1024)
-    loss_map[mask] = loss
-    index_map[mask] = minD + start[mask]
-    depth_map[mask] = np.squeeze(np.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
-    
+        depth_map = _depth_map
+        loss_map = _loss_map
+        index_map = _minD
+    else:
+        depth_map[mask] = _depth_map
+        loss_map[mask] = _loss_map
+        index_map[mask] = _minD
+        
     return depth_map, loss_map, index_map
 
 def naive_lut(lut,
@@ -303,7 +320,7 @@ def naive_lut(lut,
               use_gpu: bool = False,
               mask = None):
     """
-    NOTE: use_gpu=True assumes that lut and dep are already torch tensors,
+    NOTE: use_gpu=True assumes that lut, dep, normalized, and mask are already torch tensors,
     otherwise this will cause error.
     """
 
@@ -311,55 +328,33 @@ def naive_lut(lut,
     loss_map = np.full(shape=normalized_image.shape[:2], fill_value=np.inf, dtype=np.float32)
     index_map = np.zeros(shape=normalized_image.shape[:2], dtype=np.uint16)
 
+    # handle mask
+    LUT = lut if mask is None else lut[mask]
+    DEP = dep if mask is None else dep[mask]
+    NORMALIZED = normalized_image if mask is None else normalized_image[mask]
+
     if use_gpu:
-        m = torch.from_numpy(mask)
-        no = torch.from_numpy(normalized_image[mask])
+        _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=torch.float32, blockSize=block_size)
+        _depth_map = DEP.gather(dim=1, index=_minD.unsqueeze(-1)).squeeze(-1)  
 
-        _minD, _loss_map = blockLookup(lut[m], no, dtype=torch.float32, blockSize=block_size)
-        _depth_map = dep[m].gather(dim=1, index=_minD.unsqueeze(-1)).squeeze(-1)  
-
-        depth_map[mask] = _depth_map.cpu().numpy()
-        loss_map[mask] = _loss_map.cpu().numpy()
-        index_map[mask] = _minD.cpu().numpy()
-    
+        _depth_map = _depth_map.cpu().numpy()
+        _loss_map = _loss_map.cpu().numpy()
+        _minD = _minD.cpu().numpy()
     else:
-        _minD, _loss_map = blockLookupNumpy(lut[mask], normalized_image[mask], dtype=np.float32, blockSize=block_size)
-        _depth_map = np.squeeze(np.take_along_axis(dep[mask],_minD[:,None],axis=-1))
-        
+        _minD, _loss_map = blockLookupNumpy(LUT, NORMALIZED, dtype=np.float32, blockSize=block_size)
+        _depth_map = np.squeeze(np.take_along_axis(DEP,_minD[:,None],axis=-1))
+    
+    # handle mask
+    if mask is None:
+        depth_map = _depth_map
+        loss_map = _loss_map
+        index_map = _minD
+    else:
         depth_map[mask] = _depth_map
         loss_map[mask] = _loss_map
         index_map[mask] = _minD
     
     return depth_map, loss_map, index_map
-
-def depth_map_from_index_map(index_map, dep, mask):
-    #TODO: consider if this is necessary
-    # does it save any time? is it more complex/
-    """
-    Given an index map and dep, returns the depth map.
-    Function can handle both numpy arrays and torch tensors.
-
-    Parameters
-    ----------
-
-    Returns
-    -------
-    depth_map : array_like
-        torch tensor or numpy array of depth_map
-    """
-    depth_map = np.full(shape=index_map.shape, fill_value=-1., dtype=np.float32)
-    if torch:
-        _depth = dep[mask].gather(dim=1, index=index_map.unsqueeze(-1)).squeeze(-1)  
-    else:
-        _depth = np.squeeze(np.take_along_axis(dep[mask],index_map[:,None],axis=-1))
-    return depth_map
-
-def reconstruct():
-    # TODO: this function can pass if it goes to C2F, TC, or Naive?
-    # I am not convinced this function is necessary
-    pass
-
-
 
 class LookUpCalibration:
     """

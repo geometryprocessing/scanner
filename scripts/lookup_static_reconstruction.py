@@ -7,7 +7,7 @@ import sys
 sys.path.append('../')
 from src.reconstruction.lookup import process_position,  save_reconstruction_outputs, naive_lut, c2f_lut
 from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_lookup_config
-from src.utils.file_io import save_json, get_all_folder_names
+from src.utils.file_io import get_all_folder_names
 
 
 def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
@@ -68,8 +68,7 @@ def main(args):
                 continue
 
             reconstruct(lut, dep, base_path, config)
-            save_json(config.to_dict(), os.path.join(base_path), f'{config_name}_lookup_reconstruction_config.json')
-
+            config.dump_json(os.path.join(base_path), f'{config_name}_lookup_reconstruction_config.json')
 
 if __name__ == "__main__":
     main(sys.argv[1:])

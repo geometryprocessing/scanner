@@ -44,6 +44,10 @@ class ReconstructionConfig:
     def load_config(self, filename):
         data = load_json(filename)
         for k,v in data.items():
+            if k == 'camera':
+                v = get_cam_config(v)
+            if k == 'projector':
+                v = get_proj_config(v)
             setattr(self, k, v)
     
     def to_dict(self):

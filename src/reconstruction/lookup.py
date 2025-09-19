@@ -207,14 +207,15 @@ def save_reconstruction_outputs(folder: str,
     #     if config.verbose:
     #         print('-' * 15)
     #         print("Saved mask")
-    
-def blockLookup(L, Q, dtype, block_size: int=256):
+
+def blockLookup(L, Q, dtype, block_size: int = 256):
     """
     Parameters
     ----------
         lookup table L H x W x Z x C 
         normalized query image Q: H x W x C
         dtype of the data
+        block_size
     
     Returns
     -------
@@ -314,6 +315,7 @@ def c2f_lut(lut,
             normalized_image,
             ks,
             deltas,
+            block_size: int = 65336,
             mask=None):
     """
     Function to run Coarse-to-Fine (C2F) reconstruction wiht LookUp3D.
@@ -348,7 +350,7 @@ def c2f_lut(lut,
         p = previous_index[c2f_mask]
 
         L, start = restrict_lut_depth_range(L, p, delta)
-        minD, _ = blockLookupNumpy(L, n, dtype=xp.float32, block_size=1024)
+        minD, _ = blockLookup(L, n, dtype=xp.float32, block_size=block_size)
         previous_index[c2f_mask] = minD + start
 
         jump = k//ks[iter+1]
@@ -361,7 +363,7 @@ def c2f_lut(lut,
     index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
     
     L, start = restrict_lut_depth_range(lut, previous_index, delta)
-    minD, loss = blockLookupNumpy(L[mask], normalized_image[mask], dtype=xp.float32, block_size=1024)
+    minD, loss = blockLookup(L[mask], normalized_image[mask], dtype=xp.float32, block_size=block_size)
     loss_map[mask] = loss
     index_map[mask] = minD + start[mask]
     depth_map[mask] = xp.squeeze(xp.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
@@ -373,7 +375,7 @@ def tc_lut(lut,
            normalized_image,
            delta,
            previous_index,
-           block_size: int=65536,
+           block_size: int = 65536,
            mask=None):
     """
     TODO: write description

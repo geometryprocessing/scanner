@@ -35,10 +35,13 @@ class TestFileIO(unittest.TestCase):
                                msg='First 3 file paths should be true, rest 9 should be false')
     
     def test_parse_value(self):
-        test_values = [1, 'hello', '1', 'TruE', '0.00000', ' so false', None, 'None', '42', '42.']
-        test_dest_types = [list, list, bool, bool, bool, bool, list, list, int, float]
+        test_values = [1, 'hello', '1', 'TruE', '0.00000',
+                       ' so false', False, None, 'None', '42', '42.']
+        test_dest_types = [list, list, bool, bool, bool,
+                           bool, bool, list, list, int, float]
         result = [parse_value(dest_type=dest_type, value=value) for dest_type, value in zip(test_dest_types, test_values)]
-        expected = [[1], ['hello'], True, True, False, False, [None], None, 42, float('42.')]
+        expected = [[1], ['hello'], True, True, False,
+                    False, False, [None], None, 42, float('42.')]
         self.assertListEqual(result, expected,
                         msg='Parse value is behaving unexpectedly, proceed carefully')
 if __name__ == '__main__':

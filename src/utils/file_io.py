@@ -6,7 +6,7 @@ import os
 def parse_value(dest_type, value):
     if value == 'None':
         return None
-    if dest_type == bool:
+    if isinstance(value, str) and dest_type == bool:
         return value.lower() in ['true', '1']
     if dest_type == list and not isinstance(value, list):
         return [value]

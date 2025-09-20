@@ -43,13 +43,13 @@ def main(args):
     #     raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
     for config_name in args.configs:
-        config: LookUp3DConfig = get_config(config_name)
+        config, remaining_args = get_config(config_name, uargs)
 
         scenes = args.scenes
         if scenes is None: 
             scenes = get_all_folder_names(args.input)
         # IF THE PATH IS JUST A FOLDER WITH THE IMAGE DATA?
-        remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
+        # remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if args.print_params:
             print(config.to_dict())
             continue
@@ -67,7 +67,7 @@ def main(args):
                 print(f"Starting {base_path} folder with config {config_name}")
 
             reconstruct(lut, dep, base_path, config)
-            config.dump_json(os.path.join(base_path), f'{config_name}_lookup_reconstruction_config.json')
+            config.dump_json(os.path.join(base_path, f'{config_name}_lookup_reconstruction_config.json'))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

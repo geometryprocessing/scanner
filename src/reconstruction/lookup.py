@@ -240,6 +240,8 @@ def blockLookup(L, Q, dtype, block_size: int = 256):
     # code is GPU/CPU agnostic
     # if you send cupy arrays, does everything on GPU
     # else does it on CPU with numpy arrays
+    # TODO: this is problematic when L already won't fit into the GPU
+    # TODO: so need to send L in blocks to the GPU too  
     xp = get_array_module(L)
 
     shape = L.shape

@@ -231,6 +231,8 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
             return None
         if dest_type == bool:
             return value.lower() in ['true', '1']
+        if dest_type == list and not isinstance(value, list):
+            return [value]
         return dest_type(value)
 
     # Parse input list of strings key=value

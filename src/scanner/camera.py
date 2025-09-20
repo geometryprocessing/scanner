@@ -156,7 +156,7 @@ class TestCamera(Camera):
                              [0,0,1]], dtype=np.float32),
                        dist_coeffs = None)
         self.pretty_name = 'Test Camera'
-        self.name = 'test'
+        self.name = 'testcamera'
 
 class AtlasCamera(Camera):
     def __init__(self):

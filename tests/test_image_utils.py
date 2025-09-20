@@ -51,9 +51,25 @@ class TestImageUtils(unittest.TestCase):
         normalized = normalize_color(color, white, black_image=ambient)
         result = normalized
         expected = np.full(shape=(5,5), fill_value=1/3)
-        self.assertAlmostEqual(np.linalg.norm(result - expected), 0.0,
+        self.assertAlmostEqual(np.linalg.norm(result - expected), 0.0, places=6,
                                msg='Normalized result should be filled with .33')
-
+    
+    def test_crop_empty_roi(self):
+        image = np.random.rand(10,10)
+        roi = ()
+        result = crop(image=image, roi=roi)
+        expected = image
+        self.assertTrue(id(expected) == id(result),
+                        msg='Cropping image with empty roi should do NOTHING')
+    
+    def test_crop(self):
+        image = np.random.rand(10,10)
+        x1,y1,x2,y2 = 1, 2, 6, 5 
+        roi = (x1,y1,x2,y2)
+        result = crop(image=image, roi=roi)
+        expected = image[y1:y2,x1:x2]
+        self.assertAlmostEqual(np.linalg.norm(result - expected), 0.0,
+                               msg='Crop function should match array slicing')
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,28 @@
+import unittest
+
+from src.utils.file_io import *
+
+class TestFileIO(unittest.TestCase):
+
+    def test_is_float(self):
+        test_elements = ['1234567', '1_2_3.4', 'NaN', '-iNf', True,
+                         1, '42e3', '0E0', 'infinity', '123.4567',
+                         '1e424242', '1.2345678901234567890e-05', '.42', '0', '+1e1',
+                         '4-2', '', '#42', '42%', '123EE4',
+                         '1e5e4', '1e5^4', '1e1.1', '(5)', 'NULL',
+                         '1,2', '127.28.50.00', '+-1', 'True', 'banana']
+        result = [is_float(elem) for elem in test_elements]
+        expected = [True] * 15 + [False] * 15
+        self.assertListEqual(result, expected,
+                               msg='First 15 elements should be true, rest 15 should be false')
+
+    def test_is_int(self):
+        test_elements = ['1234567890', '+1', '-1', '000005', '42',
+                         '0.0', 'hello', 'NaN', '-iNf', '']
+        result = [is_int(elem) for elem in test_elements]
+        expected = [True] * 5 + [False] * 5
+        self.assertListEqual(result, expected,
+                               msg='First 15 elements should be true, rest 15 should be false')
+
+if __name__ == '__main__':
+    unittest.main()

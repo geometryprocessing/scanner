@@ -402,10 +402,16 @@ def tc_lut(lut,
     index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
 
     # handle mask
-    LUT = lut if mask is None else lut[mask]
-    DEP = dep if mask is None else dep[mask]
-    NORMALIZED = normalized_image if mask is None else normalized_image[mask]
-    PREVIOUS = previous_index if mask is None else previous_index[mask]
+    if mask is None:
+        LUT = lut
+        DEP = dep
+        NORMALIZED = normalized_image
+        PREVIOUS = previous_index
+    else:
+        LUT = lut[mask]
+        DEP = dep[mask]
+        NORMALIZED = normalized_image[mask]
+        PREVIOUS = previous_index[mask]
     
     L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
     _minD, _loss_map = blockLookup(L, NORMALIZED, dtype=xp.float32, block_size=block_size)
@@ -440,9 +446,14 @@ def naive_lut(lut,
     index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
 
     # handle mask
-    LUT = lut if mask is None else lut[mask]
-    DEP = dep if mask is None else dep[mask]
-    NORMALIZED = normalized_image if mask is None else normalized_image[mask]
+    if mask is None:
+        LUT = lut
+        DEP = dep
+        NORMALIZED = normalized_image
+    else:
+        LUT = lut[mask]
+        DEP = dep[mask]
+        NORMALIZED = normalized_image[mask]
 
     _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=xp.float32, block_size=block_size)
     _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))

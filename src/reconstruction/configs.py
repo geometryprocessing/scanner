@@ -263,9 +263,11 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
             print(f"Overriden parameter: {k} = {old_v} -> {config[k]}")
         elif hasattr(config, k):
             old_v = getattr(config, k)
+            # to override camera and projector
+            if isinstance(old_v, (Camera, Projector)):
+                old_v = old_v.name
             setattr(config, k, parse_value(type(old_v), v))
             print(f"Overriden parameter: {k} = {old_v} -> {getattr(config, k)}")
-            #TODO: how to override camera and projector?
         else:
             if return_dict:
                 unused_args[k] = v
@@ -275,8 +277,8 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
 
 SCENE_CONFIGS = {}
 
-def create_scene_config(name, config_class, **kwargs):
-    return (config_class(name, **kwargs), name)
+def create_scene_config_init_fn(name, config_class, **kwargs):
+    return (lambda: config_class(name, **kwargs), name)
 
 def process_config_dicts(configs):
     """Takes a list of config dictionary, resolves parent-child dependencies
@@ -304,9 +306,9 @@ def process_config_dicts(configs):
 
 PROCESSED_SCENE_CONFIG_DICTS = process_config_dicts(CONFIG_DICTS)
 for processed in PROCESSED_SCENE_CONFIG_DICTS:
-    config, name = create_scene_config(**processed)
-    SCENE_CONFIGS[name] = config
-del config, name
+    fn, name = create_scene_config_init_fn(**processed)
+    SCENE_CONFIGS[name] = fn
+del fn, name
 
 
 def is_valid_config(scene):
@@ -317,7 +319,7 @@ def get_config(scene, cmd_args=None):
     """Retrieve configuration options associated with a given scene"""
     if scene in SCENE_CONFIGS:
         if cmd_args is None:
-            return SCENE_CONFIGS[scene]
+            return SCENE_CONFIGS[scene]()
         else:
             # Somewhat involved logic to allow for command line arguments to override parameters
             # of the original config dict *and* the processed config object, plus returns any remaining args
@@ -329,7 +331,7 @@ def get_config(scene, cmd_args=None):
             cmd_args = apply_cmdline_args(d, cmd_args)
 
             # 3. Instantiate the actual config
-            config = create_scene_config(**d)[0]
+            config = create_scene_config_init_fn(**d)[0]()
 
             # 4. Potentially apply args to the config after instantiation too (might be redundant)
             cmd_args = apply_cmdline_args(config, cmd_args)

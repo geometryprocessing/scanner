@@ -3,6 +3,48 @@ from natsort import natsorted
 import numpy as np
 import os
 
+def parse_value(dest_type, value):
+    if value == 'None':
+        return None
+    if isinstance(value, str) and dest_type == bool:
+        return value.lower() in ['true', '1']
+    if dest_type == list and not isinstance(value, list):
+        return [value]
+    return dest_type(value)
+
+def is_int(elem) -> bool:
+    """
+    Hacky way to check if a given element can be converted to integer.
+    """
+    if elem is None:
+        return False
+    try:
+        int(elem)
+        return True
+    except ValueError:
+        return False
+
+def is_float(elem) -> bool:
+    """
+    Hacky way to check if a given element can be converted to float.
+    """
+    if elem is None:
+        return False
+    try:
+        float(elem)
+        return True
+    except ValueError:
+        return False
+    
+def is_json(filename) -> bool:
+    """
+    Check if a given path to file is JSON object.
+
+    NOTE: This function does not check if file exists.
+    """
+    _, ext = os.path.splitext(filename)
+    return ext.lower() == '.json'
+
 def ensure_exists(path: str):
     """
     Check if path to folder exists. If not, create it.
@@ -30,9 +72,33 @@ def get_folder_from_file(path: str) -> str:
     """
     return os.path.dirname(path)
 
+def get_all_folder_names(path: str) -> list[str]:
+    """
+    Retrieves all directories' names within one level of path given.
+
+    Parameters
+    ----------
+    path : str
+        A path to a directory.
+
+    Returns
+    -------
+    list of str
+        A list of naturally sorted of names of all directories found in the input directory.
+
+    Notes
+    -----
+    Naturally sorted means that the file
+    'hello_world_01.txt' will come before 'hello_world_10.txt', because 01 < 10.
+    For more information, read
+    https://github.com/SethMMorton/natsort/wiki/How-Does-Natsort-Work%3F-(1-%E2%80%90-Basics)
+    """
+
+    return natsorted([f.name for f in os.scandir(path) if f.is_dir()])
+
 def get_all_folders(path: str) -> list[str]:
     """
-    Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).
+    Retrieves all directories within one level of path given.
 
     Parameters
     ----------

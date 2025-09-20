@@ -3,15 +3,63 @@ import cv2
 import concurrent.futures
 from datetime import datetime
 import numpy as np
+CUDA_AVAILABLE = False # constant
+# import torch ### swapping for cupy since we don't need autodiff and I prefer interoperability
+try:
+    import cupy as cp
+    print("cupy imported successfully.")
+    def get_array_module(*args):
+        return cp.get_array_module(*args)
+    CUDA_AVAILABLE = cp.cuda.is_available()
+    print("CUDA Availability: ", CUDA_AVAILABLE)
+except ImportError:
+    print("cupy not found. Using numpy fallback everywhere.")
+    def get_array_module(*args):
+        return np
 import os
 
-from src.utils.three_d_utils import ThreeDUtils
-from src.utils.file_io import save_json, load_json, get_all_paths, get_all_folders, get_folder_from_file
-from src.utils.image_utils import ImageUtils
-from src.utils.numerics import k_smallest_indices, spline_interpolant, calculate_loss
+from src.reconstruction.configs import LookUp3DConfig, get_config
+from src.utils.three_d_utils import point_cloud_from_depth_map, \
+    fit_line, save_point_cloud, intersect_line_with_plane, camera_to_ray_world
+from src.utils.file_io import save_json, \
+    load_json, get_all_paths, get_all_folders, get_folder_from_file
+from src.utils.image_utils import extract_mask, normalize_color, \
+    denoise_fft, load_ldr, crop, gaussian_blur, generate_mask_binary_structure,\
+          convert_to_gray, replace_with_nearest
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
+def load_lut(filename: str, is_lowrank: bool = False, use_gpu: bool = False, gpu_device: int = 0):
+    lookup_table = load_lowrank_table(filename) if is_lowrank else np.load(filename)
+
+    lut = lookup_table[...,:-1]
+    dep = lookup_table[...,-1]
+
+    if use_gpu and CUDA_AVAILABLE:
+        with cp.cuda.Device(gpu_device):
+            lut = cp.array(lut)
+            dep = cp.array(dep)
+
+    return lut, dep
+    
+def load_lowrank_table(filename: str):
+    data = np.load(filename)
+    original_shape = data['shape']
+    num_channels = original_shape[-1] - 1 # subtract one because of depth
+
+    lut = []
+
+    # table is saved as L_{idx}, R_{idx}, with idx starting at 1
+    for ch in range(1,num_channels+1):
+        lut += [np.matmul(data[f'L_{ch}'],data[f'R_{ch}']).reshape(original_shape[:-1])]
+
+    Ld = data['L_d']
+    Rd = data['R_d']
+    lut_d = np.matmul(Ld,Rd).reshape(original_shape[:-1])
+
+    lut += [lut_d]
+
+    return np.stack(lut, axis=-1)
 
 def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     """
@@ -25,6 +73,410 @@ def concatenate_lookup_tables(lookup_tables: list[str], filename: str):
     result = np.concatenate(result, axis=3)
     np.save(filename, result)
 
+def process_position(folder: str,
+                     config: LookUp3DConfig) -> tuple:
+        """
+        Function that accepts a folder and a config file and
+        returns the normalized pattern image (HxWxN), mask (HxW), and colors (HxWx3).
+
+        Parameters
+        ----------
+        folder : str
+            path to folder containing the image files to be processed
+        config : LookUp3DConfig
+            congif class of LookUp3D Reconstruction containing processing parameters
+        
+        Returns
+        -------
+        normalized : array_like
+            array of shape HxWxN, where H is height, W is width, and N is number of channels
+            if use_gpu, returns cupy ndarray, else return numpy ndarray
+        mask : array_like
+            array of shape HxW containing mask values to reduce computation time
+            if use_gpu, returns cupy ndarray, else return numpy ndarray
+        colors : np.ndarray
+            array of shape HxWx3 containing RGB values
+            this is passed to point cloud, so that it is stored with color
+            if no colors parameter is defined in config, then this is None
+        """
+        assert config is not None, "No config passed!"
+    
+        mask = None
+        colors = None
+        name = config.name
+
+        if config.verbose:
+            print('-' * 15)
+            print("Normalizing image")
+
+        roi = config.roi
+        images: list[str] = config.images
+        pattern_images = crop(np.concatenate([np.atleast_3d(load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
+        white_image = crop(load_ldr(os.path.join(folder, config.white_image)), roi=roi)
+        black_image = None
+        if config.black_image is not None:
+                black_image = crop(load_ldr(os.path.join(folder, config.black_image)), roi=roi)
+        
+        mask_thr: float = config.mask_thr
+        image_for_mask = pattern_images if config.use_pattern_for_mask else white_image 
+        mask = generate_mask_binary_structure(convert_to_gray(image_for_mask), mask_thr) if config.use_binary_mask else extract_mask(image_for_mask, mask_thr)
+
+
+        normalized = normalize_color(color_image=pattern_images,
+                                                white_image=white_image,
+                                                black_image=black_image,
+                                                mask=mask)
+        
+        if config.denoise_input:
+            normalized = denoise_fft(normalized, int(config.denoise_cutoff))
+
+        if config.blur_input:
+            normalized = gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
+
+        # if config.save_normalized:
+            # np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
+
+        if config.colors_image is not None:
+            colors = crop(load_ldr(os.path.join(folder, config.colors_image)), roi=roi)
+
+        if config.use_gpu and CUDA_AVAILABLE:
+            with cp.cuda.Device(config.gpu_device):
+                normalized = cp.array(normalized)
+                mask = cp.array(mask)
+
+        return normalized, mask, colors
+
+def save_reconstruction_outputs(folder: str,
+                                mask = None,
+                                depth_map = None,
+                                loss_map = None,
+                                point_cloud = None,
+                                colors = None,
+                                index_map = None,
+                                config: LookUp3DConfig = None):
+    # TODO: what does cupy need to save these?
+    assert config is not None, "No config passed"
+    table_name = config.name
+
+    if config.save_depth_map and depth_map is not None:
+        xp = get_array_module(depth_map)
+        xp.save(os.path.join(folder,f"{table_name}_depth_map.npy"), depth_map)
+        if config.verbose:
+            print('-' * 15)
+            print("Saved depth map")
+    
+    if config.save_loss_map and loss_map is not None:
+        xp = get_array_module(loss_map)
+        xp.save(os.path.join(folder,f"{table_name}_loss_map.npy"), loss_map)
+        if config.verbose:
+            print('-' * 15)
+            print("Saved loss map")
+
+    if config.save_index_map and index_map is not None:
+        xp =get_array_module(index_map)
+        xp.save(os.path.join(folder,f"{table_name}_index_map.npy"), index_map)
+        if config.verbose:
+            print('-' * 15)
+            print("Saved index map")
+
+    if config.save_point_cloud:
+        if config.verbose:
+            print('-' * 15)
+            print("Constructing point cloud")
+
+        pcd_mask = (depth_map > 0).flatten() & (loss_map < config.loss_thr).flatten()
+
+        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=np.asarray(depth_map),
+                                                             K=config.camera.K,
+                                                             dist_coeffs=config.camera.dist_coeffs,
+                                                             R=config.camera.R,
+                                                             T=config.camera.T,
+                                                             roi=config.roi)
+
+        if config.verbose:
+            print("Extracting colors for point cloud")
+
+        if colors is None:
+            print("No color image set, therefore no color extraction for point cloud")
+            save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
+                point_cloud.reshape((-1,3))[pcd_mask])
+        else:
+            dtype = colors.dtype
+            m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
+            colors = (colors / m).astype(np.float32)
+            save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
+                                point_cloud.reshape((-1,3))[pcd_mask],
+                                colors=colors.reshape((-1,3))[pcd_mask])
+        if config.verbose:
+            print('-' * 15)
+            print("Saved point cloud")
+
+    # if config.save_mask:
+    #     np.save(os.path.join(folder,"mask.npy"), mask)
+    #     if config.verbose:
+    #         print('-' * 15)
+    #         print("Saved mask")
+
+def blockLookup(L, Q, dtype, block_size: int = 256):
+    """
+    Parameters
+    ----------
+        lookup table L H x W x Z x C 
+        normalized query image Q: H x W x C
+        dtype of the data
+        block_size
+    
+    Returns
+    -------
+        minD: H x W s.t.  minD[i,j] is argmin_k ||L[i,j,k] - Q[i,j]|| on the cpu
+        loss: H x W s.t.  loss[i,j] is min_k ||L[i,j,k] - Q[i,j]|| on the cpu
+
+    Does this in blocks on the CPU using numpy or GPU using cupy,
+    and promotes types as needed (e.g., int16 -> int32 and float16 -> float32)
+
+    NOTE: if L and Q are different modules (i.e. one is numpy the other cupy,
+    this will cause an error) 
+    """
+    # code is GPU/CPU agnostic
+    # if you send cupy arrays, does everything on GPU
+    # else does it on CPU with numpy arrays
+    # TODO: this is problematic when L already won't fit into the GPU
+    # TODO: so need to send L in blocks to the GPU too  
+    xp = get_array_module(L)
+
+    shape = L.shape
+    assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
+    if len(shape) == 3:
+        HW, Z, C = L.shape
+        return_shape = HW
+    else:
+        H, W, Z, C = L.shape
+        HW = H*W
+        return_shape = (H,W)
+        L = L.reshape(HW, Z, C)
+        Q = Q.reshape(HW, C)
+    numBlocks = (HW // block_size) + (1 if HW % block_size != 0 else 0)
+    minD = xp.zeros((HW), dtype=xp.long)
+    loss = xp.zeros((HW), dtype=(xp.float32 if dtype in [xp.float16, xp.float32] else xp.int32))
+    for block in range(numBlocks):
+        sy, ey = block * block_size, min(HW, ((block+1) * block_size))
+        if dtype in [xp.float16, xp.float32]:
+            LUp = L[sy:ey,:,:].astype(xp.float32)
+            QUp = Q[sy:ey,None,:].astype(xp.float32)
+        elif dtype in [xp.int16, xp.int32]:
+            # if it's an int, do the arithmetic in int32 to avoid overflow
+            LUp = L[sy:ey,:,:].astype(xp.int32)
+            QUp = Q[sy:ey,None,:].astype(xp.int32)
+        distance = xp.sum((LUp-QUp)**2, axis=-1)
+        minIndex = xp.argmin(distance , axis=-1)
+        minD[sy:ey] = minIndex
+        loss[sy:ey] = xp.squeeze(xp.take_along_axis(distance,minIndex[:,None],axis=1))
+
+    return minD.reshape(return_shape), loss.reshape(return_shape)
+
+def restrict_lut_depth_range(lut, index, delta):
+    """
+    Given a lookup table, a 2D array of indices, and an integer delta,
+    this function returns a restricted  lookup table of the values
+    around indices +- delta.
+
+    Parameters
+    ----------
+    lut (H x W x Z x C)
+        table to be reduced
+    index (H x W) : np.ndarray of int type
+        indices of the table
+    delta : int
+        integer value to reduce table with values only around index +- delta
+
+    Returns
+    -------
+    reduced_lut (H x W x z x C)
+        table where z (< Z) is now a reducded range
+    start (H x W) : np.ndarray of int type
+        this is useful util for TC and C2F
+        it usually will be index - delta, but it gets
+        clipped between 0 and max_index - 2*delta
+
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
+    """
+    xp = get_array_module(lut)
+
+    shape = lut.shape
+    # if lut is passed as HW x Z x C (i.e. a 3D array),
+    # make it 4D so that the code works below
+    # this can happen when it is passed with a mask
+    assert len(shape) < 5 and len(shape) > 2, "Unrecognized shape of LookUp Table"
+    if len(shape) == 3:
+        lut = lut[None,...]
+        index = index[None,...]
+    shape = lut.shape
+    # avoid underflow, cast it to int16, then back to uint16
+    start = (index.astype(xp.int16)-delta).clip(0, shape[2]-2*delta).astype(xp.uint16)
+    i, j = xp.meshgrid(xp.arange(shape[0]), xp.arange(shape[1]), indexing='ij')
+    k = xp.arange(2*delta)
+    # collect LUT only +- delta around previous_index
+    reduced_lut = lut[i[..., None], j[..., None], start[..., None] + k]
+    # in the case of original shape==3, squeeze is necessary here
+    return xp.squeeze(reduced_lut), xp.squeeze(start)
+
+def c2f_lut(lut,
+            dep,
+            normalized_image,
+            ks,
+            deltas,
+            block_size: int = 65336,
+            mask=None):
+    """
+    Function to run Coarse-to-Fine (C2F) reconstruction wiht LookUp3D.
+
+    Returns
+    -------
+    depth_map: array_like
+
+    loss_map : array_like
+
+    index_map : array_like
+
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
+    """
+    xp = get_array_module(normalized_image)
+
+    previous_index = xp.zeros(shape=(normalized_image.shape[:2]), dtype=xp.uint16)
+    c2f_mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=False)
+
+    # TODO: this mask operation slows down everything -- it is not free
+    # why are we doing array[mask] when mask is full 
+    if mask is None:
+        mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=True)
+
+    for iter in range(len(ks) - 1):
+        k = ks[iter]
+        delta = deltas[iter]
+        c2f_mask[::k,::k] = mask[::k, ::k]
+        L = lut[c2f_mask,...]
+        n = normalized_image[c2f_mask,...]
+        p = previous_index[c2f_mask]
+
+        L, start = restrict_lut_depth_range(L, p, delta)
+        minD, _ = blockLookup(L, n, dtype=xp.float32, block_size=block_size)
+        previous_index[c2f_mask] = minD + start
+
+        jump = k//ks[iter+1]
+        previous_index = replace_with_nearest(previous_index, '=', 0)
+        previous_index = gaussian_blur(previous_index, sigmas=jump)
+    
+    # FULL RESOLUTION
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
+    
+    L, start = restrict_lut_depth_range(lut, previous_index, delta)
+    minD, loss = blockLookup(L[mask], normalized_image[mask], dtype=xp.float32, block_size=block_size)
+    loss_map[mask] = loss
+    index_map[mask] = minD + start[mask]
+    depth_map[mask] = xp.squeeze(xp.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
+
+    return depth_map, loss_map, index_map
+
+def tc_lut(lut,
+           dep,
+           normalized_image,
+           delta,
+           previous_index,
+           block_size: int = 65536,
+           mask=None):
+    """
+    TODO: write description
+
+    Returns
+    -------
+    depth_map: array_like
+
+    loss_map : array_like
+
+    index_map : array_like
+
+    NOTE: if arrays are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
+    """
+    xp = get_array_module(normalized_image)
+
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
+
+    # handle mask
+    if mask is None:
+        LUT = lut
+        DEP = dep
+        NORMALIZED = normalized_image
+        PREVIOUS = previous_index
+    else:
+        LUT = lut[mask]
+        DEP = dep[mask]
+        NORMALIZED = normalized_image[mask]
+        PREVIOUS = previous_index[mask]
+    
+    L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
+    _minD, _loss_map = blockLookup(L, NORMALIZED, dtype=xp.float32, block_size=block_size)
+    _minD += start
+    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
+
+    # handle mask
+    if mask is None:
+        depth_map = _depth_map
+        loss_map = _loss_map
+        index_map = _minD
+    else:
+        depth_map[mask] = _depth_map
+        loss_map[mask] = _loss_map
+        index_map[mask] = _minD
+
+    return depth_map, loss_map, index_map
+
+def naive_lut(lut,
+              dep,
+              normalized_image,
+              block_size: int = 65536,
+              mask = None):
+    """
+    NOTE: if lut, dep, normalized_image, mask are different modules
+    (i.e. some are numpy, others cupy, this will cause an error)
+    """
+    xp = get_array_module(normalized_image)
+
+    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
+    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
+    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
+
+    # handle mask
+    if mask is None:
+        LUT = lut
+        DEP = dep
+        NORMALIZED = normalized_image
+    else:
+        LUT = lut[mask]
+        DEP = dep[mask]
+        NORMALIZED = normalized_image[mask]
+
+    _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=xp.float32, block_size=block_size)
+    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
+    
+    # handle mask
+    if mask is None:
+        depth_map = _depth_map
+        loss_map = _loss_map
+        index_map = _minD
+    else:
+        depth_map[mask] = _depth_map
+        loss_map[mask] = _loss_map
+        index_map[mask] = _minD
+    
+    return depth_map, loss_map, index_map
+
 class LookUpCalibration:
     """
     """
@@ -37,7 +489,7 @@ class LookUpCalibration:
         self.num_directories = 0
         self.structure_grammar = {}
         self.num_channels = 0
-        self.roi = None
+        self.roi = ()
 
         # flag for verbose
         self.verbose = False
@@ -61,7 +513,7 @@ class LookUpCalibration:
         # for key, value in config['look_up_calibration'].items:
         #     setattr(self, key, value)
         
-        self.set_camera(config['look_up_calibration']['camera_calibration'])
+        self.set_camera(config['look_up_calibration']['camera'])
         self.set_plane_pattern(config['look_up_calibration']['plane_pattern'])
         self.set_roi(config['look_up_calibration']['roi'])
         self.set_calibration_directory(config['look_up_calibration']['calibration_directory'])
@@ -75,8 +527,8 @@ class LookUpCalibration:
     def set_camera(self, camera: str | dict | Camera):
         # if string, load the json file and get the parameters
         # check if dict, get the parameters
-        if isinstance(camera, str) or isinstance(camera, dict):
-            self.camera.load_calibration(camera)
+        if isinstance(camera, (str, dict)):
+            self.camera.load_config(camera)
         else:
             self.camera = camera
 
@@ -276,7 +728,7 @@ class LookUpCalibration:
         width, height = self.camera.get_image_shape()
         x0, y0 = 0, 0
 
-        if self.roi is not None:
+        if len(self.roi) == 4:
             x0 = self.roi[0]
             y0 = self.roi[1]
             width = self.roi[2] - x0
@@ -312,7 +764,7 @@ class LookUpCalibration:
                    folder: str,
                    structure_grammar: dict):
         utils: dict = structure_grammar['utils']
-        depth_image = ImageUtils.load_ldr(os.path.join(folder, utils['depth'])) if 'depth' in utils else ImageUtils.load_ldr(os.path.join(folder, utils['white']))
+        depth_image = load_ldr(os.path.join(folder, utils['depth'])) if 'depth' in utils else load_ldr(os.path.join(folder, utils['white']))
 
         # detect plane/board markers with camera
         img_points, obj_points, _ = \
@@ -328,8 +780,7 @@ class LookUpCalibration:
                                                     img_points,
                                                     camera.K,
                                                     camera.dist_coeffs)
-            rvec = result['rvec']
-            rvec /= np.linalg.norm(rvec)
+            rvec = result['rvec'].ravel()
             tvec = result['tvec'].ravel()
 
         save_json({
@@ -347,8 +798,8 @@ class LookUpCalibration:
         
         for folder in calibration_directory:
             d = load_json(os.path.join(folder, 'board.json'))
-            tvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['tvec'] is None else d['original']['tvec']
-            rvec = np.full(shape=(3,1), fill_value=np.nan) if d['original']['rvec'] is None else d['original']['rvec']
+            tvec = np.full(shape=(3,), fill_value=np.nan) if d['original']['tvec'] is None else d['original']['tvec']
+            rvec = np.full(shape=(3,), fill_value=np.nan) if d['original']['rvec'] is None else d['original']['rvec']
             rvecs.append(rvec)
             tvecs.append(tvec)
         
@@ -356,7 +807,7 @@ class LookUpCalibration:
         rvecs = np.squeeze(np.array(rvecs))
         median_rvec = np.nanmean(rvecs, axis=0)
 
-        C, N = ThreeDUtils.fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
+        C, N = fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
         if np.dot(N, [0, 0, 1]) > 0:
             # either direction in LINE can be returned, so we need to
             # make sure our line is moving in the direction we want
@@ -372,7 +823,7 @@ class LookUpCalibration:
             'number_of_folders': len(calibration_directory),
             'number_of_identified_planes': len(steps),
             'number_steps_within_1_std': len(steps[idx])
-        }, os.path.join(get_folder_from_file(get_folder_from_file(calibration_directory[0])), 'board_trajectory.json'))
+        }, os.path.join(get_folder_from_file(calibration_directory[0]), 'board_trajectory.json'))
 
         for i, folder in enumerate(calibration_directory):
             d = load_json(os.path.join(folder, 'board.json'))
@@ -395,21 +846,24 @@ class LookUpCalibration:
                                                np.arange(height))
         campixels = np.stack([campixels_x, campixels_y], axis=-1).reshape((-1,2))
 
-        origin, rays = ThreeDUtils.camera_to_ray_world(campixels,
+        origin, rays = camera_to_ray_world(campixels,
                                                        R,
                                                        T,
                                                        camera.K,
                                                        camera.dist_coeffs)
-        points = ThreeDUtils.intersect_line_with_plane(origin,
+        points = intersect_line_with_plane(origin,
                                                        rays,
                                                        np.array([0,0,0], dtype=np.float32),
                                                        np.array([0,0,1], dtype=np.float32))
 
         # save only Z of the depth
-        result3D = np.matmul((points - T.T), R)
-        # depth = result3D[:,2]
-        # TODO: fix this -- should not be abs, it should simply already be positive
-        depth = np.abs(result3D[:,2])
+        result3D = np.matmul(points, R.T) + T.T
+        depth = result3D[:,2]
+
+        # result3D = np.matmul((points - T.T), R)
+        # # depth = result3D[:,2]
+        # # TODO: fix this -- should not be abs, it should simply already be positive
+        # depth = np.abs(result3D[:,2])
         
         # bs = np.matmul(R.T, (xs - T).T).T
         # idx = (roi[0] < bs[:, 0]) & (bs[:, 0] < roi[2]) & \
@@ -427,10 +881,10 @@ class LookUpCalibration:
         table_name = structure_grammar['name']
         images: list[str] = structure_grammar['images']
         utils: dict = structure_grammar['utils']
-        pattern_images =  np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2)
-        white_image = ImageUtils.load_ldr(os.path.join(folder, utils['white']))
-        black_image = None if 'black' not in utils else ImageUtils.load_ldr(os.path.join(folder, utils['black']))
-        normalized = ImageUtils.normalize_color(color_image=pattern_images,
+        pattern_images =  np.concatenate([np.atleast_3d(load_ldr(os.path.join(folder, image))) for image in images], axis=2)
+        white_image = load_ldr(os.path.join(folder, utils['white']))
+        black_image = None if 'black' not in utils else load_ldr(os.path.join(folder, utils['black']))
+        normalized = normalize_color(color_image=pattern_images,
                                                 white_image=white_image,
                                                 black_image=black_image)
         np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
@@ -441,419 +895,7 @@ class LookUpCalibration:
         if normalize:
             self.normalize_positions()
         self.stack_results()
-
-class LookUpReconstruction:
-    def __init__(self, config: dict | str = None):
-        self.camera = Camera()
-
-        self.reconstruction_directory = []
-        self.structure_grammar = {}
-
-        # reconstruction utils
-        self.lookup_table = None
-        self.white_image = None
-        self.thr = None # threshold for mask
-        self.mask = None
-        self.pattern_images = None
-        self.black_image = None
-        self.normalized = None
-
-        # flag for debugging and verbose
-        self.debug = False
-        self.verbose = False
-        # flag for parallelizing pixel processing
-        self.parallelize_pixels = False
-        self.num_cpus = 1
-
-        # reconstruction outpus
-        self.depth_map = None
-        self.point_cloud = None
-        self.colors = None
-        self.normals = None
-        # extra outputs if debug=True
-        self.loss_1 = None
-        self.loss_2 = None
-        self.loss_12 = None
-        self.depth_12 = None
-
-        if config is not None:
-            self.load_config(config)
-
-    def load_config(self, config: str | dict):
-        if isinstance(config, str):
-            config = load_json(config)
-
-        self.set_camera(config['look_up_reconstruction']['camera_calibration'])
-        # TODO: consider moving roi and mask_thr to structure_grammar['utils']
-        self.set_roi(config['look_up_reconstruction']['roi'])
-        self.set_mask_threshold(config['look_up_reconstruction']['mask_thr'])
-
-        self.set_lookup_table(config['look_up_reconstruction']['lookup_table'])
-        self.set_reconstruction_directory(config['look_up_reconstruction']['reconstruction_directory'])
-        self.set_structure_grammar(config['look_up_reconstruction']['structure_grammar'])
-        self.set_parallelize_pixels(config['look_up_reconstruction']['parallelize_pixels'])
-        self.set_num_cpus(config['look_up_reconstruction']['num_cpus'])
-        self.set_debug(config['look_up_reconstruction']['debug'])
-        self.set_verbose(config['look_up_reconstruction']['verbose'])
-        self.set_outputs(config['look_up_reconstruction']['outputs'])
-
-    # setters
-    def set_camera(self, camera: str | dict | Camera):
-        # if string, load the json file and get the parameters
-        # check if dict, get the parameters
-        if isinstance(camera, str) or isinstance(camera, dict):
-            self.camera.load_calibration(camera)
-        else:
-            self.camera = camera
-
-    def set_reconstruction_directory(self, path: str):
-        """
-
-        Parameters
-        ----------
-        path : str
-            path to directory containing multiple scene folders,
-            each with the images that match the "utils" and the "tables" images
-            for LookUp reconstruction
-        """
-        assert os.path.isdir(path), "This is not a directory. This function only works with a folder."
-        self.reconstruction_directory = os.path.abspath(path)
         
-    def set_lookup_table(self, lookup_table: str | np.ndarray):
-        """
-
-        Parameters
-        ----------
-        lookup_table : str or array_like
-            if string, must be path to load lookup table (.npy file)
-        """
-        if isinstance(lookup_table, str):
-            lookup_table = np.load(lookup_table)
-        self.lookup_table = lookup_table
-
-    def set_structure_grammar(self, structure_grammar: dict):
-        """
-        The structure grammar is the configuration to read images, look up tables, 
-        and create the depth maps/point clouds accordingly.
-        Example below:
-            structure_grammar = {
-                "name": "gray",
-                "images": ["img_02.tiff", "img_04.tiff", "img_06.tiff"],
-                "interpolant": {
-                    "active": true,
-                    "knots": [150, 160, 140],
-                    "samples": 1000
-                },
-                "utils": {
-                    "white": "white.tiff",
-                    "colors: "white.tiff,
-                    "black": "black.tiff",
-                }
-            }
-        The list of strings are the images which will be used
-        to create a look up table with the key name.
-        """
-        self.structure_grammar = structure_grammar
-
-    def set_roi(self, roi: list | np.ndarray):
-        """
-
-        Parameters
-        ----------
-        roi : list or set
-            xyxy region of interest to reduce size of look up tables 
-        
-        Note: set it to None if you would like to use the whole pixel array from the camera. 
-        """
-        self.roi = roi
-
-    def set_mask_threshold(self, thr: float):
-        """
-
-        Parameters
-        ----------
-        thr : float
-            
-        """
-        self.thr = min(1., max(0., float(thr)))
-
-    def set_parallelize_pixels(self, parallelize: bool):
-        """
-        Parameters
-        ----------
-        parallelize : bool
-            Whether to parallelize the pixel processing.
-        """
-        self.parallelize_pixels = parallelize
-
-    def set_num_cpus(self, num_cpus: int):
-        """
-        Parameters
-        ----------
-        num_cpus : int
-            Number of CPUs to use for parallel processing.
-        """
-        self.num_cpus = int(max(1, num_cpus))
-
-    def set_verbose(self, verbose: bool):
-        """
-        Parameters
-        ----------
-        verbose : bool
-            Whether to print messages while processing.
-            Default is False
-        """
-        self.verbose = verbose
-
-    def set_debug(self, debug: bool):
-        """
-        Parameters
-        ----------
-        verbose : bool
-            Whether to save extra debug results.
-            Default is False
-        """
-        self.debug = debug
-
-    def set_outputs(self, outputs: dict):
-        """
-        Parameters
-        ----------
-        outputs : dict
-            Dictionary containing which outputs to save.
-            outputs: {
-                "depth_map": True,
-                "point_cloud": True,
-                "loss_1": True,
-                "loss_2": True,
-                "loss_12": True,
-                "depth_12": True
-            }
-            Each can be set to True or False
-
-        Notes: 
-        - depth_map is a HxW numpy array containing depth per pixel of the result.
-        - point_cloud is a 3D numpy array of the result.
-        - loss_1 is a HxW numpy array containing the loss from the pixel and the first nearest neighbor.
-        - loss_2 is a HxW numpy array containing the loss from the pixel and the second nearest neighbor.
-        - loss_12 is a HxW numpy array containing the loss
-            from the first nearest neighbor and the second nearest neighbor.
-        - depth_12 is a HxW numpy array containing the depth distance
-            from the first nearest neighbor and the second nearest neighbor.
-        """
-        self.outputs = outputs
-
-    # getters
-    def mask_already_exists(self):
-        return os.path.exists(os.path.join(self.reconstruction_directory, 'mask.npy'))
-
-    # reconstruction functions
-    def extract_mask(self):
-        """
-        """
-        if self.mask_already_exists():
-            if self.verbose:
-                print('-' * 15)
-                print("Found mask -- loading it")
-            self.mask = np.load(os.path.join(self.reconstruction_directory, 'mask.npy'))
-        else:
-            if self.verbose:
-                print('-' * 15)
-                print("Extracting mask from white image")
-            self.mask = ImageUtils.extract_mask(self.white_image, self.thr)
-        
-    def decode_depth(self,
-                     pixel,
-                     lookup) -> tuple[float, float, float, float, float] | float:
-        """
-        TODO: replace slow np.argmin with some form of gradient descent
-        Consider scipy.optimize.minimize with Newton-CG, since we can get the first and
-        second order derivatives of the splines with scipy.interpolate.BSpline.derivative
-        """
-        color = lookup[::-1, :-1]
-        depth = lookup[::-1, -1]
-        if self.structure_grammar['interpolant']['active']:
-            knots = self.structure_grammar['interpolant']['knots']
-            samples = self.structure_grammar['interpolant']['samples']
-            color = spline_interpolant(depth, color, knots, samples)
-
-        loss = calculate_loss(color, pixel, ord=self.structure_grammar['loss']['order'])
-
-        if self.debug:
-            k_indices = k_smallest_indices(loss, 2)
-            return depth[k_indices[0]], loss[k_indices[0]], loss[k_indices[1]], np.linalg.norm(color[k_indices[0],:]-color[k_indices[1],:]), depth[k_indices[0]] - depth[k_indices[1]]
-        
-        k_indices = k_smallest_indices(loss, 1)
-        return depth[k_indices[0]]
-
-    def process_pixel(self, mask, pixel, lookup):
-        if not mask:
-            return None
-        return self.decode_depth(pixel, lookup)
-
-    def reconstruct(self):
-        """
-        """
-        if self.verbose:
-            print('-' * 15)
-            print("Beginning reconstruction")
-        # allocate the memory for depth_map
-        shape = self.normalized.shape[:2]
-        self.depth_map = np.full(shape=shape, fill_value=-1., dtype=np.float64).flatten()
-        if self.debug:
-            self.loss_1 = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.loss_2 = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.loss_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
-            self.depth_12 = np.zeros(shape=shape, dtype=np.float64).flatten()
-        
-        if self.parallelize_pixels:
-            if self.verbose:
-                print(f"Parallelizing with {self.num_cpus} CPU cores")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cpus) as executor:
-                futures = [executor.submit(self.process_pixel, mask, pixel, lookup)
-                           for mask, pixel, lookup in zip(self.mask.flatten(),
-                                                          self.normalized.reshape(-1, *self.normalized.shape[2:]),
-                                                          self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))]
-                concurrent.futures.wait(futures)  # Wait for all tasks to complete
-            for idx, results in enumerate(futures):
-                result = results.result()
-                if result is None:
-                    continue
-
-                if self.debug:
-                    self.depth_map[idx] = result[0]
-                    self.loss_1[idx] = result[1]
-                    self.loss_2[idx] = result[2]
-                    self.loss_12[idx] = result[3]
-                    self.depth_12[idx] = result[4]
-                else:
-                    self.depth_map[idx] = result
-        else:
-            # original sequential processing
-            for idx, (mask, pixel, lookup) in enumerate(zip(self.mask.flatten(),
-                                                            self.normalized.reshape(-1, *self.normalized.shape[2:]),
-                                                            self.lookup_table.reshape(-1, *self.lookup_table.shape[2:]))):
-                results = self.process_pixel(mask, pixel, lookup)
-                if results is None:
-                    continue
-
-                if self.debug:
-                    self.depth_map[idx] = results[0]
-                    self.loss_1[idx] = results[1]
-                    self.loss_2[idx] = results[2]
-                    self.loss_12[idx] = results[3]
-                    self.depth_12[idx] = results[4]
-                else:
-                    self.depth_map[idx] = results
-
-        if self.verbose:
-            print("Reshaping resulting arrays from 1D back to 2D")
-        self.depth_map = self.depth_map.reshape(shape)
-        if self.debug:
-            self.loss_1 = self.loss_1.reshape(shape)
-            self.loss_2 = self.loss_2.reshape(shape)
-            self.loss_12 = self.loss_12.reshape(shape)
-            self.depth_12 = self.depth_12.reshape(shape)
-
-    def save_outputs(self):
-        table_name = self.structure_grammar['name']
-        utils: dict = self.structure_grammar['utils']
-        roi: tuple = None if 'roi' not in utils else utils['roi']
-
-        if self.outputs['depth_map']:
-            np.save(os.path.join(self.reconstruction_directory,f"{table_name}_depth_map.npy"), self.depth_map)
-            if self.verbose:
-                print('-' * 15)
-                print("Saved depth map")
-
-        if self.outputs['point_cloud']:
-            if self.verbose:
-                print('-' * 15)
-                print("Constructing point cloud")
-
-            mask = (self.depth_map > 0).flatten()
-
-            self.point_cloud: np.ndarray = ThreeDUtils.point_cloud_from_depth_map(depth_map=self.depth_map,
-                                                                            K=self.camera.K,
-                                                                            dist_coeffs=self.camera.dist_coeffs,
-                                                                            R=self.camera.R,
-                                                                            T=self.camera.T,
-                                                                            roi=roi)
-            if self.verbose:
-                print("Extracting normals for point cloud")
-            self.normals = ThreeDUtils.normals_from_point_cloud(self.point_cloud)
-
-            if self.verbose:
-                print("Extracting colors for point cloud")
-            if 'colors' not in utils or utils['colors'] is None:
-                print("No color image set, therefore no color extraction for point cloud")
-            else:
-                color_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(self.reconstruction_directory, utils['colors'])), roi=utils['roi'])
-                minimum = np.min(color_image)
-                maximum = np.max(color_image)
-                self.colors: np.ndarray = ((color_image - minimum) / (maximum - minimum)).reshape((-1,3))
-
-            ThreeDUtils.save_ply(os.path.join(self.reconstruction_directory,f"{table_name}_point_cloud.ply"),
-                                 self.point_cloud[mask],
-                                 self.normals[mask],
-                                 self.colors[mask])
-            if self.verbose:
-                print("Saved point cloud")
-
-        if self.outputs['mask']:
-            np.save(os.path.join(self.reconstruction_directory,"mask.npy"), self.mask)
-            if self.verbose:
-                print('-' * 15)
-                print("Saved mask")
-
-        if self.debug:
-            np.savez_compressed(os.path.join(self.reconstruction_directory,f"{table_name}_debug.npz"),
-                            loss_1=self.loss_1,
-                            loss_2=self.loss_2,
-                            loss_12=self.loss_12,
-                            depth_12=self.depth_12)
-            if self.verbose:
-                print('-' * 15)
-                print("Saved extra outputs because debug is set to True")
-
-    def run(self):
-        self.process_position(self.reconstruction_directory, self.structure_grammar)
-        self.reconstruct()
-        self.save_outputs()
-
-    @staticmethod
-    def process_position(folder: str, structure_grammar: dict) -> np.ndarray:
-        """
-        Processes the #N HxW pattern images and returns the normalized image (HxWxN).
-        """
-        name = structure_grammar['name']
-        images: list[str] = structure_grammar['images']
-        utils: dict = structure_grammar['utils']
-
-        roi: tuple = None if 'roi' not in utils else utils['roi']
-
-        if os.path.exists(os.path.join(folder, f'{name}.npz')):
-            print('-' * 15)
-            print("Found normalized -- skipping normalization")
-            normalized = np.load(os.path.join(folder, f"{name}.npz"))['pattern']
-        else:
-            print('-' * 15)
-            print("Normalizing image")
-
-            pattern_images =  ImageUtils.crop(np.concatenate([np.atleast_3d(ImageUtils.load_ldr(os.path.join(folder, image))) for image in images], axis=2), roi=roi)
-            white_image = ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['white'])), roi=roi)
-            
-            if 'black' in utils:
-                black_image = None if utils['black'] is None else ImageUtils.crop(ImageUtils.load_ldr(os.path.join(folder, utils['black'])), roi=roi)
-            
-            normalized = ImageUtils.normalize_color(color_image=pattern_images,
-                                                    white_image=white_image,
-                                                    black_image=black_image)
-            np.savez_compressed(os.path.join(folder, f"{name}.npz"), pattern=normalized)
-
-        return normalized
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Look Up Calibration and Reconstruction")
     parser.add_argument('-c', '--calibration_config', type=str, default=None,
@@ -861,9 +903,11 @@ if __name__ == "__main__":
     parser.add_argument('--depth', default=False, action=argparse.BooleanOptionalAction,
                         help="Flag to set if LookUp Calibration should (Re)Calculate Depth")
     parser.add_argument('--normalize', default=False, action=argparse.BooleanOptionalAction,
-                        help="Flag to set if LookUp Calibration should (Re)Normalize Pattern")
-    parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
-                    help='Path to config JSON with parameters for LookUp Reconstruction')
+                        help="Flag to set if LookUp should (Re)Normalize Pattern")
+    # parser.add_argument('--gpu', default=False, action=argparse.BooleanOptionalAction,
+                        # help="Flag to set if LookUp Reconstruction should use GPU (cuda only)")
+    # parser.add_argument('-r', '--reconstruction_config', type=str, default=None,
+                    # help='Path to config JSON with parameters for LookUp Reconstruction')
 
     args = parser.parse_args()
 
@@ -871,6 +915,6 @@ if __name__ == "__main__":
         luc = LookUpCalibration(args.calibration_config)
         luc.run(args.depth, args.normalize)
 
-    if args.reconstruction_config is not None:
-        lur = LookUpReconstruction(args.reconstruction_config)
-        lur.run()
+    # if args.reconstruction_config is not None:
+    #     lur = LookUpReconstruction(args.reconstruction_config)
+    #     lur.run(args.normalize, args.gpu)

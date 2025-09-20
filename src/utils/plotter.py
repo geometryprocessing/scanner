@@ -3,8 +3,44 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
-from src.utils.image_utils import ImageUtils
-from src.utils.three_d_utils import ThreeDUtils
+from src.utils.image_utils import undistort_camera_points
+from src.utils.three_d_utils import get_origin
+
+def array_to_cmap(values, vmin=None, vmax=None, cmap=None):
+    '''
+    A utility function for Torch/Numpy that maps a grayscale image to a matplotlib
+    colormap for use with TensorBoard image summaries.
+    By default it will normalize the input value to the range 0..1 before mapping
+    to a grayscale colormap.
+
+    Parameters
+    ----------
+    values : array
+        1D Tensor of shape [N] or 2D Tensor of shape [N, 1].
+    vmin : float
+        the minimum value of the range used for normalization.
+        (Default: value minimum)
+    vmax : float
+        the maximum value of the range used for normalization.
+        (Default: value maximum)
+    cmap : str
+        a valid cmap named for use with matplotlib's `get_cmap`.
+        (Default: Matplotlib default colormap)
+
+    Returns a 4D uint8 numpy of shape [N, 4].
+    '''
+    vmin = values.min() if vmin is None else vmin
+    vmax = values.max() if vmax is None else vmax
+    if vmin!=vmax:
+        values = (values - vmin) / (vmax - vmin) # vmin..vmax
+    else:
+        # Avoid 0-division
+        values = values*0.
+        
+    cmapper = mpl.cm.get_cmap(cmap)
+    values = cmapper(values)
+    return values
+
 
 def line(ax, p1, p2, *args, **kwargs):
     ax.plot(np.array([p1[0], p2[0]]), np.array([p1[1], p2[1]]), np.array([p1[2], p2[2]]), *args, **kwargs)
@@ -67,7 +103,7 @@ class Plotter:
         points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
 
         # undistort points
-        undistorted_points = ImageUtils.undistort_camera_points(points,
+        undistorted_points = undistort_camera_points(points,
                                                      K, 
                                                      dist_coeffs,
                                                      P=K)
@@ -183,7 +219,7 @@ class Plotter:
 
             T = obj.get_translation()
             R = obj.get_rotation()
-            origin = ThreeDUtils.get_origin(R, T).flatten()
+            origin = get_origin(R, T).flatten()
             orientation = R.T
             # origin = T.flatten()
             basis(ax, origin, orientation, length=50)

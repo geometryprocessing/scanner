@@ -256,7 +256,7 @@ def blockLookup(L, Q, dtype, block_size: int = 256):
         L = L.reshape(HW, Z, C)
         Q = Q.reshape(HW, C)
     numBlocks = (HW // block_size) + (1 if HW % block_size != 0 else 0)
-    minD = xp.zeros((HW), dtype=xp.long)
+    minD = xp.zeros((HW), dtype=xp.int32)
     loss = xp.zeros((HW), dtype=(xp.float32 if dtype in [xp.float16, xp.float32] else xp.int32))
     for block in range(numBlocks):
         sy, ey = block * block_size, min(HW, ((block+1) * block_size))

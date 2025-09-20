@@ -3,6 +3,30 @@ from natsort import natsorted
 import numpy as np
 import os
 
+def is_int(elem) -> bool:
+    """
+    Hacky way to check if a given element can be converted to integer.
+    """
+    if elem is None:
+        return False
+    try:
+        int(elem)
+        return True
+    except ValueError:
+        return False
+
+def is_float(elem) -> bool:
+    """
+    Hacky way to check if a given element can be converted to float.
+    """
+    if elem is None:
+        return False
+    try:
+        float(elem)
+        return True
+    except ValueError:
+        return False
+
 def ensure_exists(path: str):
     """
     Check if path to folder exists. If not, create it.

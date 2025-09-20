@@ -5,7 +5,7 @@ import os
 
 from src.scanner.camera import Camera, get_cam_config
 from src.scanner.projector import Projector, get_proj_config
-from src.utils.file_io import save_json, load_json
+from src.utils.file_io import is_int, is_float, save_json, load_json
 
 class ReconstructionConfig:
     def __init__(self,
@@ -241,9 +241,14 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
             if '=' in s:
                 k = s[2:s.index('=')]
                 v = s[s.index('=') + 1:]
-                # Handle commas, assume list
+                # Handle commas with no spaces, assume list
                 if ',' in s:
                     v = v.split(',')
+                    # Handle ints and floats next
+                    if all([is_int(elem) for elem in v]):
+                        v = [int(elem) for elem in v]
+                    elif all([is_float(elem) for elem in v]):
+                        v = [float(elem) for elem in v]
             else:
                 k = s[2:]
                 v = True

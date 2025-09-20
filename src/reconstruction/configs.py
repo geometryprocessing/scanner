@@ -5,7 +5,7 @@ import os
 
 from src.scanner.camera import Camera, get_cam_config
 from src.scanner.projector import Projector, get_proj_config
-from src.utils.file_io import is_int, is_float, save_json, load_json
+from src.utils.file_io import is_int, is_float, save_json, load_json, parse_value
 
 class ReconstructionConfig:
     def __init__(self,
@@ -225,16 +225,7 @@ def apply_cmdline_args(config, unknown_args, return_dict=False):
     unused_args = dict() if return_dict else list()
     if unknown_args is None:
         return unused_args
-
-    def parse_value(dest_type, value):
-        if value == 'None':
-            return None
-        if dest_type == bool:
-            return value.lower() in ['true', '1']
-        if dest_type == list and not isinstance(value, list):
-            return [value]
-        return dest_type(value)
-
+    
     # Parse input list of strings key=value
     input_args = {}
     if isinstance(unknown_args, list):

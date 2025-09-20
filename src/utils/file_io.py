@@ -3,6 +3,15 @@ from natsort import natsorted
 import numpy as np
 import os
 
+def parse_value(dest_type, value):
+    if value == 'None':
+        return None
+    if dest_type == bool:
+        return value.lower() in ['true', '1']
+    if dest_type == list and not isinstance(value, list):
+        return [value]
+    return dest_type(value)
+
 def is_int(elem) -> bool:
     """
     Hacky way to check if a given element can be converted to integer.

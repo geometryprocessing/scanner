@@ -23,6 +23,17 @@ class TestFileIO(unittest.TestCase):
         expected = [True] * 5 + [False] * 5
         self.assertListEqual(result, expected,
                                msg='First 15 elements should be true, rest 15 should be false')
+        
+    def test_is_json(self):
+        test_files = ['hello.JSON', '/hello/world/hey.json', 'hello_world.JsOn',
+                      'hello.txt', 'hello.JPG', 'hello.py',
+                      'hello.conf', 'hello.exe', '/',
+                      '', '.json', '/.json']
+        result = [is_json(file) for file in test_files]
+        expected = [True] * 3 + [False] * 9
+        self.assertListEqual(result, expected,
+                               msg='First 3 file paths should be true, rest 9 should be false')
+        
 
 if __name__ == '__main__':
     unittest.main()

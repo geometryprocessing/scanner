@@ -26,6 +26,15 @@ def is_float(elem) -> bool:
         return True
     except ValueError:
         return False
+    
+def is_json(filename) -> bool:
+    """
+    Check if a given path to file is JSON object.
+
+    NOTE: This function does not check if file exists.
+    """
+    _, ext = os.path.splitext(filename)
+    return ext.lower() == '.json'
 
 def ensure_exists(path: str):
     """

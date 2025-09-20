@@ -11,6 +11,7 @@ try:
     def get_array_module(*args):
         return cp.get_array_module(*args)
     CUDA_AVAILABLE = cp.cuda.is_available()
+    print("CUDA Availability: ", CUDA_AVAILABLE)
 except ImportError:
     print("cupy not found. Using numpy fallback everywhere.")
     def get_array_module(*args):
@@ -28,18 +29,16 @@ from src.utils.image_utils import extract_mask, normalize_color, \
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
 
-def load_lut(filename: str, is_lowrank, use_gpu: bool = False, gpu_device: int = 0):
+def load_lut(filename: str, is_lowrank: bool = False, use_gpu: bool = False, gpu_device: int = 0):
     lookup_table = load_lowrank_table(filename) if is_lowrank else np.load(filename)
-
-    # TODO: check if shape matches roi's shape
 
     lut = lookup_table[...,:-1]
     dep = lookup_table[...,-1]
 
     if use_gpu and CUDA_AVAILABLE:
         with cp.cuda.Device(gpu_device):
-            lut = cp.ndarray(lut)
-            dep = cp.ndarray(dep)
+            lut = cp.array(lut)
+            dep = cp.array(dep)
 
     return lut, dep
     
@@ -142,8 +141,8 @@ def process_position(folder: str,
 
         if config.use_gpu and CUDA_AVAILABLE:
             with cp.cuda.Device(config.gpu_device):
-                normalized = cp.ndarray(normalized)
-                mask = cp.ndarray(mask)
+                normalized = cp.array(normalized)
+                mask = cp.array(mask)
 
         return normalized, mask, colors
 
@@ -160,19 +159,22 @@ def save_reconstruction_outputs(folder: str,
     table_name = config.name
 
     if config.save_depth_map and depth_map is not None:
-        np.save(os.path.join(folder,f"{table_name}_depth_map.npy"), depth_map)
+        xp = get_array_module(depth_map)
+        xp.save(os.path.join(folder,f"{table_name}_depth_map.npy"), depth_map)
         if config.verbose:
             print('-' * 15)
             print("Saved depth map")
     
     if config.save_loss_map and loss_map is not None:
-        np.save(os.path.join(folder,f"{table_name}_loss_map.npy"), loss_map)
+        xp = get_array_module(loss_map)
+        xp.save(os.path.join(folder,f"{table_name}_loss_map.npy"), loss_map)
         if config.verbose:
             print('-' * 15)
             print("Saved loss map")
 
     if config.save_index_map and index_map is not None:
-        np.save(os.path.join(folder,f"{table_name}_index_map.npy"), index_map)
+        xp =get_array_module(index_map)
+        xp.save(os.path.join(folder,f"{table_name}_index_map.npy"), index_map)
         if config.verbose:
             print('-' * 15)
             print("Saved index map")
@@ -184,12 +186,12 @@ def save_reconstruction_outputs(folder: str,
 
         pcd_mask = (depth_map > 0).flatten() & (loss_map < config.loss_thr).flatten()
 
-        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=depth_map,
-                                                                        K=config.camera.K,
-                                                                        dist_coeffs=config.camera.dist_coeffs,
-                                                                        R=config.camera.R,
-                                                                        T=config.camera.T,
-                                                                        roi=config.roi)
+        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=np.asarray(depth_map),
+                                                             K=config.camera.K,
+                                                             dist_coeffs=config.camera.dist_coeffs,
+                                                             R=config.camera.R,
+                                                             T=config.camera.T,
+                                                             roi=config.roi)
 
         if config.verbose:
             print("Extracting colors for point cloud")
@@ -199,6 +201,9 @@ def save_reconstruction_outputs(folder: str,
             save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                 point_cloud.reshape((-1,3))[pcd_mask])
         else:
+            dtype = colors.dtype
+            m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
+            colors = (colors / m).astype(np.float32)
             save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                                 point_cloud.reshape((-1,3))[pcd_mask],
                                 colors=colors.reshape((-1,3))[pcd_mask])

@@ -32,7 +32,13 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     # COARSE-TO-FINE
     for frame_path in c2f_frames:
         normalized, mask, colors = process_position(frame_path, config)
-        depth_map, loss_map, index_map = c2f_lut(lut, dep, normalized, config.c2f_ks, config.c2f_deltas, mask=mask)
+        depth_map, loss_map, index_map = c2f_lut(lut,
+                                                 dep,
+                                                 normalized,
+                                                 config.c2f_ks,
+                                                 config.c2f_deltas,
+                                                 block_size=config.block_size,
+                                                 mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -44,7 +50,11 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     # NAIVE
     for frame_path in naive_frames:
         normalized, mask, colors = process_position(frame_path, config)
-        depth_map, loss_map, index_map = naive_lut(lut, dep, normalized, config.block_size, config.use_gpu, mask=mask)
+        depth_map, loss_map, index_map = naive_lut(lut,
+                                                   dep,
+                                                   normalized,
+                                                   block_size=config.block_size,
+                                                   mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -58,7 +68,13 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
         normalized, mask, colors = process_position(frame_path, config)
         prior_index_map = gaussian_blur(replace_with_nearest(index_map, '=', 0), sigmas=config.tc_blur_sigma)
         prior_index_map = replace_with_nearest(loss_map, '<', config.loss_thr, prior_index_map)
-        depth_map, loss_map, index_map = tc_lut(lut, dep, normalized, config.tc_deltas[-1], (prior_index_map).astype(np.uint16), mask=mask)
+        depth_map, loss_map, index_map = tc_lut(lut,
+                                                dep,
+                                                normalized,
+                                                config.tc_deltas[-1],
+                                                (prior_index_map).astype(np.uint16),
+                                                block_size=config.block_size,
+                                                mask=mask)
         save_reconstruction_outputs(folder=frame_path,
                                     mask=mask,
                                     depth_map=depth_map,
@@ -81,17 +97,15 @@ def main(args):
     parser.add_argument('--print_params', '-pp', action='store_true', help='Print the parameters of the provided scene and exit.')
     args, uargs = parser.parse_known_args(args)
 
+    assert os.path.isdir(args.input), "Input path is not a valid directory."
+
     if any(not is_valid_config(config) for config in args.configs):
         raise ValueError(f'Unknown lookup config detected: {args.configs}')
 
     for config_name in args.configs:
-        config: LookUp3DConfig = get_config(config_name)
-        lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)
-        base_path = os.path.join(args.input, config.cam.filename)
-        
-        # TODO: with multiview, command line arguments will apply to all cameras
-        # how would I like for the ability to change each separately?
-        remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
+        config, remaining_args = get_config(config_name, uargs)
+        base_path = args.input
+        # remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if config.verbose:
             print(f"Starting {base_path} folder with config {config_name}")
         
@@ -99,6 +113,7 @@ def main(args):
             print(config.to_dict())
             continue
 
+        lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)
         reconstruct(lut, dep, base_path, config)
         config.dump_json(os.path.join(base_path), f'{config_name}_lookup_reconstruction_config.json')
 

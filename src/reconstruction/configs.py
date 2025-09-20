@@ -123,7 +123,7 @@ class LookUp3DConfig(ReconstructionConfig):
                 is_lowrank: bool = False,
                 use_gpu: bool = False, gpu_device: int = 0, block_size: int = 65536,
                 use_coarse_to_fine: bool = False, c2f_ks: list[int] = [], c2f_deltas: list[int] = [],
-                use_temporal_consistency: bool = False, tc_deltas: list[int] = [],
+                use_temporal_consistency: bool = False, tc_deltas: list[int] = [], tc_blur_sigma: int = 5,
                 save_depth_map: bool = True, save_point_cloud: bool = True,
                 save_loss_map: bool = True, save_index_map: bool = False):
 
@@ -158,6 +158,7 @@ class LookUp3DConfig(ReconstructionConfig):
         # temporal consistency
         self.use_temporal_consistency = use_temporal_consistency
         self.tc_deltas = tc_deltas
+        self.tc_blur_sigma = tc_blur_sigma # TODO: consider if blur sigma is necessary here
 
         # output exclusive to lookup
         self.save_loss_map = save_loss_map

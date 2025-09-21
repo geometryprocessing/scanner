@@ -173,7 +173,7 @@ def save_reconstruction_outputs(folder: str,
             print("Saved loss map")
 
     if config.save_index_map and index_map is not None:
-        xp =get_array_module(index_map)
+        xp = get_array_module(index_map)
         xp.save(os.path.join(folder,f"{table_name}_index_map.npy"), index_map)
         if config.verbose:
             print('-' * 15)
@@ -185,8 +185,9 @@ def save_reconstruction_outputs(folder: str,
             print("Constructing point cloud")
 
         pcd_mask = (depth_map > 0).flatten() & (loss_map < config.loss_thr).flatten()
-
-        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=np.asarray(depth_map),
+        if get_array_module(pcd_mask) != np:
+            pcd_mask = pcd_mask.get()
+        point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=depth_map if get_array_module(depth_map) == np else depth_map.get(),
                                                              K=config.camera.K,
                                                              dist_coeffs=config.camera.dist_coeffs,
                                                              R=config.camera.R,
@@ -201,6 +202,8 @@ def save_reconstruction_outputs(folder: str,
             save_point_cloud(os.path.join(folder,f"{table_name}_point_cloud.ply"),
                 point_cloud.reshape((-1,3))[pcd_mask])
         else:
+            if get_array_module(colors) != np:
+                colors = colors.get()
             dtype = colors.dtype
             m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
             colors = (colors / m).astype(np.float32)

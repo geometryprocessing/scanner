@@ -94,6 +94,7 @@ def process_position(folder: str,
         mask : array_like
             array of shape HxW containing mask values to reduce computation time
             if use_gpu, returns cupy ndarray, else return numpy ndarray
+            if mask_thr in config is close to zero or negative, then mask is None
         colors : np.ndarray
             array of shape HxWx3 containing RGB values
             this is passed to point cloud, so that it is stored with color
@@ -118,8 +119,13 @@ def process_position(folder: str,
                 black_image = crop(load_ldr(os.path.join(folder, config.black_image)), roi=roi)
         
         mask_thr: float = config.mask_thr
-        image_for_mask = pattern_images if config.use_pattern_for_mask else white_image 
-        mask = generate_mask_binary_structure(convert_to_gray(image_for_mask), mask_thr) if config.use_binary_mask else extract_mask(image_for_mask, mask_thr)
+        image_for_mask = pattern_images if config.use_pattern_for_mask else white_image
+        # if mask_thr close to zero or negative, don't calculate mask
+        if np.isclose(mask_thr, 0.) or mask_thr < 0:
+            mask = None
+        else:
+            mask = generate_mask_binary_structure(convert_to_gray(image_for_mask), mask_thr) \
+                if config.use_binary_mask else extract_mask(np.atleast_3d(image_for_mask), mask_thr)
 
 
         normalized = normalize_color(color_image=pattern_images,
@@ -142,7 +148,7 @@ def process_position(folder: str,
         if config.use_gpu and CUDA_AVAILABLE:
             with cp.cuda.Device(config.gpu_device):
                 normalized = cp.array(normalized)
-                mask = cp.array(mask)
+                mask = None if mask is None else cp.array(mask) # cupy throws error if cp.array(None)
 
         return normalized, mask, colors
 

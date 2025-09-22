@@ -76,7 +76,7 @@ def lookup_with_mask(L, Q, mask):
         best_idx = -1
         best_val = 1e30
 
-        if mask[i] in [1, 'True']:
+        if mask[i]:
             for j in range(Z):
                 dist = 0.0
                 for k in range(C):

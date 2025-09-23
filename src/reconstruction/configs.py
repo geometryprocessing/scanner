@@ -228,6 +228,7 @@ CONFIG_DICTS = [
     },
     {
         'name': 'lookup-dynamic-base',
+        'config_class': LookUp3DConfig,
         'camera': 'chronoscamera',
         'images': ['pattern.tiff'],
         'white_image': 'white.tiff',
@@ -248,21 +249,23 @@ CONFIG_DICTS = [
     },
     {
         'name': 'lookup-gsf21-april-2025',
+        'parent': 'lookup-dynamic-base',
         'roi': (600, 200, 1500, 850),
     },
     {
         'name': 'lookup-gsf21-lowrank-april-2025',
+        'parent': 'lookup-dynamic-base',
         'is_lowrank': True,
         'roi': (650, 200, 1300, 850)
     },
     {
         'name': 'lookup-triton1',
-        'parent': 'lookyp-dynamic-base',
+        'parent': 'lookup-dynamic-base',
         'camera': 'triton1camera'
     },
     {
         'name': 'lookup-triton2',
-        'parent': 'lookyp-dynamic-base',
+        'parent': 'lookup-dynamic-base',
         'camera': 'triton2camera'
     }
 ]

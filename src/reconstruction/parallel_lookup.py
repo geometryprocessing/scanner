@@ -2,7 +2,7 @@ from numba import jit, prange
 import numpy as np
 
 @jit(nopython=True, parallel=True)
-def lookup_no_mask(L, Q):
+def lookup_3dim_no_mask(L, Q):
     """
     This function relies on numba to parallelize lookup on L given Q.
 
@@ -45,7 +45,7 @@ def lookup_no_mask(L, Q):
     return minD, loss
 
 @jit(nopython=True, parallel=True)
-def lookup_with_mask(L, Q, mask):
+def lookup_3dim_with_mask(L, Q, mask):
     """
     This function relies on numba to parallelize lookup on L given Q.
 
@@ -92,28 +92,134 @@ def lookup_with_mask(L, Q, mask):
 
     return minD, loss
 
+
+@jit(nopython=True, parallel=True)
+def lookup_4dim_no_mask(L, Q):
+    """
+    This function relies on numba to parallelize lookup on L given Q.
+
+    Parameters
+    ----------
+    L : H x W x Z x C numpy array of float32
+        lookup table
+    Q : H x W x C numpy array of float32
+        normalized image to query on the lookup table
+    
+    Returns
+    -------
+    minD : H x W numpy array of int32
+        index of the minimum value along Z axis
+    loss_map : H x W numpy array of float32
+        minimum value along Z axis
+    """
+    H, W, Z, C = L.shape
+
+    minD = np.zeros((H, W), dtype=np.int32)
+    loss = np.zeros((H, W), dtype=np.float32)
+
+    for i in prange(H):
+        for j in range(W):
+            best_idx = -1
+            best_val = 1e30
+
+            for k in range(Z):
+                dist = 0.0
+                for c in range(C):
+                    diff = L[i, j, k, c] - Q[i, j, c]
+                    dist += diff * diff
+
+                if dist < best_val:
+                    best_val = dist
+                    best_idx = j
+
+            minD[i,j] = best_idx
+            loss[i,j] = best_val
+
+    return minD, loss
+
+@jit(nopython=True, parallel=True)
+def lookup_4dim_with_mask(L, Q, mask):
+    """
+    This function relies on numba to parallelize lookup on L given Q.
+
+    Parameters
+    ----------
+    L : H x W x Z x C numpy array of float32
+        lookup table
+    Q : H x W x C numpy array of float32
+        normalized image to query on the lookup table
+    mask : H x W numpy of bool
+        mask where lookup should not be performed
+        if mask[i,j] == False, then minD[i,j] = -1 and loss[i,j] = 1e30
+
+    
+    Returns
+    -------
+    minD : H x W numpy array of int32
+        index of the minimum value along Z axis
+    loss_map : H x W numpy array of float32
+        minimum value along Z axis
+    """
+    H, W, Z, C = L.shape
+
+    minD = np.zeros((H, W), dtype=np.int32)
+    loss = np.zeros((H, W), dtype=np.float32)
+
+    for i in prange(H):
+        for j in range(W):
+            best_idx = -1
+            best_val = 1e30
+            
+            if mask[i,j]:
+                for k in range(Z):
+                    dist = 0.0
+                    for c in range(C):
+                        diff = L[i, j, k, c] - Q[i, j, c]
+                        dist += diff * diff
+
+                    if dist < best_val:
+                        best_val = dist
+                        best_idx = j
+
+            minD[i,j] = best_idx
+            loss[i,j] = best_val
+
+    return minD, loss
+
+
 def lookup(L, Q, mask=None):
     """
     Overloaded parallel lookup function, where mask is an optional argument.
 
     Parameters
     ----------
-    L : HW x Z x C numpy array of float32
-        flattened lookup table
-    Q : HW x C numpy array of float32
-        flattened normalized image to query on the lookup table
-    mask : HW numpy of bool, optional
-        flattened mask 
+    L : H x W x Z x C or HW x Z x C numpy array of float32
+        lookup table
+    Q : H x W x C or HW x C numpy array of float32
+        normalized image to query on the lookup table
+    mask : H x W or HW numpy of bool, optional
+        mask 
 
     Returns
     -------
-    minD : HW numpy array of int32
+    minD : H x W or HW numpy array of int32
         index of the minimum value along Z axis
-    loss_map : HW numpy array of float32
+    loss_map : H x W or HW numpy array of float32
         minimum value along Z axis
-    
     """
-    if mask is None:
-        return lookup_no_mask(L, Q)
+    Lshape = L.shape
+    if (Lshape[:-2] + Lshape[-1:]) == Q.shape:
+        raise ValueError('L and Q do not match shapes')
+
+    if len(Lshape) == 3:
+        if mask is None:
+            return lookup_3dim_no_mask(L, Q)
+        else:
+            return lookup_3dim_with_mask(L, Q, mask)
+    elif len(Lshape) == 4:
+        if mask is None:
+            return lookup_4dim_no_mask(L, Q)
+        else:
+            return lookup_4dim_with_mask(L, Q, mask)
     else:
-        return lookup_with_mask(L, Q, mask)
+        raise ValueError('Unrecongized shape of LookUp Table')

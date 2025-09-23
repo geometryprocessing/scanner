@@ -130,7 +130,7 @@ def lookup_4dim_no_mask(L, Q):
 
                 if dist < best_val:
                     best_val = dist
-                    best_idx = j
+                    best_idx = k
 
             minD[i,j] = best_idx
             loss[i,j] = best_val
@@ -179,7 +179,7 @@ def lookup_4dim_with_mask(L, Q, mask):
 
                     if dist < best_val:
                         best_val = dist
-                        best_idx = j
+                        best_idx = k
 
             minD[i,j] = best_idx
             loss[i,j] = best_val
@@ -208,7 +208,7 @@ def lookup(L, Q, mask=None):
         minimum value along Z axis
     """
     Lshape = L.shape
-    if (Lshape[:-2] + Lshape[-1:]) == Q.shape:
+    if (Lshape[:-2] + Lshape[-1:]) != Q.shape:
         raise ValueError('L and Q do not match shapes')
 
     if len(Lshape) == 3:

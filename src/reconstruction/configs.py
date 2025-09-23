@@ -193,9 +193,9 @@ CONFIG_DICTS = [
         'white_image': 'green.tiff',
         'colors_image': 'white.tiff',
         'black_image': 'black.tiff',
-        'roi': (),
-        'mask_thr': 0.1,
-        'loss_thr': 0.1,
+        'roi': (), 
+        'mask_thr': 0.02,
+        'loss_thr': 0.5,
         'verbose': True,
         'use_gpu': False,
         'block_size': 65536,
@@ -212,11 +212,59 @@ CONFIG_DICTS = [
     {
         'name': 'lookup-half-gray',
         'parent': 'lookup-static-base',
-        'roi': [2500, 500, 4500, 2000],
+        'roi': (1800, 650, 4200, 2200),
         'images': ['gray_01.tiff', 'gray_03.tiff', 'gray_05.tiff', 'gray_07.tiff',
                     'gray_09.tiff', 'gray_11.tiff', 'gray_13.tiff', 'gray_15.tiff', 
                     'gray_17.tiff',  'gray_19.tiff', 'gray_21.tiff'],
     },
+    {
+        'name': 'lookup-colors',
+        'parent': 'lookup-static-base',
+        'roi': (1800, 650, 4200, 2200),
+        'loss_thr': 0.1,
+        'images': ['spiral_0.tiff', 'spiral_1.tiff', 'spiral_2.tiff',
+                   'random_0.tiff', 'random_1.tiff', 'random_2.tiff',
+                   'stairs_0.tiff', 'stairs_1.tiff', 'stairs_2.tiff']
+    },
+    {
+        'name': 'lookup-dynamic-base',
+        'camera': 'chronoscamera',
+        'images': ['pattern.tiff'],
+        'white_image': 'white.tiff',
+        'colors_image': 'colors.jpg',
+        'mask_thr': 0.05,
+        'loss_thr': 0.05,
+        'use_gpu': False,
+        'block_size': 65536,
+        'use_pattern_for_mask': False,
+        'use_binary_mask': False,
+        'denoise_input': False,
+        'blur_input': False,
+        'is_lowrank': False,
+        'save_point_cloud': True,
+        'save_depth_map': True,
+        'save_loss_map': True,
+        'save_index_map': True
+    },
+    {
+        'name': 'lookup-gsf21-april-2025',
+        'roi': (600, 200, 1500, 850),
+    },
+    {
+        'name': 'lookup-gsf21-lowrank-april-2025',
+        'is_lowrank': True,
+        'roi': (650, 200, 1300, 850)
+    },
+    {
+        'name': 'lookup-triton1',
+        'parent': 'lookyp-dynamic-base',
+        'camera': 'triton1camera'
+    },
+    {
+        'name': 'lookup-triton2',
+        'parent': 'lookyp-dynamic-base',
+        'camera': 'triton2camera'
+    }
 ]
 
 

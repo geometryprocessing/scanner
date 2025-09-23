@@ -233,6 +233,7 @@ CONFIG_DICTS = [
         'images': ['pattern.tiff'],
         'white_image': 'white.tiff',
         'colors_image': 'colors.jpg',
+        'black_image': None,
         'mask_thr': 0.05,
         'loss_thr': 0.05,
         'use_gpu': False,

@@ -107,7 +107,7 @@ def main(args):
         base_path = args.input
         # remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if config.verbose:
-            print(f"Starting {base_path} folder with config {config_name}")
+            print(f"Starting {base_path} folder with config {config.name}")
         
         if args.print_params:
             print(config.to_dict())
@@ -115,7 +115,7 @@ def main(args):
 
         lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)
         reconstruct(lut, dep, base_path, config)
-        config.dump_json(os.path.join(base_path, f'{config_name}_lookup_reconstruction_config.json'))
+        config.dump_json(os.path.join(base_path, f'{config.name}_lookup_reconstruction_config.json'))
 
 if __name__ == '__main__':
     main(sys.argv[1:])

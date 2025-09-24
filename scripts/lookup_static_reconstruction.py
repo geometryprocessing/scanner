@@ -64,10 +64,10 @@ def main(args):
                 continue
 
             if config.verbose:
-                print(f"Starting {base_path} folder with config {config_name}")
+                print(f"Starting {base_path} folder with config {config.name}")
 
             reconstruct(lut, dep, base_path, config)
-            config.dump_json(os.path.join(base_path, f'{config_name}_lookup_reconstruction_config.json'))
+            config.dump_json(os.path.join(base_path, f'{config.name}_lookup_reconstruction_config.json'))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

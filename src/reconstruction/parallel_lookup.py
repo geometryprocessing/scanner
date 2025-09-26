@@ -3,7 +3,7 @@ import numpy as np
 
 @jit(nopython=True, parallel=True)
 def ray_search(L, Q):
-    j = -1
+    best_idx = -1
     best_val = 1e30
     Z, C = L.shape
     for j in range(Z):

@@ -1,5 +1,22 @@
-from numba import jit, prange
+from numba import jit, prange, cuda
 import numpy as np
+
+@jit(nopython=True, parallel=True)
+def ray_search(L, Q):
+    j = -1
+    best_val = 1e30
+    Z, C = L.shape
+    for j in range(Z):
+        dist = 0.0
+        for k in range(C):
+            diff = L[j, k] - Q[k]
+            dist += diff * diff
+
+        if dist < best_val:
+            best_val = dist
+            best_idx = j
+
+    return best_idx, best_val
 
 @jit(nopython=True, parallel=True)
 def lookup_3dim_no_mask(L, Q):
@@ -22,22 +39,11 @@ def lookup_3dim_no_mask(L, Q):
     """
     HW, Z, C = L.shape
 
-    minD = np.zeros(HW, dtype=np.int32)
-    loss = np.zeros(HW, dtype=np.float32)
+    minD = np.full(HW, fill_value=-1, dtype=np.int32)
+    loss = np.full(HW, fill_value=1e30, dtype=np.float32)
 
     for i in prange(HW):
-        best_idx = -1
-        best_val = 1e30
-
-        for j in range(Z):
-            dist = 0.0
-            for k in range(C):
-                diff = L[i, j, k] - Q[i, k]
-                dist += diff * diff
-
-            if dist < best_val:
-                best_val = dist
-                best_idx = j
+        best_idx, best_val = ray_search(L[i], Q[i])
 
         minD[i] = best_idx
         loss[i] = best_val
@@ -69,26 +75,15 @@ def lookup_3dim_with_mask(L, Q, mask):
     """
     HW, Z, C = L.shape
 
-    minD = np.zeros(HW, dtype=np.int32)
-    loss = np.zeros(HW, dtype=np.float32)
+    minD = np.full(HW, fill_value=-1, dtype=np.int32)
+    loss = np.full(HW, fill_value=1e30, dtype=np.float32)
 
     for i in prange(HW):
-        best_idx = -1
-        best_val = 1e30
-
         if mask[i]:
-            for j in range(Z):
-                dist = 0.0
-                for k in range(C):
-                    diff = L[i, j, k] - Q[i, k]
-                    dist += diff * diff
+            best_idx, best_val = ray_search(L[i], Q[i])
 
-                if dist < best_val:
-                    best_val = dist
-                    best_idx = j
-
-        minD[i] = best_idx
-        loss[i] = best_val
+            minD[i] = best_idx
+            loss[i] = best_val
 
     return minD, loss
 
@@ -114,23 +109,12 @@ def lookup_4dim_no_mask(L, Q):
     """
     H, W, Z, C = L.shape
 
-    minD = np.zeros((H, W), dtype=np.int32)
-    loss = np.zeros((H, W), dtype=np.float32)
+    minD = np.full((H,W), fill_value=-1, dtype=np.int32)
+    loss = np.full((H,W), fill_value=1e30, dtype=np.float32)
 
     for i in prange(H):
         for j in range(W):
-            best_idx = -1
-            best_val = 1e30
-
-            for k in range(Z):
-                dist = 0.0
-                for c in range(C):
-                    diff = L[i, j, k, c] - Q[i, j, c]
-                    dist += diff * diff
-
-                if dist < best_val:
-                    best_val = dist
-                    best_idx = k
+            best_idx, best_val = ray_search(L[i,j], Q[i,j])
 
             minD[i,j] = best_idx
             loss[i,j] = best_val
@@ -162,27 +146,16 @@ def lookup_4dim_with_mask(L, Q, mask):
     """
     H, W, Z, C = L.shape
 
-    minD = np.zeros((H, W), dtype=np.int32)
-    loss = np.zeros((H, W), dtype=np.float32)
+    minD = np.full((H,W), fill_value=-1, dtype=np.int32)
+    loss = np.full((H,W), fill_value=1e30, dtype=np.float32)
 
     for i in prange(H):
         for j in range(W):
-            best_idx = -1
-            best_val = 1e30
-            
             if mask[i,j]:
-                for k in range(Z):
-                    dist = 0.0
-                    for c in range(C):
-                        diff = L[i, j, k, c] - Q[i, j, c]
-                        dist += diff * diff
+                best_idx, best_val = ray_search(L[i,j], Q[i,j])
 
-                    if dist < best_val:
-                        best_val = dist
-                        best_idx = k
-
-            minD[i,j] = best_idx
-            loss[i,j] = best_val
+                minD[i,j] = best_idx
+                loss[i,j] = best_val
 
     return minD, loss
 
@@ -222,4 +195,4 @@ def lookup(L, Q, mask=None):
         else:
             return lookup_4dim_with_mask(L, Q, mask)
     else:
-        raise ValueError('Unrecongized shape of LookUp Table')
+        raise ValueError('Unrecognized shape of LookUp Table')

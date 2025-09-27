@@ -1,10 +1,16 @@
 from numba import jit, prange, cuda
+import numba as nb
 import numpy as np
+
+
+####################################################################
+########                  CPU FUNCTIONS BELOW               ######## 
+####################################################################
 
 @jit(nopython=True, parallel=True)
 def ray_search(L, Q):
-    best_idx = -1
-    best_val = 1e30
+    best_idx = nb.int32(-1)
+    best_val = nb.float32(float('inf'))
     Z, C = L.shape
     for j in range(Z):
         dist = 0.0
@@ -40,7 +46,7 @@ def lookup_3dim_no_mask(L, Q):
     HW, Z, C = L.shape
 
     minD = np.full(HW, fill_value=-1, dtype=np.int32)
-    loss = np.full(HW, fill_value=1e30, dtype=np.float32)
+    loss = np.full(HW, fill_value=float('inf'), dtype=np.float32)
 
     for i in prange(HW):
         best_idx, best_val = ray_search(L[i], Q[i])
@@ -63,7 +69,7 @@ def lookup_3dim_with_mask(L, Q, mask):
         flattened normalized image to query on the lookup table
     mask : HW numpy of bool
         flattened mask where lookup should not be performed
-        if mask[i] == False, then minD[i] = -1 and loss[i] = 1e30
+        if mask[i] == False, then minD[i] = -1 and loss[i] = float('inf')
 
     
     Returns
@@ -76,7 +82,7 @@ def lookup_3dim_with_mask(L, Q, mask):
     HW, Z, C = L.shape
 
     minD = np.full(HW, fill_value=-1, dtype=np.int32)
-    loss = np.full(HW, fill_value=1e30, dtype=np.float32)
+    loss = np.full(HW, fill_value=float('inf'), dtype=np.float32)
 
     for i in prange(HW):
         if mask[i]:
@@ -110,7 +116,7 @@ def lookup_4dim_no_mask(L, Q):
     H, W, Z, C = L.shape
 
     minD = np.full((H,W), fill_value=-1, dtype=np.int32)
-    loss = np.full((H,W), fill_value=1e30, dtype=np.float32)
+    loss = np.full((H,W), fill_value=float('inf'), dtype=np.float32)
 
     for i in prange(H):
         for j in range(W):
@@ -134,7 +140,7 @@ def lookup_4dim_with_mask(L, Q, mask):
         normalized image to query on the lookup table
     mask : H x W numpy of bool
         mask where lookup should not be performed
-        if mask[i,j] == False, then minD[i,j] = -1 and loss[i,j] = 1e30
+        if mask[i,j] == False, then minD[i,j] = -1 and loss[i,j] = float('inf')
 
     
     Returns
@@ -147,7 +153,7 @@ def lookup_4dim_with_mask(L, Q, mask):
     H, W, Z, C = L.shape
 
     minD = np.full((H,W), fill_value=-1, dtype=np.int32)
-    loss = np.full((H,W), fill_value=1e30, dtype=np.float32)
+    loss = np.full((H,W), fill_value=float('inf'), dtype=np.float32)
 
     for i in prange(H):
         for j in range(W):
@@ -196,3 +202,155 @@ def lookup(L, Q, mask=None):
             return lookup_4dim_with_mask(L, Q, mask)
     else:
         raise ValueError('Unrecognized shape of LookUp Table')
+
+####################################################################
+########  GPU FUNCTIONS BELOW -- THESE WORK ONLY IN CUDA    ######## 
+####################################################################
+    
+@cuda.jit(device=True)
+def ray_search_gpu_3channel(L,Q):
+    Z, C = L.shape
+    best_idx = nb.int32(-1)
+    best_val = nb.float32(float('inf'))
+    for k in range(Z):
+        dist = 0.0
+        dist = (L[k, 0] - Q[0])**2\
+             + (L[k, 1] - Q[1])**2\
+             + (L[k, 2] - Q[2])**2
+
+        if dist < best_val:
+            best_val = dist
+            best_idx = k
+    return best_idx, best_val
+
+@cuda.jit(device=True)
+def ray_search_gpu_4channel(L,Q):
+    Z, C = L.shape
+    best_idx = nb.int32(-1)
+    best_val = nb.float32(float('inf'))
+    for k in range(Z):
+        dist = 0.0
+        dist = (L[k, 0] - Q[0])**2\
+             + (L[k, 1] - Q[1])**2\
+             + (L[k, 2] - Q[2])**2\
+             + (L[k, 3] - Q[3])**2
+
+        if dist < best_val:
+            best_val = dist
+            best_idx = k
+    return best_idx, best_val
+
+@cuda.jit
+def lookup_3dim_no_mask_gpu(L, D, Q, depth, minD, loss):
+    i, j = cuda.grid(2)
+    HW, Z, C = L.shape
+    if i < HW:
+        if C == 3:
+            best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
+        elif C == 4:
+            best_idx, best_val = ray_search_gpu_4channel(L[i], Q[i])
+            
+        depth[i] = D[i,best_idx]
+        minD[i] = best_idx
+        loss[i] = best_val
+
+@cuda.jit
+def lookup_3dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
+    i = cuda.grid(1)
+    HW, Z, C = L.shape
+
+    if i < HW:
+        if mask[i]:
+            if C == 3:
+                best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
+            elif C == 4:
+                best_idx, best_val = ray_search_gpu_4channel(L[i], Q[i])
+                
+            depth[i] = D[i,best_idx]
+            minD[i] = best_idx
+            loss[i] = best_val
+
+@cuda.jit
+def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
+    i, j = cuda.grid(2)
+    H, W, Z, C = L.shape
+    if i < H and j < W:
+        if C == 3:
+            best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
+        elif C == 4:
+            best_idx, best_val = ray_search_gpu_4channel(L[i,j], Q[i,j])
+            
+        depth[i,j] = D[i,j,best_idx]
+        minD[i,j] = best_idx
+        loss[i,j] = best_val
+
+@cuda.jit
+def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
+    i, j = cuda.grid(2)
+    H, W, Z, C = L.shape
+    if i < H and j < W:
+        if mask[i,j]:
+            if C == 3:
+                best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
+            elif C == 4:
+                best_idx, best_val = ray_search_gpu_4channel(L[i,j], Q[i,j])
+                
+            depth[i,j] = D[i,j,best_idx]
+            minD[i,j] = best_idx
+            loss[i,j] = best_val
+
+
+def lookup_gpu(L, D, Q, threadsPerBlock:int | tuple[int], mask=None):
+    """
+    Overloaded CUDA parallel lookup function, where mask is an optional argument.
+
+    Parameters
+    ----------
+    L : H x W x Z x C or HW x Z x C array of float32 on the GPU
+        lookup table
+    D : H x W z Z or HW x Z array of float 32 on the GPU
+        depth associated with lookup table values 
+    Q : H x W x C or HW x C array of float32 on the GPU
+        normalized image to query on the lookup table
+    mask : H x W or HW numpy of bool, optional
+        mask
+    threadsPerBlock : int or tuple of ints, optional
+        parameter for how many threads per block of GPU
+        This will dictate how many blocks we will generate.
+        If lookup table is 4 dimensional, then this should be
+        a tuple (threadsPerBlock_X, threadsPerBlock_Y).
+
+    Returns
+    -------
+    depth : H x W or HW array of float32 on the GPU
+        depth value retrieved from lookup search
+    minD : H x W or HW array of int32 on the GPU
+        index of the minimum value along Z axis
+    loss_map : H x W or HW array of float32 on the GPU
+        minimum squared euclidean distance between input and lookup
+    """
+    import cupy as cp
+    Lshape = L.shape
+    if (Lshape[:-2] + Lshape[-1:]) != Q.shape:
+        raise ValueError('L and Q do not match shapes')
+   
+    depth = cp.full(shape=Lshape[:-2], fill_value=-1, dtype=cp.float32)
+    minD = cp.full(shape=Lshape[:-2], fill_value=-1, dtype=cp.int32)
+    loss = cp.full(shape=Lshape[:-2], fill_value=float('inf'), dtype=cp.float32)
+
+    if len(Lshape) == 3:
+        blockspergrid = (Lshape[0] + threadsPerBlock[0]-1)//threadsPerBlock[0]
+        if mask is None:
+            lookup_3dim_no_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, depth, minD, loss)
+        else:
+            lookup_3dim_with_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, mask, depth, minD, loss)
+    elif len(Lshape) == 4:
+        blockspergrid = ((Lshape[0] + threadsPerBlock[0]-1)//threadsPerBlock[0], (Lshape[1] + threadsPerBlock[1]-1)//threadsPerBlock[1])
+        if mask is None:
+            lookup_4dim_no_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, depth, minD, loss)
+        else:
+            lookup_4dim_with_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, mask, depth, minD, loss)
+    else:
+        raise ValueError('Unrecognized shape of LookUp Table')
+    
+    return depth, minD, loss

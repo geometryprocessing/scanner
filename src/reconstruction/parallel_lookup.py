@@ -224,17 +224,15 @@ def ray_search_gpu_3channel(L,Q):
     return best_idx, best_val
 
 @cuda.jit(device=True)
-def ray_search_gpu_4channel(L,Q):
+def ray_search_gpu(L,Q):
     Z, C = L.shape
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
     for k in range(Z):
         dist = 0.0
-        dist = (L[k, 0] - Q[0])**2\
-             + (L[k, 1] - Q[1])**2\
-             + (L[k, 2] - Q[2])**2\
-             + (L[k, 3] - Q[3])**2
-
+        for c in range(C):
+            diff = L[k,c] - Q[c]
+            dist = cuda.fma(diff,diff,dist)
         if dist < best_val:
             best_val = dist
             best_idx = k
@@ -247,8 +245,8 @@ def lookup_3dim_no_mask_gpu(L, D, Q, depth, minD, loss):
     if i < HW:
         if C == 3:
             best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
-        elif C == 4:
-            best_idx, best_val = ray_search_gpu_4channel(L[i], Q[i])
+        else:
+            best_idx, best_val = ray_search_gpu(L[i], Q[i])
             
         depth[i] = D[i,best_idx]
         minD[i] = best_idx
@@ -263,8 +261,8 @@ def lookup_3dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
         if mask[i]:
             if C == 3:
                 best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
-            elif C == 4:
-                best_idx, best_val = ray_search_gpu_4channel(L[i], Q[i])
+            else:
+                best_idx, best_val = ray_search_gpu(L[i], Q[i])
                 
             depth[i] = D[i,best_idx]
             minD[i] = best_idx
@@ -277,8 +275,8 @@ def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
     if i < H and j < W:
         if C == 3:
             best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
-        elif C == 4:
-            best_idx, best_val = ray_search_gpu_4channel(L[i,j], Q[i,j])
+        else:
+            best_idx, best_val = ray_search_gpu(L[i,j], Q[i,j])
             
         depth[i,j] = D[i,j,best_idx]
         minD[i,j] = best_idx
@@ -292,8 +290,8 @@ def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
         if mask[i,j]:
             if C == 3:
                 best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
-            elif C == 4:
-                best_idx, best_val = ray_search_gpu_4channel(L[i,j], Q[i,j])
+            else:
+                best_idx, best_val = ray_search_gpu(L[i,j], Q[i,j])
                 
             depth[i,j] = D[i,j,best_idx]
             minD[i,j] = best_idx

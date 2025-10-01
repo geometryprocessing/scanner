@@ -1,6 +1,7 @@
 from numba import jit, prange, cuda
 import numba as nb
 import numpy as np
+import math
 
 
 ####################################################################
@@ -207,8 +208,9 @@ def lookup(L, Q, mask=None):
 ########  GPU FUNCTIONS BELOW -- THESE WORK ONLY IN CUDA    ######## 
 ####################################################################
     
+### THE SEQUENTIAL FUNCTIONS DO NOT TAKE ADVATANGE OF PARALLEL REDUCTION
 @cuda.jit(device=True)
-def ray_search_gpu_3channel(L,Q):
+def sequential_ray_search_gpu_3channel(L,Q):
     Z, C = L.shape
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
@@ -224,7 +226,7 @@ def ray_search_gpu_3channel(L,Q):
     return best_idx, best_val
 
 @cuda.jit(device=True)
-def ray_search_gpu(L,Q):
+def sequential_ray_search_gpu(L,Q):
     Z, C = L.shape
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
@@ -239,66 +241,178 @@ def ray_search_gpu(L,Q):
     return best_idx, best_val
 
 @cuda.jit
-def lookup_3dim_no_mask_gpu(L, D, Q, depth, minD, loss):
+def sequential_lookup_3dim_no_mask_gpu(L, D, Q, depth, minD, loss):
     i, j = cuda.grid(2)
     HW, Z, C = L.shape
     if i < HW:
         if C == 3:
-            best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
+            best_idx, best_val = sequential_ray_search_gpu_3channel(L[i], Q[i])
         else:
-            best_idx, best_val = ray_search_gpu(L[i], Q[i])
+            best_idx, best_val = sequential_ray_search_gpu(L[i], Q[i])
             
         depth[i] = D[i,best_idx]
         minD[i] = best_idx
         loss[i] = best_val
 
 @cuda.jit
-def lookup_3dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
+def sequential_lookup_3dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
     i = cuda.grid(1)
     HW, Z, C = L.shape
 
     if i < HW:
         if mask[i]:
             if C == 3:
-                best_idx, best_val = ray_search_gpu_3channel(L[i], Q[i])
+                best_idx, best_val = sequential_ray_search_gpu_3channel(L[i], Q[i])
             else:
-                best_idx, best_val = ray_search_gpu(L[i], Q[i])
+                best_idx, best_val = sequential_ray_search_gpu(L[i], Q[i])
                 
             depth[i] = D[i,best_idx]
             minD[i] = best_idx
             loss[i] = best_val
 
 @cuda.jit
-def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
+def sequential_lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
     i, j = cuda.grid(2)
     H, W, Z, C = L.shape
     if i < H and j < W:
         if C == 3:
-            best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
+            best_idx, best_val = sequential_ray_search_gpu_3channel(L[i,j], Q[i,j])
         else:
-            best_idx, best_val = ray_search_gpu(L[i,j], Q[i,j])
+            best_idx, best_val = sequential_ray_search_gpu(L[i,j], Q[i,j])
             
         depth[i,j] = D[i,j,best_idx]
         minD[i,j] = best_idx
         loss[i,j] = best_val
 
 @cuda.jit
-def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
+def sequential_lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
     i, j = cuda.grid(2)
     H, W, Z, C = L.shape
     if i < H and j < W:
         if mask[i,j]:
             if C == 3:
-                best_idx, best_val = ray_search_gpu_3channel(L[i,j], Q[i,j])
+                best_idx, best_val = sequential_ray_search_gpu_3channel(L[i,j], Q[i,j])
             else:
-                best_idx, best_val = ray_search_gpu(L[i,j], Q[i,j])
+                best_idx, best_val = sequential_ray_search_gpu(L[i,j], Q[i,j])
                 
             depth[i,j] = D[i,j,best_idx]
             minD[i,j] = best_idx
             loss[i,j] = best_val
 
 
-def lookup_gpu(L, D, Q, threadsPerBlock:int | tuple[int], mask=None):
+### THESE FUNCTIONS TAKE ADVATANGE OF PARALLEL REDUCTION
+### TODO: they are a bit messy and with lots of repetitions
+@cuda.jit
+def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
+    j = cuda.blockIdx.x
+    i = cuda.blockIdx.y
+    
+    # for parallel reduction (argmin)
+    tid = cuda.threadIdx.x
+    stride = cuda.blockDim.x
+    
+    H, W, Z, C = L.shape
+    
+    # try to force compiler to cache Q
+    q0 = Q[i,j,0]
+    q1 = Q[i,j,1]
+    q2 = Q[i,j,2]
+
+    # shared memory here, have to be careful
+    # because we have BOTH index (int32) and LOSS (float32)
+    # index is the first half of array, loss is the second half
+    sdata = cuda.shared.array(0, dtype=nb.float32)
+
+    best_idx = nb.int32(0)
+    best_val = nb.float32(float('inf'))
+    for k in range(tid, Z, stride):
+        dist = (L[i,j,k, 0] - q0)**2\
+             + (L[i,j,k, 1] - q1)**2\
+             + (L[i,j,k, 2] - q2)**2
+
+        if dist < best_val:
+            best_val = dist
+            best_idx = k
+    
+    sdata[tid] = best_idx
+    sdata[tid + stride] = best_val # again, second half of array stores loss
+    cuda.syncthreads()
+
+    # reduction block, check if other threads found any smaller loss
+    s = stride//2
+    while ( s > 0 ):
+        if tid < s:
+            if sdata[tid + stride + s] < sdata[tid + stride]:
+                sdata[tid]  = sdata[tid + s] # index
+                sdata[tid + stride] = sdata[tid + stride + s] # loss
+        cuda.syncthreads()
+        s = s//2
+    
+    # only last thread writes the final result to output arrays
+    if tid == 0:
+        min_idex = nb.int32(sdata[0])
+        depth[i,j] = D[i, j, min_idex]
+        minD[i,j]  = min_idex
+        loss[i,j]  = math.sqrt(sdata[0 + stride])
+
+@cuda.jit
+def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
+    j = cuda.blockIdx.x
+    i = cuda.blockIdx.y
+
+    if ~mask[i,j]:
+        return
+    
+    # for parallel reduction (argmin)
+    tid = cuda.threadIdx.x
+    stride = cuda.blockDim.x
+    
+    H, W, Z, C = L.shape
+    
+    # try to force compiler to cache Q
+    q0 = Q[i,j,0]
+    q1 = Q[i,j,1]
+    q2 = Q[i,j,2]
+
+    # shared memory here, have to be careful
+    # because we have BOTH index (int32) and LOSS (float32)
+    # index is the first half of array, loss is the second half
+    sdata = cuda.shared.array(0, dtype=nb.float32)
+
+    best_idx = nb.int32(0)
+    best_val = nb.float32(float('inf'))
+    for k in range(tid, Z, stride):
+        dist = (L[i,j,k, 0] - q0)**2\
+             + (L[i,j,k, 1] - q1)**2\
+             + (L[i,j,k, 2] - q2)**2
+
+        if dist < best_val:
+            best_val = dist
+            best_idx = k
+    
+    sdata[tid] = best_idx
+    sdata[tid + stride] = best_val # again, second half of array stores loss
+    cuda.syncthreads()
+
+    # reduction block, check if other threads found any smaller loss
+    s = stride//2
+    while ( s > 0 ):
+        if tid < s:
+            if sdata[tid + stride + s] < sdata[tid + stride]:
+                sdata[tid]  = sdata[tid + s] # index
+                sdata[tid + stride] = sdata[tid + stride + s] # loss
+        cuda.syncthreads()
+        s = s//2
+    
+    # only last thread writes the final result to output arrays
+    if tid == 0:
+        min_idex = nb.int32(sdata[0])
+        depth[i,j] = D[i, j, min_idex]
+        minD[i,j]  = min_idex
+        loss[i,j]  = math.sqrt(sdata[0 + stride])
+
+
+def lookup_gpu(L, D, Q, threads:int | tuple[int], mask=None):
     """
     Overloaded CUDA parallel lookup function, where mask is an optional argument.
 
@@ -312,11 +426,8 @@ def lookup_gpu(L, D, Q, threadsPerBlock:int | tuple[int], mask=None):
         normalized image to query on the lookup table
     mask : H x W or HW numpy of bool, optional
         mask
-    threadsPerBlock : int or tuple of ints, optional
+    threads : int or tuple of ints, optional
         parameter for how many threads per block of GPU
-        This will dictate how many blocks we will generate.
-        If lookup table is 4 dimensional, then this should be
-        a tuple (threadsPerBlock_X, threadsPerBlock_Y).
 
     Returns
     -------
@@ -337,17 +448,17 @@ def lookup_gpu(L, D, Q, threadsPerBlock:int | tuple[int], mask=None):
     loss = cp.full(shape=Lshape[:-2], fill_value=float('inf'), dtype=cp.float32)
 
     if len(Lshape) == 3:
-        blockspergrid = (Lshape[0] + threadsPerBlock[0]-1)//threadsPerBlock[0]
+        blocks = (Lshape[0] + threads[0]-1)//threads[0]
         if mask is None:
-            lookup_3dim_no_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, depth, minD, loss)
+            sequential_lookup_3dim_no_mask_gpu[blocks, threads](L, D, Q, depth, minD, loss)
         else:
-            lookup_3dim_with_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, mask, depth, minD, loss)
+            sequential_lookup_3dim_with_mask_gpu[blocks, threads](L, D, Q, mask, depth, minD, loss)
     elif len(Lshape) == 4:
-        blockspergrid = ((Lshape[0] + threadsPerBlock[0]-1)//threadsPerBlock[0], (Lshape[1] + threadsPerBlock[1]-1)//threadsPerBlock[1])
+        blocks = (Lshape[1], Lshape[0])
         if mask is None:
-            lookup_4dim_no_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, depth, minD, loss)
+            lookup_4dim_no_mask_gpu[blocks, threads](L, D, Q, depth, minD, loss)
         else:
-            lookup_4dim_with_mask_gpu[blockspergrid, threadsPerBlock](L, D, Q, mask, depth, minD, loss)
+            lookup_4dim_with_mask_gpu[blocks, threads](L, D, Q, mask, depth, minD, loss)
     else:
         raise ValueError('Unrecognized shape of LookUp Table')
     

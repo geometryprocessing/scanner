@@ -456,9 +456,9 @@ def lookup_gpu(L, D, Q, threads:int | tuple[int], mask=None):
     elif len(Lshape) == 4:
         blocks = (Lshape[1], Lshape[0])
         if mask is None:
-            lookup_4dim_no_mask_gpu[blocks, threads](L, D, Q, depth, minD, loss)
+            lookup_4dim_no_mask_gpu[blocks, threads, 0, 2*4*threads](L, D, Q, depth, minD, loss)
         else:
-            lookup_4dim_with_mask_gpu[blocks, threads](L, D, Q, mask, depth, minD, loss)
+            lookup_4dim_with_mask_gpu[blocks, threads, 0, 2*4*threads](L, D, Q, mask, depth, minD, loss)
     else:
         raise ValueError('Unrecognized shape of LookUp Table')
     

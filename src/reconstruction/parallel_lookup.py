@@ -312,6 +312,9 @@ def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
     stride = cuda.blockDim.x
     
     H, W, Z, C = L.shape
+
+    if j >= W or i >= H:
+        return
     
     # try to force compiler to cache Q
     q0 = Q[i,j,0]
@@ -360,14 +363,18 @@ def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
     j = cuda.blockIdx.x
     i = cuda.blockIdx.y
 
-    if ~mask[i,j]:
-        return
-    
     # for parallel reduction (argmin)
     tid = cuda.threadIdx.x
     stride = cuda.blockDim.x
     
     H, W, Z, C = L.shape
+
+    if j >= W or i >= H:
+        return
+
+    if ~mask[i,j]:
+        return
+    
     
     # try to force compiler to cache Q
     q0 = Q[i,j,0]

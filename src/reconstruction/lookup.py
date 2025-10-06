@@ -844,7 +844,8 @@ class LookUpCalibration:
 
     @staticmethod
     def find_depth(camera: Camera,
-                   folder: str):
+                   folder: str,
+                   save_result: bool = True):
         plane_data = load_json(os.path.join(folder, 'board.json'))
         rvec, tvec = plane_data['fitted']['rvec'], plane_data['fitted']['tvec']
         R, _ = cv2.Rodrigues(rvec)
@@ -882,11 +883,14 @@ class LookUpCalibration:
         # depth[~idx] = 0
 
         depth = depth.reshape((height, width))
-        np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
-
+        if save_result:
+            np.savez_compressed(os.path.join(folder, f"depth.npz"), depth=depth)
+        return depth
+    
     @staticmethod
     def normalize_pattern(folder: str,
-                          structure_grammar: dict):
+                          structure_grammar: dict,
+                          save_result: bool = True):
         table_name = structure_grammar['name']
         images: list[str] = structure_grammar['images']
         utils: dict = structure_grammar['utils']
@@ -896,7 +900,9 @@ class LookUpCalibration:
         normalized = normalize_color(color_image=pattern_images,
                                                 white_image=white_image,
                                                 black_image=black_image)
-        np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
+        if save_result:
+            np.savez_compressed(os.path.join(folder, f"{table_name}.npz"), pattern=normalized)
+        return normalized
 
     def run(self, depth: bool = False, normalize: bool = False):
         if depth:

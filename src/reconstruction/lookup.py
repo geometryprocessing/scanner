@@ -733,7 +733,9 @@ class LookUpCalibration:
             """
             depth = np.load(os.path.join(folder, 'depth.npz'))['depth'][y0:y0+height, x0:x0+width]
             pattern = np.load(os.path.join(folder, f'{table_name}.npz'))['pattern'][y0:y0+height, x0:x0+width]
-            table[:,:,index,:] = np.concatenate([pattern, depth[:, :, np.newaxis]], axis=2)
+            if len(depth.shape) == 2:
+                depth = depth[...,None]
+            table[:,:,index,:] = np.concatenate([pattern, depth], axis=2)
         
         if self.verbose:
             print('-' * 15)

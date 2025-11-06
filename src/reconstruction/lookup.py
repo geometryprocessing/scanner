@@ -24,7 +24,8 @@ from src.utils.three_d_utils import point_cloud_from_depth_map, \
 from src.utils.file_io import save_json, \
     load_json, get_all_paths, get_all_folders, get_folder_from_file
 from src.utils.image_utils import extract_mask, normalize_color, \
-    denoise_fft, load_ldr, crop, gaussian_blur, generate_mask_binary_structure,\
+    denoise_fft, denoise_lowrank, load_ldr, crop,\
+          gaussian_blur, generate_mask_binary_structure,\
           convert_to_gray, replace_with_nearest
 from src.scanner.camera import Camera
 from src.scanner.calibration import Calibration, CheckerBoard, Charuco
@@ -134,7 +135,12 @@ def process_position(folder: str,
                                                 mask=mask)
         
         if config.denoise_input:
-            normalized = denoise_fft(normalized, int(config.denoise_cutoff))
+            if config.denoise_input_type == 'fft':
+                normalized = denoise_fft(normalized, int(config.denoise_value))
+            elif config.denoise_input_type == 'lowrank':
+                normalized = denoise_lowrank(normalized, int(config.denoise_value))
+            if mask:
+                normalized[~mask] = 0.
 
         if config.blur_input:
             # to avoid blurring background

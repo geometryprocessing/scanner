@@ -166,7 +166,7 @@ def normalize_color(color_image: str | np.ndarray,
             black_image = load_ldr(black_image)
         black_image = np.atleast_3d(np.squeeze(black_image))
         # it seems that keeping black_image as uint16 is problematic...
-        # TODO: need further investigation
+        # TODO: it can cause underflow, handle it
 
         normalized[mask] = (color_image[mask] - black_image[mask]) / (white_image[mask] - black_image[mask])
     else: 
@@ -665,6 +665,19 @@ def denoise_fft(image, cutoff: int):
         image_filtered = np.abs(image_filtered)
         denoised_image[...,c] = image_filtered
 
+    return denoised_image
+
+def denoise_lowrank(image, r: int):
+    image = np.atleast_3d(image)
+    denoised_image = np.zeros_like(image)
+
+    for c in range(image.shape[2]):
+        img = image[...,c]
+        U, S, Vh = np.linalg.svd(img, full_matrices=False)
+        L = U[:, :r] @ np.diag(S[:r])
+        R = Vh[:r, :]
+        denoised_image[...,c] = np.matmul(L,R)
+        
     return denoised_image
 
 def canny_edge(image, threshold_1, threshold_2, invert=True):

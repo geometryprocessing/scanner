@@ -136,9 +136,9 @@ def process_position(folder: str,
         
         if config.denoise_input:
             if config.denoise_input_type == 'fft':
-                normalized = denoise_fft(normalized, int(config.denoise_value))
+                normalized = denoise_fft(normalized, int(config.denoise_input_value))
             elif config.denoise_input_type == 'lowrank':
-                normalized = denoise_lowrank(normalized, int(config.denoise_value))
+                normalized = denoise_lowrank(normalized, int(config.denoise_input_value))
             if mask:
                 normalized[~mask] = 0.
 

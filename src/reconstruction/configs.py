@@ -117,7 +117,7 @@ class LookUp3DConfig(ReconstructionConfig):
                 black_image: str = '',
                 verbose: bool = True,
                 use_binary_mask: bool = False, use_pattern_for_mask: bool = False, mask_thr: float = 0.2,
-                denoise_input: bool = False, denoise_type: str = '', denoise_value: int = 0,
+                denoise_input: bool = False, denoise_input_type: str = '', denoise_input_value: int = 0,
                 blur_input: bool = False, blur_input_sigma: float = 0,
                 blur_output: bool = False, blur_output_type: str = '', blur_output_value: float = 0,
                 loss_thr: float = 0.2,
@@ -140,8 +140,8 @@ class LookUp3DConfig(ReconstructionConfig):
         # input manipulation exclusive to lookup
         self.use_pattern_for_mask = use_pattern_for_mask
         self.denoise_input = denoise_input
-        self.denoise_type = self.denoise_type
-        self.denoise_value = denoise_value
+        self.denoise_input_type = denoise_input_type
+        self.denoise_input_value = denoise_input_value
         self.blur_input = blur_input
         self.blur_input_sigma = blur_input_sigma
 

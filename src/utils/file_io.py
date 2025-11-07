@@ -185,13 +185,16 @@ def load_json(filename: str) -> dict:
     filename : str
         path to file where JSON data is stored.  
     """
+    if not os.path.isfile(filename):
+        raise ValueError(f'{filename} does not exist')
     with open(filename, 'r') as f:
         return numpinize(json.load(f))
 
 def save_json(data: dict,
               filename: str):
     """
-    Function to save data as JSON file.
+    Function to save data as JSON file. If path to file
+    does not exist, this function creates the necessary directories.
 
     Parameters
     ----------
@@ -200,5 +203,6 @@ def save_json(data: dict,
     filename : str
         path to file where JSON data will be saved.  
     """
+    ensure_exists(filename)
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4, cls=NumpyEncoder)

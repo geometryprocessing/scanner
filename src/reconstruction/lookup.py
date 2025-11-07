@@ -202,7 +202,9 @@ def save_reconstruction_outputs(folder: str,
             print('-' * 15)
             print("Constructing point cloud")
 
-        pcd_mask = (depth_map > 0).flatten() & (loss_map < config.loss_thr).flatten()
+        pcd_mask = (depth_map > 0).flatten()
+        if loss_map is not None:
+            pcd_mask = pcd_mask & (loss_map < config.loss_thr).flatten()
         if get_array_module(pcd_mask) != np:
             pcd_mask = pcd_mask.get()
         point_cloud: np.ndarray = point_cloud_from_depth_map(depth_map=depth_map if get_array_module(depth_map) == np else depth_map.get(),

@@ -187,6 +187,8 @@ def load_json(filename: str) -> dict:
     """
     if not os.path.isfile(filename):
         raise ValueError(f'{filename} does not exist')
+    if not is_json(filename):
+        raise ValueError(f'{filename} is not JSON')
     with open(filename, 'r') as f:
         return numpinize(json.load(f))
 

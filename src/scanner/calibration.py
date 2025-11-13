@@ -525,7 +525,7 @@ class Calibration:
                            image_points: list,
                            K: np.ndarray,
                            dist_coeffs: np.ndarray,
-                           flags: int=cv2.SOLVEPNP_ITERATIVE
+                           flags: int=cv2.SOLVEPNP_SQPNP
                            ) -> dict:
         """
         TODO: function explanation
@@ -547,7 +547,7 @@ class Calibration:
         flags : int
             flags to pass to OpenCV function. For more information, read here
             https://docs.opencv.org/4.5.5/d9/d0c/group__calib3d.html
-            Default is set to cv2.SOLVEPNP_ITERATIVE
+            Default is set to cv2.SOLVEPNP_SQPNP
 
         Returns
         -------

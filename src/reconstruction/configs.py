@@ -393,6 +393,7 @@ def get_config(scene, cmd_args=None):
         # TODO: is this allowing too much mess?
         config = ReconstructionConfig()
         config.load_config(scene)
-        return config
+        cmd_args = apply_cmdline_args(config, cmd_args)
+        return config, cmd_args
     else:
         raise ValueError("Invalid scene config name!")

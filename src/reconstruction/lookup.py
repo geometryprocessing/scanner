@@ -806,11 +806,6 @@ class LookUpCalibration:
                                                     camera.K,
                                                     camera.dist_coeffs)
             rvec = result['rvec'].ravel()
-            # this is an arbitrary choice to avoid the cases with
-            # indistinguishable rvec and -rvec, so make it such 
-            # that rvec[-1] is always positive
-            if rvec[-1] < 0:
-                rvec *= -1.
             tvec = result['tvec'].ravel()
 
         save_json({

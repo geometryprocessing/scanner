@@ -830,7 +830,7 @@ class LookUpCalibration:
         
         tvecs = np.squeeze(np.array(tvecs))
         rvecs = np.squeeze(np.array(rvecs))
-        median_rvec = np.nanmean(rvecs, axis=0)
+        median_rvec = np.nanmedian(rvecs, axis=0)
 
         C, N = fit_line(tvecs[~np.isnan(tvecs).any(axis=1)])
         if np.dot(N, [0, 0, 1]) > 0:
@@ -843,7 +843,7 @@ class LookUpCalibration:
         # so we don't need to divide it by that to get the step in the N direction
         steps = np.dot(np.diff(tvecs, axis=0), N)
         idx = np.abs(steps - np.nanmedian(steps)) < np.nanstd(steps)
-        stride = np.nanmean(steps[idx])
+        stride = np.nanmedian(steps[idx])
 
         save_json({
             'stride': stride,

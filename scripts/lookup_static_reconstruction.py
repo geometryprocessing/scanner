@@ -1,10 +1,14 @@
-import sys
+import argparse
 import os
+
+import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
+
 from src.reconstruction.lookup import load_lut, process_position, save_reconstruction_outputs, naive_lut, c2f_lut
 from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_config
 from src.utils.file_io import get_all_folder_names
-from src.utils.image_utils import median_blur, gaussian_blur, replace_with_nearest
+from src.utils.image_utils import replace_with_nearest, median_blur, gaussian_blur
+
 
 def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
@@ -12,8 +16,7 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     if config.use_coarse_to_fine:
         depth_map, loss_map, index_map = c2f_lut(lut, dep, normalized, config.c2f_ks, config.c2f_deltas, mask=mask)
     else:
-        depth_map, loss_map, index_map = naive_lut(lut, dep, normalized, config.block_size, config.use_gpu, mask=mask)
-
+        depth_map, loss_map, index_map = naive_lut(lut, dep, normalized, config.block_size, mask=mask)
     if config.blur_output:
         replaced_depth_map = replace_with_nearest(depth_map, '<', 0.)
         if config.blur_output_type == 'median':
@@ -32,7 +35,6 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
                                 config=config)
 
 def main(args):
-    import argparse
     parser = argparse.ArgumentParser(description="Reconstructs scenes with LookUp3D")
     parser.add_argument('-i', '--input', type=str, default=None, required=True,
                         help='Path to input folder to run reconstruction on. It should have' \
@@ -54,10 +56,11 @@ def main(args):
         config, remaining_args = get_config(config_name, uargs)
 
         scenes = args.scenes
-        if scenes is None: 
+        print(scenes)
+        if scenes is None:
+            scenes = ['']
+        elif len(scenes) == 1 and scenes[0] == 'all': 
             scenes = get_all_folder_names(args.input)
-        # IF THE PATH IS JUST A FOLDER WITH THE IMAGE DATA?
-        # remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if args.print_params:
             print(config.to_dict())
             continue
@@ -75,7 +78,7 @@ def main(args):
                 print(f"Starting {base_path} folder with config {config.name}")
 
             reconstruct(lut, dep, base_path, config)
-            config.dump_json(os.path.join(base_path, f'{config.name}_lookup_reconstruction_config.json'))
+            config.dump_json(os.path.join(base_path, f'{config.name}_reconstruction_config.json'))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

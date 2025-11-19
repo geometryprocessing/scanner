@@ -1,11 +1,15 @@
-import sys
+import argparse
 import os
+
+import numpy as np
+
+import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
+
 from src.reconstruction.lookup import load_lut, process_position, save_reconstruction_outputs, naive_lut, tc_lut, c2f_lut
-from src.utils.image_utils import replace_with_nearest, gaussian_blur, median_blur
+from src.utils.image_utils import replace_with_nearest, median_blur, gaussian_blur
 from src.reconstruction.configs import LookUp3DConfig, apply_cmdline_args, get_config, is_valid_config
 from src.utils.file_io import get_all_folders
-import numpy as np
 
 def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
@@ -109,7 +113,6 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
 
 def main(args):
-    import argparse
     parser = argparse.ArgumentParser(description="Reconstructs scenes with LookUp3D")
     parser.add_argument('-i', '--input', type=str, default=None, required=True,
                         help='Path to input folder to run reconstruction on. It should have' \
@@ -130,7 +133,6 @@ def main(args):
     for config_name in args.configs:
         config, remaining_args = get_config(config_name, uargs)
         base_path = args.input
-        # remaining_args = apply_cmdline_args(config, uargs, return_dict=True)
         if config.verbose:
             print(f"Starting {base_path} folder with config {config.name}")
         
@@ -140,7 +142,7 @@ def main(args):
 
         lut, dep = load_lut(config.lut_path, config.is_lowrank, config.use_gpu, config.gpu_device)
         reconstruct(lut, dep, base_path, config)
-        config.dump_json(os.path.join(base_path, f'{config.name}_lookup_reconstruction_config.json'))
+        config.dump_json(os.path.join(base_path, f'{config.name}_reconstruction_config.json'))
 
 if __name__ == '__main__':
     main(sys.argv[1:])

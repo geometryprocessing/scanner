@@ -1,5 +1,6 @@
 matplotlib
 natsort
+numba
 numpy
 numpy-hilbert-curve
 open3d # latest is Python 3.12

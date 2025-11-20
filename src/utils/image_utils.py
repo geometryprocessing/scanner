@@ -361,32 +361,23 @@ def load_ldr(filename: str,
     -----
     This function ignores the EXIF orientation tags.
     """
-    try:
-        img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-        dtype = img_array.dtype
-        shape = img_array.shape
-        if len(shape) > 2 and shape[2] == 3:
-            # invert from BGR to RGB
-            img_array = img_array[:,:,::-1]
+    img_array = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+    dtype = img_array.dtype
+    shape = img_array.shape
+    if len(shape) > 2 and shape[2] == 3:
+        # invert from BGR to RGB
+        img_array = img_array[:,:,::-1]
 
-        # Convert image to grayscale if requested using the first three channels
-        if make_gray and len(shape) > 2 and shape[2] == 3:
-            img_array = convert_to_gray(img_array)
+    # Convert image to grayscale if requested using the first three channels
+    if make_gray and len(shape) > 2 and shape[2] == 3:
+        img_array = convert_to_gray(img_array)
 
-        # Normalize pixel values if requested
-        if normalize:
-            m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
-            img_array = (img_array / m).astype(np.float64)
+    # Normalize pixel values if requested
+    if normalize:
+        m = np.iinfo(dtype).max if dtype.kind in 'iu' else np.finfo(dtype).max
+        img_array = (img_array / m).astype(np.float64)
 
-        return img_array
-
-    except FileNotFoundError:
-        print(f"{filename} does not exist.")
-        return None
-    except Exception as e:
-        print(f"Error loading image: {e}")
-        return None
-
+    return img_array
 
 
 def save_ldr(filename: str,
@@ -713,3 +704,17 @@ def canny_edge(image, threshold_1, threshold_2, invert=True):
     if invert:
         canny_mask = 1. - canny_mask
     return canny_mask
+
+def run_ffmpeg(frame_name, video_path):
+    """Converts a sequence of frames to a video. Requires ffmpeg to be installed on the system."""
+    import shutil
+    if shutil.which('ffmpeg') is None:
+        print("Cannot find ffmpeg, skipping video generation")
+        return
+
+    # Escape spaces in paths that are passed to ffmpeg. For now, only tested on Linux
+    frame_name = frame_name.replace(' ', '\\ ')
+    video_path = video_path.replace(' ', '\\ ')
+    ffmpeg_cmd = f'ffmpeg -y -hide_banner -loglevel error -i {frame_name} -c:v libx264 -movflags +faststart -vf format=yuv420p -crf 15 -nostdin {video_path}'
+    import subprocess
+    subprocess.call(ffmpeg_cmd, shell=True)

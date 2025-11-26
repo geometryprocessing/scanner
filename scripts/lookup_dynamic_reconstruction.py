@@ -33,13 +33,14 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     # COARSE-TO-FINE
     for frame_path in c2f_frames:
         normalized, mask, colors = process_position(frame_path, config)
-        depth_map, loss_map, index_map = c2f_lut(lut,
+        depth_map, index_map, loss_map = c2f_lut(lut,
                                                  dep,
                                                  normalized,
                                                  config.c2f_ks,
                                                  config.c2f_deltas,
                                                  block_size=config.block_size,
-                                                 mask=mask)
+                                                 mask=mask,
+                                                 use_gpu=config.use_gpu)
         if config.blur_output:
             replaced_depth_map = replace_with_nearest(depth_map, '<', 0.)
             if config.blur_output_type == 'median':
@@ -60,11 +61,12 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
     # NAIVE
     for frame_path in naive_frames:
         normalized, mask, colors = process_position(frame_path, config)
-        depth_map, loss_map, index_map = naive_lut(lut,
+        depth_map, index_map, loss_map = naive_lut(lut,
                                                    dep,
                                                    normalized,
                                                    block_size=config.block_size,
-                                                   mask=mask)
+                                                   mask=mask,
+                                                   use_gpu=config.use_gpu)
         if config.blur_output:
             replaced_depth_map = replace_with_nearest(depth_map, '<', 0.)
             if config.blur_output_type == 'median':
@@ -87,13 +89,14 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
         normalized, mask, colors = process_position(frame_path, config)
         prior_index_map = gaussian_blur(replace_with_nearest(index_map, '=', 0), sigmas=config.tc_blur_sigma)
         prior_index_map = replace_with_nearest(loss_map, '<', config.loss_thr, prior_index_map)
-        depth_map, loss_map, index_map = tc_lut(lut,
+        depth_map, index_map, loss_map = tc_lut(lut,
                                                 dep,
                                                 normalized,
                                                 config.tc_deltas[-1],
                                                 (prior_index_map).astype(np.uint16),
                                                 block_size=config.block_size,
-                                                mask=mask)
+                                                mask=mask,
+                                                use_gpu=config.use_gpus)
         if config.blur_output:
             replaced_depth_map = replace_with_nearest(depth_map, '<', 0.)
             if config.blur_output_type == 'median':

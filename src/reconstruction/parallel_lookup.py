@@ -41,7 +41,7 @@ def lookup_3dim_no_mask(L, D, Q):
     
     Returns
     -------
-    depth_map: HW numpy array of float32
+    depth : HW numpy array of float32
         depth value for each pixel
     minD : HW numpy array of int32
         index of the minimum value along Z axis
@@ -50,7 +50,7 @@ def lookup_3dim_no_mask(L, D, Q):
     """
     HW, Z, C = L.shape
 
-    minD = np.full(HW, fill_value=-1, dtype=np.int32)
+    minD = np.full(HW, fill_value=0, dtype=np.int32)
     loss = np.full(HW, fill_value=float('inf'), dtype=np.float32)
     depth = np.full(HW, fill_value=-1., dtype=np.float32)
 
@@ -78,12 +78,12 @@ def lookup_3dim_with_mask(L, D, Q, mask):
         flattened normalized image to query on the lookup table
     mask : HW numpy of bool
         flattened mask where lookup should not be performed
-        if mask[i] == False, then minD[i] = -1 and loss[i] = float('inf')
+        if mask[i] == False, then minD[i] = 0 and loss[i] = float('inf')
 
     
     Returns
     -------
-    depth_map: HW numpy array of float32
+    depth : HW numpy array of float32
         depth value for each pixel
     minD : HW numpy array of int32
         index of the minimum value along Z axis
@@ -92,7 +92,7 @@ def lookup_3dim_with_mask(L, D, Q, mask):
     """
     HW, Z, C = L.shape
 
-    minD = np.full(HW, fill_value=-1, dtype=np.int32)
+    minD = np.full(HW, fill_value=0, dtype=np.int32)
     loss = np.full(HW, fill_value=float('inf'), dtype=np.float32)
     depth = np.full(HW, fill_value=-1., dtype=np.float32)
 
@@ -123,7 +123,7 @@ def lookup_4dim_no_mask(L, D, Q):
     
     Returns
     -------
-    depth_map: H x W numpy array of float32
+    depth : H x W numpy array of float32
         depth value for each pixel
     minD : H x W numpy array of int32
         index of the minimum value along Z axis
@@ -161,12 +161,12 @@ def lookup_4dim_with_mask(L, D, Q, mask):
         normalized image to query on the lookup table
     mask : H x W numpy of bool
         mask where lookup should not be performed
-        if mask[i,j] == False, then minD[i,j] = -1 and loss[i,j] = float('inf')
+        if mask[i,j] == False, then minD[i,j] = 0 and loss[i,j] = float('inf')
 
     
     Returns
     -------
-    depth_map: H x W numpy array of float32
+    depth : H x W numpy array of float32
         depth value for each pixel
     minD : H x W numpy array of int32
         index of the minimum value along Z axis
@@ -191,7 +191,7 @@ def lookup_4dim_with_mask(L, D, Q, mask):
     return depth, minD, loss
 
 
-def lookup(L, D, Q, mask=None):
+def lookup_cpu(L, D, Q, mask=None):
     """
     Overloaded parallel lookup function, where mask is an optional argument.
 
@@ -208,7 +208,7 @@ def lookup(L, D, Q, mask=None):
 
     Returns
     -------
-    depth_map: H x W or HW numpy array of float32
+    depth : H x W or HW numpy array of float32
         depth value for each pixel
     minD : H x W or HW numpy array of int32
         index of the minimum value along Z axis

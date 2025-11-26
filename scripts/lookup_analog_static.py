@@ -6,9 +6,9 @@ from src.reconstruction.lookup import load_lut, save_reconstruction_outputs
 from src.reconstruction.configs import get_config, is_valid_config
 from src.utils.file_io import get_all_folder_names, get_all_folders
 from src.utils.image_utils import (crop, normalize_color, load_ldr,
-      denoise_fft, gaussian_blur, generate_mask_binary_structure,
-      extract_mask, convert_to_gray)
-from src.reconstruction.parallel_lookup import lookup
+      denoise_fft, denoise_lowrank, gaussian_blur, generate_mask_binary_structure,
+      extract_mask, convert_to_gray, replace_with_nearest)
+from src.reconstruction.lookup import naive_lut, c2f_lut
 
 from copy import deepcopy
 import numpy as np
@@ -64,11 +64,37 @@ def reconstruct(lut, dep, base_path, config, frames):
                                     mask=mask,
                                     black_image=summed_black)
         if config.denoise_input:
-            normalized = denoise_fft(normalized, int(config.denoise_cutoff))
-        if config.blur_input:
-            normalized = gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
+            if config.denoise_input_type == 'fft':
+                normalized = denoise_fft(normalized, int(config.denoise_input_value))
+            elif config.denoise_input_type == 'lowrank':
+                normalized = denoise_lowrank(normalized, int(config.denoise_input_value))
+            if mask is not None:
+                normalized[~mask] = 0.
 
-        depth_map, index_map, loss_map = lookup(lut, dep, normalized, mask)
+        if config.blur_input:
+            # to avoid blurring background
+            # TODO: a bit dangerous of an operation with floating point
+            normalized = replace_with_nearest(normalized, '=', 0.)
+            normalized = gaussian_blur(normalized, sigmas=int(config.blur_input_sigma))
+            # if there is a mask, this won't actually matter
+            if mask is not None:
+                normalized[~mask] = 0
+
+        if config.use_coarse_to_fine:
+            depth_map, index_map, loss_map = c2f_lut(lut,
+                                                    dep,
+                                                    normalized,
+                                                    config.c2f_ks,
+                                                    config.c2f_deltas,
+                                                    mask=mask,
+                                                    use_gpu=config.use_gpu)
+        else:
+            depth_map, index_map, loss_map = naive_lut(lut, 
+                                                    dep,
+                                                    normalized,
+                                                    config.block_size,
+                                                    mask=mask,
+                                                    use_gpu=config.use_gpu)
         
         config = deepcopy(config)
         config.name = original_config_name + f'_{fname}_frames'

@@ -19,6 +19,7 @@ except ImportError:
 import os
 
 from src.reconstruction.configs import LookUp3DConfig, get_config
+from src.reconstruction.parallel_lookup import lookup_cpu, lookup_gpu
 from src.utils.three_d_utils import point_cloud_from_depth_map, \
     fit_line, save_point_cloud, intersect_line_with_plane, camera_to_ray_world
 from src.utils.file_io import save_json, \
@@ -242,6 +243,12 @@ def save_reconstruction_outputs(folder: str,
 
 def blockLookup(L, Q, dtype, block_size: int = 256):
     """
+    TODO: make this be a useful function for when the
+    LUT is to big to fit into GPU all at once.
+    It will have to send the LUT in chunks
+    to GPU, which is slow, but hopefully running the 
+    depth decoding in GPU will pay off.
+
     Parameters
     ----------
         lookup table L H x W x Z x C 
@@ -297,7 +304,7 @@ def blockLookup(L, Q, dtype, block_size: int = 256):
 
     return minD.reshape(return_shape), loss.reshape(return_shape)
 
-def restrict_lut_depth_range(lut, index, delta):
+def restrict_lut_depth_range(lut, dep, index, delta):
     """
     Given a lookup table, a 2D array of indices, and an integer delta,
     this function returns a restricted  lookup table of the values
@@ -307,6 +314,8 @@ def restrict_lut_depth_range(lut, index, delta):
     ----------
     lut (H x W x Z x C)
         table to be reduced
+    dep (H x W x Z)
+        depths of table to be reduced
     index (H x W) : np.ndarray of int type
         indices of the table
     delta : int
@@ -316,6 +325,8 @@ def restrict_lut_depth_range(lut, index, delta):
     -------
     reduced_lut (H x W x z x C)
         table where z (< Z) is now a reducded range
+    reduced_dep (H x W x z)
+        depths of table where z (< Z) is now a reducded range
     start (H x W) : np.ndarray of int type
         this is useful util for TC and C2F
         it usually will be index - delta, but it gets
@@ -341,16 +352,19 @@ def restrict_lut_depth_range(lut, index, delta):
     k = xp.arange(2*delta)
     # collect LUT only +- delta around previous_index
     reduced_lut = lut[i[..., None], j[..., None], start[..., None] + k]
+    reduced_dep = dep[i, j, start + k]
     # in the case of original shape==3, squeeze is necessary here
-    return xp.squeeze(reduced_lut), xp.squeeze(start)
+    return xp.squeeze(reduced_lut), xp.squeeze(reduced_dep), xp.squeeze(start)
 
-def c2f_lut(lut,
-            dep,
-            normalized_image,
-            ks,
-            deltas,
+def c2f_lut(LUT,
+            DEP,
+            Q,
+            ks: list[int],
+            deltas: list[int],
+            epsilon: float,
             block_size: int = 65336,
-            mask=None):
+            mask=None,
+            use_gpu: bool = False):
     """
     Function to run Coarse-to-Fine (C2F) reconstruction wiht LookUp3D.
 
@@ -358,59 +372,59 @@ def c2f_lut(lut,
     -------
     depth_map: array_like
 
-    loss_map : array_like
-
     index_map : array_like
+
+    loss_map : array_like
 
     NOTE: if arrays are different modules
     (i.e. some are numpy, others cupy, this will cause an error)
     """
-    xp = get_array_module(normalized_image)
+    xp = get_array_module(Q)
 
-    previous_index = xp.zeros(shape=(normalized_image.shape[:2]), dtype=xp.uint16)
-    c2f_mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=False)
-
-    # TODO: this mask operation slows down everything -- it is not free
-    # why are we doing array[mask] when mask is full 
-    if mask is None:
-        mask = xp.full(shape=(normalized_image.shape[:2]), fill_value=True)
+    PREVIOUS = xp.zeros(shape=(Q.shape[:2]), dtype=xp.int16)
+    loss = xp.full(shape=(Q.shape[:2]), fill_value=xp.inf, dtype=xp.float32)
 
     for iter in range(len(ks) - 1):
         k = ks[iter]
         delta = deltas[iter]
-        c2f_mask[::k,::k] = mask[::k, ::k]
-        L = lut[c2f_mask,...]
-        n = normalized_image[c2f_mask,...]
-        p = previous_index[c2f_mask]
+        if mask is not None:
+            m = mask[::k, ::k]
+        else:
+            m = None
+        L = LUT[::k,::k,...]
+        D = DEP[::k,::k,...]
+        n = Q[::k,::k,...]
+        p = PREVIOUS[::k,::k]
 
-        L, start = restrict_lut_depth_range(L, p, delta)
-        minD, _ = blockLookup(L, n, dtype=xp.float32, block_size=block_size)
-        previous_index[c2f_mask] = minD + start
+        L, D, start = restrict_lut_depth_range(L, DEP, p, delta)
+        if use_gpu:
+            depth_map, index_map, loss_map = lookup_gpu(L,D,n, 32, m)
+        else:
+            depth_map, index_map, loss_map = lookup_cpu(L,D,n, m)
+        PREVIOUS[::k,::k] = index_map + start
+        loss[::k,::k] = loss_map
 
         jump = k//ks[iter+1]
-        previous_index = replace_with_nearest(previous_index, '=', 0)
-        previous_index = gaussian_blur(previous_index, sigmas=jump)
-    
+        PREVIOUS = replace_with_nearest(PREVIOUS, '<=', 0)
+        PREVIOUS = replace_with_nearest(loss, '>', epsilon, PREVIOUS)
+        PREVIOUS = gaussian_blur(PREVIOUS, sigmas=jump)
     # FULL RESOLUTION
-    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
-    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
-    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
+    L, D, start = restrict_lut_depth_range(LUT, DEP, PREVIOUS, deltas[-1])
+    if use_gpu:
+        depth_map, index_map, loss_map = lookup_gpu(L,D,Q, 32, mask)
+    else:
+        depth_map, index_map, loss_map = lookup_cpu(L,D,Q, mask)
     
-    L, start = restrict_lut_depth_range(lut, previous_index, delta)
-    minD, loss = blockLookup(L[mask], normalized_image[mask], dtype=xp.float32, block_size=block_size)
-    loss_map[mask] = loss
-    index_map[mask] = minD + start[mask]
-    depth_map[mask] = xp.squeeze(xp.take_along_axis(dep[mask],index_map[mask,None],axis=-1))
+    return depth_map, index_map, loss_map
 
-    return depth_map, loss_map, index_map
-
-def tc_lut(lut,
-           dep,
-           normalized_image,
+def tc_lut(LUT,
+           DEP,
+           Q,
            delta,
-           previous_index,
+           PREVIOUS,
            block_size: int = 65536,
-           mask=None):
+           mask=None,
+           use_gpu: bool = False):
     """
     TODO: write description
 
@@ -418,87 +432,51 @@ def tc_lut(lut,
     -------
     depth_map: array_like
 
-    loss_map : array_like
-
     index_map : array_like
+
+    loss_map : array_like
 
     NOTE: if arrays are different modules
     (i.e. some are numpy, others cupy, this will cause an error)
     """
-    xp = get_array_module(normalized_image)
 
-    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
-    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
-    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
-
-    # handle mask
-    if mask is None:
-        LUT = lut
-        DEP = dep
-        NORMALIZED = normalized_image
-        PREVIOUS = previous_index
+    L, D, start = restrict_lut_depth_range(LUT, DEP, PREVIOUS, delta)
+    if use_gpu:
+        depth_map, index_map, loss_map = lookup_gpu(L, D, Q, 32, mask)
     else:
-        LUT = lut[mask]
-        DEP = dep[mask]
-        NORMALIZED = normalized_image[mask]
-        PREVIOUS = previous_index[mask]
-    
-    L, start = restrict_lut_depth_range(LUT, PREVIOUS, delta)
-    _minD, _loss_map = blockLookup(L, NORMALIZED, dtype=xp.float32, block_size=block_size)
-    _minD += start
-    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
+        depth_map, index_map, loss_map = lookup_cpu(L, D, Q, mask)
+    index_map += start
 
-    # handle mask
-    if mask is None:
-        depth_map = _depth_map
-        loss_map = _loss_map
-        index_map = _minD
-    else:
-        depth_map[mask] = _depth_map
-        loss_map[mask] = _loss_map
-        index_map[mask] = _minD
+    return depth_map, index_map, loss_map
 
-    return depth_map, loss_map, index_map
-
-def naive_lut(lut,
-              dep,
-              normalized_image,
+def naive_lut(LUT,
+              DEP,
+              Q,
               block_size: int = 65536,
-              mask = None):
+              mask = None,
+              use_gpu: bool = False):
     """
-    NOTE: if lut, dep, normalized_image, mask are different modules
+    TODO: write description
+
+    Returns
+    -------
+    depth_map: array_like
+
+    index_map : array_like
+
+    loss_map : array_like
+
+    NOTE: if arrays are different modules
     (i.e. some are numpy, others cupy, this will cause an error)
     """
-    xp = get_array_module(normalized_image)
-
-    depth_map = xp.full(shape=(normalized_image.shape[:2]), fill_value=-1., dtype=xp.float32)
-    loss_map = xp.full(shape=normalized_image.shape[:2], fill_value=xp.inf, dtype=xp.float32)
-    index_map = xp.zeros(shape=normalized_image.shape[:2], dtype=xp.uint16)
-
-    # handle mask
-    if mask is None:
-        LUT = lut
-        DEP = dep
-        NORMALIZED = normalized_image
-    else:
-        LUT = lut[mask]
-        DEP = dep[mask]
-        NORMALIZED = normalized_image[mask]
-
-    _minD, _loss_map = blockLookup(LUT, NORMALIZED, dtype=xp.float32, block_size=block_size)
-    _depth_map = xp.squeeze(xp.take_along_axis(DEP,_minD[:,None],axis=-1))
     
-    # handle mask
-    if mask is None:
-        depth_map = _depth_map
-        loss_map = _loss_map
-        index_map = _minD
+    if use_gpu:
+        depth_map, index_map, loss_map = lookup_gpu(LUT, DEP, Q, 32, mask)
     else:
-        depth_map[mask] = _depth_map
-        loss_map[mask] = _loss_map
-        index_map[mask] = _minD
+        depth_map, index_map, loss_map = lookup_cpu(LUT, DEP, Q, mask)
     
-    return depth_map, loss_map, index_map
+    
+    return depth_map, index_map, loss_map
 
 class LookUpCalibration:
     """

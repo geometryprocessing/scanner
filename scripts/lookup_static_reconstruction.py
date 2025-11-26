@@ -14,9 +14,20 @@ def reconstruct(lut, dep, base_path: str, config: LookUp3DConfig):
 
     normalized, mask, colors = process_position(base_path, config)
     if config.use_coarse_to_fine:
-        depth_map, loss_map, index_map = c2f_lut(lut, dep, normalized, config.c2f_ks, config.c2f_deltas, mask=mask)
+        depth_map, index_map, loss_map = c2f_lut(lut,
+                                                 dep,
+                                                 normalized,
+                                                 config.c2f_ks,
+                                                 config.c2f_deltas,
+                                                 mask=mask,
+                                                 use_gpu=config.use_gpu)
     else:
-        depth_map, loss_map, index_map = naive_lut(lut, dep, normalized, config.block_size, mask=mask)
+        depth_map, index_map, loss_map = naive_lut(lut, 
+                                                   dep,
+                                                   normalized,
+                                                   config.block_size,
+                                                   mask=mask,
+                                                   use_gpu=config.use_gpu)
     if config.blur_output:
         replaced_depth_map = replace_with_nearest(depth_map, '<', 0.)
         if config.blur_output_type == 'median':

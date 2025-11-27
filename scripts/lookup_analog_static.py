@@ -51,7 +51,7 @@ def reconstruct(lut, dep, base_path, config, frames):
             summed_black = np.sum(black_images[:frame].astype(np.int32), axis=0)
 
         mask_thr: float = config.mask_thr
-        image_for_mask = pattern_images if config.use_pattern_for_mask else summed_white
+        image_for_mask = summed_pattern if config.use_pattern_for_mask else summed_white
         # if mask_thr close to zero or negative, don't calculate mask
         if np.isclose(mask_thr, 0.) or mask_thr < 0:
             mask = None

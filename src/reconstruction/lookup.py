@@ -396,7 +396,7 @@ def c2f_lut(LUT,
         n = Q[::k,::k,...]
         p = PREVIOUS[::k,::k]
 
-        L, D, start = restrict_lut_depth_range(L, DEP, p, delta)
+        L, D, start = restrict_lut_depth_range(L, D, p, delta)
         if use_gpu:
             depth_map, index_map, loss_map = lookup_gpu(L,D,n, 32, m)
         else:

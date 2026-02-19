@@ -187,7 +187,7 @@ def decode_gray_binary_xor(pattern,
                 pattern = structuredlight.Gray()
     
     index_x, index_y = None, None
-    if white_image and black_image:
+    if white_image is not None and black_image is not None:
         white_image = load_ldr(white_image, make_gray=True) \
                 if isinstance(white_image, str) else convert_to_gray(white_image) 
         black_image = load_ldr(black_image, make_gray=True) \

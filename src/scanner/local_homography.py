@@ -27,6 +27,9 @@ class LocalHomographyCalibration:
         self.camera_image_points = []
         self.projector_image_points = []
 
+        self.offset = 0
+        self.image_name = 'gray'
+
         self.camera = CameraCalibration()
         self.projector = ProjectorCalibration()
 
@@ -100,10 +103,12 @@ class LocalHomographyCalibration:
         """
         for folder in self.calibration_directory:
             config = StructuredLightConfig(pattern='gray',
-                                           vertical_images=[f"gray_{d:02d}.tiff" for d in range(1, self.num_vertical_images, 2)],
-                                           inverse_vertical_images=[f"gray_{d:02d}.tiff" for d in range(2, self.num_vertical_images + 1, 2)],
-                                           horizontal_images= [f"gray_{d:02d}.tiff" for d in range(self.num_vertical_images + 1, self.num_vertical_images + self.num_horizontal_images, 2)],
-                                           inverse_horizontal_images=[f"gray_{d:02d}.tiff" for d in range(self.num_vertical_images + 2, self.num_vertical_images + self.num_horizontal_images + 1, 2)])
+                                           vertical_images=[f"{self.image_name}_{d:02d}.tiff" for d in range(1 + self.offset, self.num_vertical_images + self.offset, 2)],
+                                           inverse_vertical_images=[f"{self.image_name}_{d:02d}.tiff" for d in range(2 + self.offset, self.num_vertical_images + 1 + self.offset, 2)],
+                                           horizontal_images= [f"{self.image_name}_{d:02d}.tiff" for d in range(self.num_vertical_images + 1 + self.offset, self.num_vertical_images + self.num_horizontal_images + self.offset, 2)],
+                                           inverse_horizontal_images=[f"{self.image_name}_{d:02d}.tiff" for d in range(self.num_vertical_images + 2 + self.offset, self.num_vertical_images + self.num_horizontal_images + 1 + self.offset, 2)],
+                                           white_image=f'green.tiff',
+                                           black_image=None)
             _index_x, _index_y = decode(get_folder_from_file(folder[0]), config)
             self.index_x.append(_index_x)
             self.index_y.append(_index_y)
@@ -112,11 +117,37 @@ class LocalHomographyCalibration:
         """
         
         """
+        if self.camera.intrinsic_images is None:
+            self.camera.intrinsic_images = []
+        if self.projector.images is None:
+            self.projector.images = []
         for i, folder in enumerate(self.calibration_directory):
             white_image = self.calibration_directory[i][-1]
+            
             self.camera.intrinsic_images.append(white_image)
             self.projector.images.append(white_image)
             img_points, obj_points, _ = self.plane_pattern.detect_markers(white_image)
+            # result = Calibration.calibrate([obj_points],[img_points], (self.camera.resx, self.camera.resy), self.camera.K, self.camera.dist_coeffs)
+            # errors = Calibration.reprojection_error(obj_points,
+            #                                         img_points,
+            #                                         result['rvecs'][0],
+            #                                         result['tvecs'][0],
+            #                                         self.camera.K,
+            #                                         self.camera.dist_coeffs)
+            
+            # img_filtered = []
+            # obj_filtered = []
+    
+            # # Select points with errors below the threshold
+            # filtered_idxs = np.nonzero(errors < self.camera.error_thr)[0]
+
+            # # Filter the object and image points based on selected indexes
+            # img_filtered.append(np.array([img_points[i] for i in filtered_idxs]))
+            # obj_filtered.append(np.array([obj_points[i] for i in filtered_idxs]))
+
+            # img_points = np.array(img_filtered).reshape(-1,2)
+            # obj_points = np.array(obj_filtered).reshape(-1,3)
+
             proj_img_points = np.empty_like(img_points)
         
             # this happens PER NEIGHBORHOOD, hence the for loop

@@ -7,13 +7,10 @@ CUDA_AVAILABLE = False # constant
 # import torch ### swapping for cupy since we don't need autodiff and I prefer interoperability
 try:
     import cupy as cp
-    print("cupy imported successfully.")
     def get_array_module(*args):
         return cp.get_array_module(*args)
     CUDA_AVAILABLE = cp.cuda.is_available()
-    print("CUDA Availability: ", CUDA_AVAILABLE)
 except ImportError:
-    print("cupy not found. Using numpy fallback everywhere.")
     def get_array_module(*args):
         return np
 import os

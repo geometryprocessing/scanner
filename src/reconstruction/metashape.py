@@ -2,7 +2,7 @@
 # 
 # A convenient, reduced wrapper library of functions from Agisoft Metashape.
 # Author: Giancarlo Pereira (NYU)
-# Last Updated: 2026-04-11
+# Last Updated: 2026-04-15
 # 
 ###################################
 try:
@@ -13,12 +13,6 @@ except ImportError:
                         "its license key is active, and Python wheels are properly built. " \
                         "Otherwise, COLMAP is an open-source structure-from-motion and " \
                         "multi-view stereo software and we provide some wrapper functions for it.") 
-
-
-import glob
-import json
-import os
-import xml.etree.ElementTree as ET
 
 def load_images(chunk: Metashape.Chunk,
                 image_paths: list[str],
@@ -42,7 +36,10 @@ def match_photos(chunk: Metashape.Chunk, **kwargs):
         reference_preselection=kwargs.get("reference_preselection", False),
         keypoint_limit=kwargs.get("keypoint_limit", 40000),
         tiepoint_limit=kwargs.get("tiepoint_limit", 4000),
-        reuse_matches=kwargs.get("reuse_matches", False),
+        filter_mask=kwargs.get("filter_mask", False),
+        mask_tiepoints=kwargs.get("mask_tiepoints", False),
+        reset_matches=kwargs.get("reset_matches", False),
+
         subdivide_task=kwargs.get("subdivide_task", True),
         workitem_size_cameras=kwargs.get("workitem_size_cameras", 20),
         max_workgroup_size=kwargs.get("max_workgroup_size", 100)
@@ -266,10 +263,72 @@ def build_texture(chunk: Metashape.Chunk):
     chunk.buildTexture()
 
 
+def clean_dense_cloud(chunk: Metashape.Chunk, **kwargs):
+    '''
+    Filter points of point cloud in chunk.
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - criterion: which criterion to use for filtering (default: Metashape.PointCloud.Criterion.Confidence; other option is Metashape.PointCloud.Criterion.ScanAngle).
+        - threshold: The threshold value for the chosen criterion (default: 5 for Confidence).
+        '''
+    chunk.cleanPointCloud(
+        criterion=kwargs.get("criterion", Metashape.PointCloud.Criterion.Confidence),
+        threshold=kwargs.get("threshold", 5),
+        **kwargs
+    )
+
+def clean_mesh(chunk: Metashape.Chunk, **kwargs):
+    '''
+    Filter faces of mesh in chunk.
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the mesh to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - criterion: which criterion to use for filtering (default: Metashape.Model.Criterion.VertexConfidence; other options are Metashape.Model.Criterion.ComponentSize and Metashape.Model.Criterion.PolygonSize).
+        - level: The threshold value for the chosen criterion (default: 5 for VertexConfidence).
+        '''
+    chunk.cleanModel(
+        criterion=kwargs.get("criterion", Metashape.Model.Criterion.VertexConfidence),
+        threshold=kwargs.get("threshold", 5),
+        **kwargs
+    )
+
 def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
     '''
     Save point cloud of reconstruction locally.
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to export.
+    output_path : str
+        The path to save the exported point cloud file.
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - source_data: The source data to export (default: Metashape.DataSource.PointCloudData; other option is Metashape.DataSource.TiePointsData).
+        - binary: Whether to save the point cloud in binary format (default: True).
+        - save_point_color: Whether to save point colors (default: True).
+        - save_point_normal: Whether to save point normals (default: True).
+        - save_point_confidence: Whether to save point confidence (default: True).
     '''
+    import os
+    _, ext = os.path.splitext(output_path)
+    ext = ext.lower()
+    assert ext in ['.ply', 'obj'], "If you would like to export point cloud, please save it as either .ply or .obj"
+    
+    format = Metashape.PointCloudFormatNone
+    if ext == '.ply':
+        format = Metashape.PointCloudFormatPLY
+    elif ext == '.obj':
+        format = Metashape.PointCloudFormatOBJ
+
     chunk.exportPointCloud(
         path=output_path,
         source_data=kwargs.get("source_data", Metashape.DataSource.PointCloudData),
@@ -284,24 +343,28 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
         save_point_source_id=kwargs.get("save_point_source_id", True),
         save_point_timestamp=kwargs.get("save_point_timestamp", True),
         save_point_index=kwargs.get("save_point_index", True),
-        raster_transform=RasterTransformNone,
-        colors_rgb_8bit=True,
-        comment='',
-        save_comment=True,
-        format=PointCloudFormatNone,
-        image_format=ImageFormatJPEG,
-        clip_to_boundary=True,
-        clip_to_region=False,
-        block_width=1000,
-        block_height=1000,
-        split_in_blocks=False,
-        save_images=False,
-        compression=True,
-        tileset_version='1.0',
-        screen_space_error=16,
-        folder_depth=5,
-        subdivide_task=True,
-        no_double_precision=False)
+
+        # only play with these if you know what you're doing
+        raster_transform=kwargs.get("raster_transform", Metashape.RasterTransformNone),
+        colors_rgb_8bit=kwargs.get("colors_rgb_8bit", True),
+        comment=kwargs.get("comment", ''),
+        save_comment=kwargs.get("save_comment", True),
+        format=format,
+        image_format=kwargs.get("image_format", Metashape.ImageFormatJPEG),
+        clip_to_boundary=kwargs.get("clip_to_boundary", True),
+        clip_to_region=kwargs.get("clip_to_region", False),
+        block_width=kwargs.get("block_width", 1000),
+        block_height=kwargs.get("block_height", 1000),
+        split_in_blocks=kwargs.get("split_in_blocks", False),
+        save_images=kwargs.get("save_images", False),
+        ## these seem to be specific to Cesium format, not needed for our projects
+        # compression=kwargs.get("compression", Metashape.PointCloudCompressionNone),
+        # tileset_version='1.0',
+        # screen_space_error=16,
+        # folder_depth=5,
+        subdivide_task=kwargs.get("subdivide_task", True),
+        no_double_precision=kwargs.get("no_double_precision", True)
+        )
 
 
 def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
@@ -311,31 +374,34 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
     chunk.exportModel(
         path=output_path,
-        format=ModelFormatNone,
-        binary=True,
-        precision=6,
-        save_normals=True,
-        save_colors=True,
-        save_confidence=False,
-        save_texture=True,
-        texture_format=ImageFormatJPEG,
-        save_uv=True,
-        save_cameras=True,
-        save_markers=True,
-        save_udim=False,
-        save_alpha=False,
-        embed_texture=False,
-        strip_extensions=False,
-        raster_transform=RasterTransformNone,
-        colors_rgb_8bit=True,
-        gltf_y_up=True,
-        comment='',
-        save_comment=True,
-        clip_to_boundary=True,
-        clip_to_region=False,
-        clip_to_block=False,
-        block_margin=0.5,
-        save_metadata_xml=False)
+        binary=kwargs.get("binary", True),
+        precision=kwargs.get("precision", 6),
+        save_normals=kwargs.get("save_normals", True),
+        save_colors=kwargs.get("save_colors", True),
+        save_confidence=kwargs.get("save_confidence", False),
+        save_texture=kwargs.get("save_texture", True),
+        texture_format=kwargs.get("texture_format", Metashape.ImageFormatPNG),
+        save_uv=kwargs.get("save_uv", True),
+        save_cameras=kwargs.get("save_cameras", True),
+        save_markers=kwargs.get("save_markers", True),
+        
+
+        # only play with these if you know what you're doing
+        save_udim=kwargs.get("save_udim", False),
+        save_alpha=kwargs.get("save_alpha", False),
+        embed_texture=kwargs.get("embed_texture", False),
+        strip_extensions=kwargs.get("strip_extensions", False),
+        raster_transform=kwargs.get("raster_transform", Metashape.RasterTransformNone),
+        colors_rgb_8bit=kwargs.get("colors_rgb_8bit", True),
+        gltf_y_up=kwargs.get("gltf_y_up", True),
+        comment=kwargs.get("comment", ''),
+        save_comment=kwargs.get("save_comment", True),
+        clip_to_boundary=kwargs.get("clip_to_boundary", True),
+        clip_to_region=kwargs.get("clip_to_region", False),
+        clip_to_block=kwargs.get("clip_to_block", False),
+        block_margin=kwargs.get("block_margin", 0.5),
+        save_metadata_xml=kwargs.get("save_metadata_xml", False)
+        )
 
 # def export_camera_locations(chunk: Metashape.Chunk):
 #     '''

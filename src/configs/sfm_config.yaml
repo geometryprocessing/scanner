@@ -1,0 +1,110 @@
+
+dataset:
+  name: example_dataset
+  path: ???
+  num_cameras: 5
+  cameras_names: ['24185672', '24185675', '24185678', '24185686', '24185697']
+  image_format: .tiff
+
+preprocessing:
+  run:
+    tone_map: False
+    instrincs: False
+    undistort: False
+    mask: False
+    pose_registration: False
+
+  tone_map:
+    max_value: 65535 # 16-bit image
+    min_value: 0
+    method: sqrt # need to think about implementing sigmoid and other methods
+
+  undistort: # undistort requires camera intrinsics 
+
+  mask: # what to do here? maybe a trained object detection/classification?
+
+  pose_registration:
+  
+
+  
+# which SfM pipeline to run - you can pick both
+run_metashape: True
+run_colmap: False
+
+# configuration for SfM pipeline using Agisoft Metashape
+# NOTE: the software needs to be installed, a license key is required, and 
+# the wheels need to be built for Python API (https://www.agisoft.com/downloads/installer/)
+metashape:
+  # what to import
+  import:
+    import_cameras: True
+    import_markers: False
+    import_depth_maps: False
+    import_point_cloud: False
+    import_mesh: False
+
+  # what to save/export
+  export:
+    # if set to False, None, or just missing, then it will not be saved
+    report: metashape_report.pdf
+    point_cloud: metashape_point_cloud.ply
+    mesh: metashape_mesh.obj
+    depth_maps: True
+
+  # what to run
+  run:
+    load_images: True
+    match_photos: True
+    align_cameras: True
+    build_depth_maps: True
+    build_point_cloud: True
+    build_mesh: True
+
+  # parameters for the functions
+  load_images:
+
+  match_photos:    
+    downscale: 1 # [1,2,4,8,16] 1 means no downscaling, 16 means the most downscaling (less accurate but faster)
+
+    # only play with these if you know what you are doing
+    generic_preselection: True
+    reference_preselection: False
+    keypoint_limit: 40000
+    tiepoint_limit: 4000
+    reuse_matches: False
+    subdivide_task: True
+    workitem_size_cameras: 20
+    max_workgroup_size: 100
+
+  align_cameras:
+    reset_alignment: True # throw away existing alignment and start from scratch
+    min_image: 2 # minimum number of points
+
+    fisheye: False # only true if your lenses are fisheye (i.e. very wide field of view)
+
+    # only play with these if you know what you are doing
+    adaptive_fitting: False
+    reset_alignment: False
+    subdivide_task: True
+
+  build_depth_maps:
+
+  build_point_cloud:
+    replace_asset: True
+    source_data: Metashape.DepthMapsData
+    point_confidence: True
+    point_colors: True
+    keep_depth: True
+    max_neighbors: 10 # ? what does this do? how does it change the output?
+    uniform_sampling: False # if true, will sample points uniformly across the depth map, otherwise will sample more points in areas with higher confidence
+    points_spacing: 0.01 # the smaller the number, the heavier (and hopefully more accurate) the point cloud will be
+
+    # # only play with these if you know what you're doing
+    subdivide_task: True
+    workitem_size_cameras: 20
+    max_workgroup_size: 100
+
+# configuration for SfM pipeline using COLMAP
+# NOTE: COLMAP needs to be installed (https://colmap.github.io/install.html)
+colmap:
+  foo: bar

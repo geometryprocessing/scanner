@@ -45,6 +45,15 @@ def is_json(filename) -> bool:
     _, ext = os.path.splitext(filename)
     return ext.lower() == '.json'
 
+def is_yaml(filename) -> bool:
+    """
+    Check if a given path to file is YAML object.
+
+    NOTE: This function does not check if file exists.
+    """
+    _, ext = os.path.splitext(filename)
+    return ext.lower() in ['.yml', '.yaml']
+
 def ensure_exists(path: str):
     """
     Check if path to folder exists. If not, create it.
@@ -121,7 +130,7 @@ def get_all_folders(path: str) -> list[str]:
     return natsorted([f.path for f in os.scandir(path) if f.is_dir()])
 
 
-def get_all_paths(paths: str | list[str]) -> list[str]:
+def get_all_paths(paths: str | list[str], extensions: list[str] = None) -> list[str]:
     """
     Check if the given path(s) is a directory or file, and retrieve all files inside (recursively).
 
@@ -129,6 +138,8 @@ def get_all_paths(paths: str | list[str]) -> list[str]:
     ----------
     paths : str or list of str
         A path or list of paths to files and/or directories.
+    extensions : list of str, optional
+        A list of file extensions to filter for. If None, all files are returned.
 
     Returns
     -------
@@ -142,18 +153,26 @@ def get_all_paths(paths: str | list[str]) -> list[str]:
     For more information, read
     https://github.com/SethMMorton/natsort/wiki/How-Does-Natsort-Work%3F-(1-%E2%80%90-Basics)
     """
+    if extensions is not None:
+        if isinstance(extensions, str):
+            extensions = [extensions]
+        extensions = [ext.lower() for ext in extensions]  # Normalize extensions to lowercase
     if isinstance(paths, str):
         paths = [paths]  # Convert a single path to a list for uniform processing
 
     all_files = []
 
     for path in paths:
-        if os.path.isdir(path):  # If it's a directory, walk through it recursively
+        # If it's a directory, walk inside it
+        if os.path.isdir(path):
             for root, _, files in os.walk(path):
                 for file in files:
                     all_files.append(os.path.join(root, file))
-        elif os.path.isfile(path):  # If it's a file, add it to the list
-            all_files.append(os.path.abspath(path))
+        # if it's a file
+        elif os.path.isfile(path):
+            # add file to the list (if extensions passed, see if extension matches)
+            if extensions is None or os.path.splitext(path)[1].lower() in extensions:  
+                all_files.append(os.path.abspath(path))
         else:
             print(f"The path '{path}' is neither a valid file nor a directory.")
 
@@ -208,3 +227,37 @@ def save_json(data: dict,
     ensure_exists(filename)
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4, cls=NumpyEncoder)
+
+def update_yaml_value(yaml_data: dict, key: str, data):
+    keys = key.split('.')
+    accessable = yaml_data
+    for k in keys[:-1]:
+        accessable = accessable[k]
+    accessable[keys[-1]] = data
+    return yaml_data
+
+
+def load_yaml(filename: str,
+              cli_args: dict = None) -> dict:
+    """
+    Function to load YAML file.
+
+    Parameters
+    ----------
+    filename : str
+        path to file where YAML data is stored.  
+    """
+    import yaml
+    if not os.path.isfile(filename):
+        raise ValueError(f'{filename} does not exist')
+    if not is_yaml(filename):
+        raise ValueError(f'{filename} is not a YAML file')
+    with open(filename, 'r') as f:
+        data = yaml.safe_load(f)
+    
+    if cli_args is not None:
+        for k, v in cli_args.items():
+            if k in data:
+                dest_type = type(data[k])
+                data[k] = parse_value(dest_type, v) 
+    return data

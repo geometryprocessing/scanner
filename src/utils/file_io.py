@@ -255,9 +255,56 @@ def load_yaml(filename: str,
     with open(filename, 'r') as f:
         data = yaml.safe_load(f)
     
+    # TODO: FIX THIS! is cli_args dict? I think it might be list
     if cli_args is not None:
         for k, v in cli_args.items():
             if k in data:
                 dest_type = type(data[k])
                 data[k] = parse_value(dest_type, v) 
     return data
+
+def write_opencv_calibration_to_xml(filename,
+                                    resx,
+                                    resy,
+                                    K,
+                                    dist_coeffs):
+    """
+    Write OpenCV camera calibration into XML file.
+    This can be ingested by Agisoft Metashape for loading camera calibration.
+
+    Parameters
+    ----------
+    filename : str
+        Path to XML file where calibration will be saved.
+    resx : int
+        Image width in pixels.
+    resy : int
+        Image height in pixels.
+    K : np.ndarray
+        3x3 camera intrinsic matrix.
+    dist_coeffs : np.ndarray or None
+        Distortion coefficients. If None, will convert it first to 5*[0]
+    
+    """
+    # TODO: NEED TO SAVE R AND T AS WELL
+    # IMPORTANT TO NOTE THAT IN METASHAPE, origin is LOCATION
+    # origin is DIFFERENT from T
+    # origin is calculated as -R^T @ T 
+    import xml.etree.ElementTree as ET
+    opencv_storage = ET.Element("opencv_storage")
+    ET.SubElement(opencv_storage, "image_Width").text = str(resx)
+    ET.SubElement(opencv_storage, "image_Height").text = str(resy)
+    camera_matrix = ET.SubElement(opencv_storage, "Camera_Matrix", type_id="opencv-matrix")
+    ET.SubElement(camera_matrix, "rows").text = "3"
+    ET.SubElement(camera_matrix, "cols").text = "3"
+    ET.SubElement(camera_matrix, "dt").text = "d"
+    ET.SubElement(camera_matrix, "data").text = ' '.join(map(str, K.flatten()))
+    dist_coeffs = ET.SubElement(opencv_storage, "Distortion_Coefficients", type_id="opencv-matrix")
+    if dist_coeffs is None:
+        dist_coeffs = np.zeros(5)
+    ET.SubElement(dist_coeffs, "rows").text = str(len(dist_coeffs))
+    ET.SubElement(dist_coeffs, "cols").text = "1"
+    ET.SubElement(dist_coeffs, "dt").text = "d"
+    ET.SubElement(dist_coeffs, "data").text = ' '.join(map(str, dist_coeffs.flatten()))
+    tree = ET.ElementTree(opencv_storage)
+    tree.write(filename)

@@ -138,6 +138,7 @@ class Charuco:
                 checker_size=None,
                 marker_size=None,
                 dictionary=None,
+                valid_ids: list[int] = [],
                 board_config=None):
         """
         Initialize ChArUco object for marker detection.
@@ -152,6 +153,8 @@ class Charuco:
             Size (in millimeters) of marker.
         dictionary : str, optional
             String containing which ChArUco dictionary to use.
+        valid_ids : list[int], optional
+            List of valid marker IDs.
         board_config : dict, optional
             Dictionary containing m, n, checker_size, and dictionary.
         """
@@ -161,11 +164,13 @@ class Charuco:
             checker_size = board_config["checker_size"]
             marker_size = board_config["marker_size"]
             dictionary = board_config["dictionary"]
+            valid_ids += board_config.get("valid_ids", [])
 
         self.rows=rows
         self.columns=columns
         self.checker_size=checker_size
         self.marker_size=marker_size
+        self.valid_ids = valid_ids
         
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(CHARUCO_DICTIONARY_ENUM[dictionary])
         self.charuco_board = cv2.aruco.CharucoBoard((self.columns,self.rows),
@@ -275,6 +280,12 @@ class Charuco:
             ids = c_ids.ravel()
         else:
             img_points, obj_points, ids = [], [], []
+
+        if len(self.valid_ids) > 0:
+            valids = np.isin(ids, self.valid_ids)
+            img_points = img_points[valids]
+            obj_points = obj_points[valids]
+            ids = ids[valids]
 
         return img_points, obj_points, ids
 

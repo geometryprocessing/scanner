@@ -26,12 +26,53 @@ def load_images(chunk: Metashape.Chunk,
     else:
         chunk.addPhotos(image_paths)
 
+def load_sensor_calibration(sensor: Metashape.Sensor,
+                            calibration_path: str,
+                            fixed: bool = False,
+                            format = Metashape.CalibrationFormatOpenCV):
+    '''
+    Load camera intrinsics.
+    '''
+    calib = Metashape.Calibration()
+    calib.width = sensor.width
+    calib.height = sensor.height
+    calib.load(calibration_path, format = format)
+    # allow user calibration to either be INITIAL GUESS or FIXED
+    if fixed:
+        sensor.fixed = True
+    sensor.user_calib = calib
+
+def load_image_extrinsics(chunk: Metashape.Chunk,
+                          extrinsics_path: str,
+                          format = Metashape.ExtrinsicsFormatOpenCV):
+    '''
+    Load camera extrinsics.
+    '''
+    chunk.load(extrinsics_path, format = format)
+
+
 def match_photos(chunk: Metashape.Chunk, **kwargs):
     '''
     Match photos in the chunk.
+
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - downscale: options are 0,1,2,4,8 where 0 is no downscaling and 8 is the most downscaling (default: 0)
+        - generic_preselection: Whether to use generic preselection (default: True).
+        - reference_preselection: Whether to use reference preselection (default: False).
+        - keypoint_limit: Maximum number of keypoints to detect per image (default: 40000).
+        - tiepoint_limit: Maximum number of tie points to keep per image (default: 4000).
+        - filter_mask: Whether to use a mask to filter keypoints (default: False).
+        - mask_tiepoints: Whether to mask tie points (default: False).
+        - reset_matches: Whether to reset existing matches before matching (default: False).
     '''
     chunk.matchPhotos(
-        downscale=kwargs.get("downscale", 1),
+        downscale=kwargs.get("downscale", 0),
         generic_preselection=kwargs.get("generic_preselection", True),
         reference_preselection=kwargs.get("reference_preselection", False),
         keypoint_limit=kwargs.get("keypoint_limit", 40000),
@@ -48,6 +89,16 @@ def match_photos(chunk: Metashape.Chunk, **kwargs):
 def align_cameras(chunk: Metashape.Chunk, **kwargs):
     '''
     Align cameras/images in the chunk.
+
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing images to align / generate sparse point cloud.
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - reset_alignment: Whether to reset existing camera alignment before aligning (default: False).
+        - min_image: Minimum number of images that must observe a point for it to be used in alignment (default: 2).
+        - adaptive_fitting: Whether to use adaptive fitting for distortion coefficients (default: False). This is useful if you
     '''
     chunk.alignCameras(
         reset_alignment=kwargs.get("reset_alignment", False),
@@ -176,11 +227,16 @@ def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
     '''
     Build depth maps.
 
-    Defaults but can be overridden by kwargs.
-    Most relevant ones are:
-        downscale (int): 1 (options are 1,2,4,8,16 where 1 is no downscaling and 16 is the most downscaling)
-        filter_mode (Metashape.DepthFilterMode): Metashape.DepthFilterMode.Moderate 
-        max_neighbors (int): 16
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - downscale: options are 1,2,4,8,16 where 1 is no downscaling and 16 is the most downscaling (default: 1)
+        - filter_mode (default: Metashape.DepthFilterMode.Moderate)
+        - max_neighbors (int): 16
     '''
     chunk.buildDepthMaps(
         # important ones
@@ -197,6 +253,22 @@ def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
 def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
     '''
     Build dense point cloud.
+
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - source_data: (default: Metashape.DepthMapsData)
+        - face_count: (default: Metashape.FaceCount.HighFaceCount)
+        - uniform_sampling: (default: True)
+        - points_spacing: (default: 0.1)
+        - max_neighbors: (default: 100)
+        - point_confidence: (default: True)
+        - point_colors: (default: True)
+        - replace_asset: (default: False)
     '''
     chunk.buildPointCloud(
         # important ones
@@ -220,14 +292,19 @@ def build_mesh(chunk: Metashape.Chunk, **kwargs):
     '''
     Build triangular mesh.
 
-    Defaults but can be overridden by kwargs.
-    Most relevant ones are:
-        source_data: Metashape.DepthMapsData
-        face_count: Metashape.FaceCount.HighFaceCount
-        interpolation: Metashape.ModelInterpolation.Enabled
-        vertex_confidence: True
-        vertex_colors: True
-        replace_asset: False
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
+
+    **kwargs : dict
+        Additional keyword arguments to customize the export process. Possible keys include:
+        - source_data: (default: Metashape.DepthMapsData)
+        - face_count: (default: Metashape.FaceCount.HighFaceCount)
+        - interpolation: (default: Metashape.ModelInterpolation.Enabled)
+        - vertex_confidence: (default: True)
+        - vertex_colors: (default: True)
+        - replace_asset: (default: False)
     '''
     chunk.buildModel(
         # important ones
@@ -258,6 +335,11 @@ def build_mesh(chunk: Metashape.Chunk, **kwargs):
 def build_texture(chunk: Metashape.Chunk):
     '''
     Build texture of mesh.
+
+    Parameters
+    ----------
+    chunk : Metashape.Chunk
+        The chunk containing the point cloud to filter.
     '''
     chunk.buildUV()
     chunk.buildTexture()

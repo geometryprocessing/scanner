@@ -14,6 +14,149 @@ except ImportError:
                         "Otherwise, COLMAP is an open-source structure-from-motion and " \
                         "multi-view stereo software and we provide some wrapper functions for it.") 
 
+MATCH_PHOTOS_DEFAULTS = {
+    'downscale': 0, 
+    'generic_preselection': True, 
+    'reference_preselection': False,
+    'keypoint_limit': 40000,
+    'tiepoint_limit': 4000,
+    'filter_mask': False,
+    'mask_tiepoints': False,
+    'reset_matches': False,
+
+    # only play with these if you know what you're doing
+    'subdivide_task': True,
+    'workitem_size_cameras': 20,
+    'max_workgroup_size': 100
+}
+
+ALIGN_CAMERAS_DEFAULTS = {
+    'reset_alignment': False,
+    'min_image': 2,
+    'adaptive_fitting': False,
+    'reset_alignment': False,
+    'subdivide_task': True
+}
+
+BUILD_DEPTH_MAPS_DEFAULTS = {
+    'downscale': 1,
+    'filter_mode': Metashape.DepthFilterMode.Moderate,
+    'max_neighbors': 16,
+    'reuse_depth': False,
+    'subdivide_task': True,
+    'workitem_size_cameras': 20,
+    'max_workgroup_size': 100
+}
+
+BUILD_DENSE_CLOUD_DEFAULTS = {
+    'replace_asset': False,
+    'source_data': Metashape.DepthMapsData,
+    'point_confidence': True,
+    'point_colors': True,
+    'keep_depth': True,
+    'max_neighbors': 100,
+    'uniform_sampling': True,
+    'points_spacing': 0.1,
+
+    # only play with these if you know what you're doing
+    'subdivide_task': True,
+    'workitem_size_cameras': 20,
+    'max_workgroup_size': 100
+}
+
+BUILD_MODEL_DEFAULTS = {
+    'replace_asset': False,
+    'source_data': Metashape.DepthMapsData,
+    'surface_type': Metashape.SurfaceType.Arbitrary,
+    'interpolation': Metashape.ModelInterpolation.Enabled,
+    'vertex_confidence': True,
+    'face_count': Metashape.FaceCount.HighFaceCount,
+    'face_count_custom': 5_000_000,
+    'vertex_colors': True,
+    'build_texture': False,
+    'keep_depth': True,
+
+    # only play with these if you know what you're doing
+    'volumetric_masks': False,
+    'split_in_blocks': False,
+    'blocks_size': 250,
+    'clip_to_boundary': False,
+    'export_blocks': False,
+    'trimming_radius': 10,
+    'subdivide_task': True,
+    'workitem_size_cameras': 20,
+    'max_workgroup_size': 100
+}
+
+CLEAN_POINT_CLOUD_DEFAULTS = {
+    'criterion': Metashape.PointCloud.Criterion.Confidence,
+    'threshold': 5
+}
+
+CLEAN_MESH_DEFAULTS = {
+    'criterion': Metashape.Model.Criterion.VertexConfidence,
+    'threshold': 5
+}
+
+EXPORT_POINT_CLOUD_DEFAULTS = {
+    'source_data': Metashape.DataSource.PointCloudData,
+    'binary': True,
+    'save_point_color': True,
+    'save_point_normal': True,
+    'save_point_intensity': True,
+    'save_point_classification': True,
+    'save_point_confidence': True,
+    'save_point_return_number': True,
+    'save_point_scan_angle': True,
+    'save_point_source_id': True,
+    'save_point_timestamp': True,
+    'save_point_index': True,
+
+    # only play with these if you know what you're doing
+    'comment': 'point cloud generated and saved by Agisoft Metashape in Skelevision pipeline',
+    'save_comment': True,
+    'raster_transform': Metashape.RasterTransformNone,
+    'colors_rgb_8bit': True,
+    'image_format': Metashape.ImageFormatPNG,
+    'clip_to_boundary': True,
+    'clip_to_region': False,
+    'block_width': 1000,
+    'block_height': 1000,
+    'split_in_blocks': False,
+    'save_images': False,   
+    'subdivide_task': True,
+    'no_double_precision': True
+}
+
+EXPORT_MESH_DEFAULTS = {
+    'binary': True,
+    'precision': 6,
+    'save_normals': True,
+    'save_colors': True,
+    'save_confidence': False,
+    'save_texture': True,
+    'texture_format': Metashape.ImageFormatPNG,
+    'save_uv': True,
+    'save_cameras': True,
+    'save_markers': True,
+
+    # only play with these if you know what you're doing
+    'save_udim': False,
+    'save_alpha': False,
+    'embed_texture': False,
+    'strip_extensions': False,
+    'raster_transform': Metashape.RasterTransformNone,
+    'colors_rgb_8bit': True,
+    'gltf_y_up': True,
+    'comment': 'mesh generated and saved by Agisoft Metashape in Skelevision pipeline',
+    'save_comment': True,
+    'clip_to_boundary': True,
+    'clip_to_region': False,
+    'clip_to_block': False,
+    'block_margin': 0.5,
+    'save_metadata_xml': False
+}
+
 def load_images(chunk: Metashape.Chunk,
                 image_paths: list[str],
                 filegroups: list[int] = None):
@@ -71,20 +214,7 @@ def match_photos(chunk: Metashape.Chunk, **kwargs):
         - mask_tiepoints: Whether to mask tie points (default: False).
         - reset_matches: Whether to reset existing matches before matching (default: False).
     '''
-    chunk.matchPhotos(
-        downscale=kwargs.get("downscale", 0),
-        generic_preselection=kwargs.get("generic_preselection", True),
-        reference_preselection=kwargs.get("reference_preselection", False),
-        keypoint_limit=kwargs.get("keypoint_limit", 40000),
-        tiepoint_limit=kwargs.get("tiepoint_limit", 4000),
-        filter_mask=kwargs.get("filter_mask", False),
-        mask_tiepoints=kwargs.get("mask_tiepoints", False),
-        reset_matches=kwargs.get("reset_matches", False),
-
-        subdivide_task=kwargs.get("subdivide_task", True),
-        workitem_size_cameras=kwargs.get("workitem_size_cameras", 20),
-        max_workgroup_size=kwargs.get("max_workgroup_size", 100)
-        )
+    chunk.matchPhotos(**kwargs)
     
 def align_cameras(chunk: Metashape.Chunk, **kwargs):
     '''
@@ -100,13 +230,7 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
         - min_image: Minimum number of images that must observe a point for it to be used in alignment (default: 2).
         - adaptive_fitting: Whether to use adaptive fitting for distortion coefficients (default: False). This is useful if you
     '''
-    chunk.alignCameras(
-        reset_alignment=kwargs.get("reset_alignment", False),
-        min_image=kwargs.get("min_image", 2),
-        adaptive_fitting=kwargs.get("adaptive_fitting", False),
-        reset_alignment=kwargs.get("reset_alignment", False),
-        subdivide_task=True
-        )
+    chunk.alignCameras(**kwargs)
 
 # def metashape_undistort(chunk: Metashape.Chunk):
 #     for camera in chunk.cameras:
@@ -238,16 +362,7 @@ def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
         - filter_mode (default: Metashape.DepthFilterMode.Moderate)
         - max_neighbors (int): 16
     '''
-    chunk.buildDepthMaps(
-        # important ones
-        downscale=kwargs.get("downscale", 1),
-        filter_mode=kwargs.get("filter_mode", Metashape.DepthFilterMode.Moderate),
-        max_neighbors=kwargs.get("max_neighbors", 16),
-        reuse_depth=kwargs.get("reuse_depth", False),
-        subdivide_task=True,
-        workitem_size_cameras=kwargs.get("workitem_size_cameras", 20),
-        max_workgroup_size=kwargs.get("max_workgroup_size", 100)
-        )   
+    chunk.buildDepthMaps(**kwargs)   
 
 
 def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
@@ -270,22 +385,7 @@ def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         - point_colors: (default: True)
         - replace_asset: (default: False)
     '''
-    chunk.buildPointCloud(
-        # important ones
-        replace_asset=kwargs.get("replace_asset", False),
-        source_data=kwargs.get("source_data", Metashape.DepthMapsData),
-        point_confidence=kwargs.get("point_confidence", True),
-        point_colors=kwargs.get("point_colors", True),
-        keep_depth=kwargs.get("keep_depth", True),
-        max_neighbors=kwargs.get("max_neighbors", 100),
-        uniform_sampling=kwargs.get("uniform_sampling", True),
-        points_spacing=kwargs.get("points_spacing", 0.1),
-
-        # only play with these if you know what you're doing
-        subdivide_task=kwargs.get("subdivide_task", True),
-        workitem_size_cameras=kwargs.get("workitem_size_cameras", 20),
-        max_workgroup_size=kwargs.get("max_workgroup_size", 100)
-        )   
+    chunk.buildPointCloud(**kwargs)   
 
 
 def build_mesh(chunk: Metashape.Chunk, **kwargs):
@@ -306,31 +406,7 @@ def build_mesh(chunk: Metashape.Chunk, **kwargs):
         - vertex_colors: (default: True)
         - replace_asset: (default: False)
     '''
-    chunk.buildModel(
-        # important ones
-        replace_asset=kwargs.get("replace_asset", False),
-        source_data=kwargs.get("source_data", Metashape.DepthMapsData),
-        surface_type=kwargs.get("surface_type", Metashape.SurfaceType.Arbitrary),
-        interpolation=kwargs.get("interpolation", Metashape.ModelInterpolation.Enabled),
-        vertex_confidence=kwargs.get("vertex_confidence", True),
-        face_count=kwargs.get("face_count", Metashape.FaceCount.HighFaceCount),
-        face_count_custom=kwargs.get("face_count_custom", 200_000),
-        vertex_colors=kwargs.get("vertex_colors", True),
-        build_texture=kwargs.get("build_texture", False),
-        keep_depth=kwargs.get("keep_depth", True),
-
-
-        # only play with these if you know what you're doing
-        volumetric_masks=kwargs.get("volumetric_masks", False),
-        split_in_blocks=kwargs.get("split_in_blocks", False),
-        blocks_size=kwargs.get("blocks_size", 250),
-        clip_to_boundary=kwargs.get("clip_to_boundary", False),
-        export_blocks=kwargs.get("export_blocks", False),
-        trimming_radius=kwargs.get("trimming_radius", 10),
-        subdivide_task=kwargs.get("subdivide_task", True),
-        workitem_size_cameras=kwargs.get("workitem_size_cameras", 20),
-        max_workgroup_size=kwargs.get("max_workgroup_size", 100)
-        )   
+    chunk.buildModel(**kwargs)   
 
 def build_texture(chunk: Metashape.Chunk):
     '''
@@ -358,11 +434,7 @@ def clean_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         - criterion: which criterion to use for filtering (default: Metashape.PointCloud.Criterion.Confidence; other option is Metashape.PointCloud.Criterion.ScanAngle).
         - threshold: The threshold value for the chosen criterion (default: 5 for Confidence).
         '''
-    chunk.cleanPointCloud(
-        criterion=kwargs.get("criterion", Metashape.PointCloud.Criterion.Confidence),
-        threshold=kwargs.get("threshold", 5),
-        **kwargs
-    )
+    chunk.cleanPointCloud(**kwargs)
 
 def clean_mesh(chunk: Metashape.Chunk, **kwargs):
     '''
@@ -377,11 +449,7 @@ def clean_mesh(chunk: Metashape.Chunk, **kwargs):
         - criterion: which criterion to use for filtering (default: Metashape.Model.Criterion.VertexConfidence; other options are Metashape.Model.Criterion.ComponentSize and Metashape.Model.Criterion.PolygonSize).
         - level: The threshold value for the chosen criterion (default: 5 for VertexConfidence).
         '''
-    chunk.cleanModel(
-        criterion=kwargs.get("criterion", Metashape.Model.Criterion.VertexConfidence),
-        threshold=kwargs.get("threshold", 5),
-        **kwargs
-    )
+    chunk.cleanModel()
 
 def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
     '''
@@ -413,39 +481,7 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
     chunk.exportPointCloud(
         path=output_path,
-        source_data=kwargs.get("source_data", Metashape.DataSource.PointCloudData),
-        binary=kwargs.get("binary", True),
-        save_point_color=kwargs.get("save_point_color", True),
-        save_point_normal=kwargs.get("save_point_normal", True),
-        save_point_intensity=kwargs.get("save_point_intensity", True),
-        save_point_classification=kwargs.get("save_point_classification", True),
-        save_point_confidence=kwargs.get("save_point_confidence", True),
-        save_point_return_number=kwargs.get("save_point_return_number", True),
-        save_point_scan_angle=kwargs.get("save_point_scan_angle", True),
-        save_point_source_id=kwargs.get("save_point_source_id", True),
-        save_point_timestamp=kwargs.get("save_point_timestamp", True),
-        save_point_index=kwargs.get("save_point_index", True),
-
-        # only play with these if you know what you're doing
-        raster_transform=kwargs.get("raster_transform", Metashape.RasterTransformNone),
-        colors_rgb_8bit=kwargs.get("colors_rgb_8bit", True),
-        comment=kwargs.get("comment", ''),
-        save_comment=kwargs.get("save_comment", True),
         format=format,
-        image_format=kwargs.get("image_format", Metashape.ImageFormatJPEG),
-        clip_to_boundary=kwargs.get("clip_to_boundary", True),
-        clip_to_region=kwargs.get("clip_to_region", False),
-        block_width=kwargs.get("block_width", 1000),
-        block_height=kwargs.get("block_height", 1000),
-        split_in_blocks=kwargs.get("split_in_blocks", False),
-        save_images=kwargs.get("save_images", False),
-        ## these seem to be specific to Cesium format, not needed for our projects
-        # compression=kwargs.get("compression", Metashape.PointCloudCompressionNone),
-        # tileset_version='1.0',
-        # screen_space_error=16,
-        # folder_depth=5,
-        subdivide_task=kwargs.get("subdivide_task", True),
-        no_double_precision=kwargs.get("no_double_precision", True)
         )
 
 
@@ -456,33 +492,7 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
     chunk.exportModel(
         path=output_path,
-        binary=kwargs.get("binary", True),
-        precision=kwargs.get("precision", 6),
-        save_normals=kwargs.get("save_normals", True),
-        save_colors=kwargs.get("save_colors", True),
-        save_confidence=kwargs.get("save_confidence", False),
-        save_texture=kwargs.get("save_texture", True),
-        texture_format=kwargs.get("texture_format", Metashape.ImageFormatPNG),
-        save_uv=kwargs.get("save_uv", True),
-        save_cameras=kwargs.get("save_cameras", True),
-        save_markers=kwargs.get("save_markers", True),
-        
-
-        # only play with these if you know what you're doing
-        save_udim=kwargs.get("save_udim", False),
-        save_alpha=kwargs.get("save_alpha", False),
-        embed_texture=kwargs.get("embed_texture", False),
-        strip_extensions=kwargs.get("strip_extensions", False),
-        raster_transform=kwargs.get("raster_transform", Metashape.RasterTransformNone),
-        colors_rgb_8bit=kwargs.get("colors_rgb_8bit", True),
-        gltf_y_up=kwargs.get("gltf_y_up", True),
-        comment=kwargs.get("comment", ''),
-        save_comment=kwargs.get("save_comment", True),
-        clip_to_boundary=kwargs.get("clip_to_boundary", True),
-        clip_to_region=kwargs.get("clip_to_region", False),
-        clip_to_block=kwargs.get("clip_to_block", False),
-        block_margin=kwargs.get("block_margin", 0.5),
-        save_metadata_xml=kwargs.get("save_metadata_xml", False)
+        **kwargs
         )
 
 # def export_camera_locations(chunk: Metashape.Chunk):

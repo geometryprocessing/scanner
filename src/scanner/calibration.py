@@ -39,7 +39,11 @@ CHARUCO_DICTIONARY_ENUM = {
 
 
 class CheckerBoard:
-    def __init__(self, rows=None, columns=None, checker_size=None, board_config=None):
+    def __init__(self,
+                 rows=None,
+                 columns=None,
+                 checker_size=None,
+                 board_config=None):
         """
         Initialize checkerboard object for corner detection.
 
@@ -51,10 +55,12 @@ class CheckerBoard:
             Number of columns of board.
         checker_size : int, optional
             Size (in millimeters) of square.
-        board_config : dict, optional
-            Dictionary containing m, n, checker_size.
+        board_config : dict or str, optional
+            Dictionary containing rows, columns, checker_size.
         """
-        if board_config:
+        if board_config is not None:
+            if isinstance(board_config, str):
+                board_config = load_json(board_config)
             rows = board_config["rows"]
             columns = board_config["columns"]
             checker_size = board_config["checker_size"]
@@ -106,7 +112,7 @@ class CheckerBoard:
         if isinstance(image, str):
             image = load_ldr(image, make_gray=True)
         elif len(image.shape) != 2:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) # TODO: BGR or RGB? I think RGB
         
         # image has to be uint8 for opencv. if not, scaled it to [0, 255]
         dtype = image.dtype
@@ -156,9 +162,11 @@ class Charuco:
         valid_ids : list[int], optional
             List of valid marker IDs.
         board_config : dict, optional
-            Dictionary containing m, n, checker_size, and dictionary.
+            Dictionary containing rows, columns, checker_size, and dictionary (optionally valid_ids).
         """
-        if board_config:
+        if board_config is not None:
+            if isinstance(board_config, str):
+                board_config = load_json(board_config)
             rows = board_config["rows"]
             columns = board_config["columns"]
             checker_size = board_config["checker_size"]

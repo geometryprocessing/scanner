@@ -144,7 +144,7 @@ class Plotter:
     @staticmethod
     def plot_markers(markers: np.ndarray,
                     image_shape: tuple,
-                    K: np.ndarray,
+                    K: np.ndarray = None,
                     figsize: tuple = (16,12),
                     filename: str = None):
         """
@@ -157,12 +157,12 @@ class Plotter:
             list of 2D markers in pixel coordinates.
         image_shape : tuple
             tuple containing (width, height) of image resolution.
-        K : np.ndarray
-            Intrinsic matrix of camera/projector.
-        figsize : tuple
+        K : np.ndarray, optional
+            Intrinsic 3x3 matrix of camera/projector.
+        figsize : tuple, optional
             tuple containing (width, height) of figure to plot.
             The default is (16,12).
-        filename : str
+        filename : str, optional
             if passed, path to file where figure will be saved.  
         """
         width, height = image_shape
@@ -180,8 +180,9 @@ class Plotter:
                     s=min(width,height)/20, c='royalblue', marker='+')
 
         # central point found after calibration
-        plt.scatter(x=K[0,2], y=K[1,2],
-                    s=min(width,height)/20, c='royalblue', marker='o')
+        if K is not None:
+            plt.scatter(x=K[0,2], y=K[1,2],
+                        s=min(width,height)/20, c='royalblue', marker='o')
         
         # labels
         plt.xlabel('x (pixels)')

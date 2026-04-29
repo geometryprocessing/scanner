@@ -12,16 +12,58 @@ def normalize(vector: np.ndarray) -> np.ndarray:
     Parameters
     ----------
     vector : array_like
-        vector of shape NxD
+        vector to be normalized. Shape is (D,) for a single D-dimensional vector or (N,D) for N vectors.
 
     Returns
     ----------
-    array of normalized vector (along axis=1) of original shape NxD.
+    array of normalized vector (along axis=1 if N vectors) of original shape.
     """
     vector = np.array(vector)
+    if vector.ndim==1:
+        vector = vector[np.newaxis,:]
     norm = np.linalg.norm(vector, axis=1).reshape((-1,1))
-    return vector / norm
+    return (vector / norm).squeeze()
 
+def get_orthogonal_vector(v):
+    """
+    Given a vector v, find a vector u orthogonal to v.
+
+    Parameters
+    ----------
+    v : array_like
+
+    Returns
+    ----------
+    u : array_like
+        vector orthogonal to v
+    """
+    EPS = 1e-6
+    projection_length = np.inf
+    iter = 0
+    while projection_length > EPS:
+        dummy_vector = np.zeros_like(v)
+        dummy_vector[iter] = 1
+        u = np.cross(v,dummy_vector)
+        projection_length = np.dot(v, u)    
+        iter += 1
+    return u
+
+def get_orthonormal_vector(v):
+    """
+    Given a vector v, find a vector u orthonormal to v.
+
+    Parameters
+    ----------
+    v : array_like
+
+    Returns
+    ----------
+    u : array_like
+        vector orthonormal to v
+    """
+    u = get_orthogonal_vector(v)
+    u = normalize(u)
+    return u
 
 def fit_line( points: list ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -59,9 +101,9 @@ def fit_plane( points: list ) -> tuple[np.ndarray, np.ndarray]:
 
     Returns
     ----------
-    C
+    C : np.ndarray
         point in plane
-    N
+    N : np.ndarray
         normal vector (normalized in L-2 norm) of plane
 
     Notes
@@ -82,23 +124,24 @@ def fit_plane( points: list ) -> tuple[np.ndarray, np.ndarray]:
 
 def fit_sphere( points: list ) -> tuple[np.ndarray, float, float]:
     """
-    Fit a sphere through list of points.
+    Fit a sphere through 3-dimensional points.
 
     Parameters
     ----------
     points : array_like
-        list of N points (Nx3).
+        list of N points (N,3).
 
     Returns
     ----------
     C : np.ndarray
-        center of sphere (3x1)
+        center of sphere (3,)
     R : float
         radius of sphere
     res : float
         residual of linear least square fit
 
     """
+    points = np.asarray(points).reshape((-1,3))
     # Coefficient matrix and values
     A = np.column_stack((2*points, np.ones(len(points))))
     b = (points**2).sum(axis=1)
@@ -107,6 +150,58 @@ def fit_sphere( points: list ) -> tuple[np.ndarray, float, float]:
     # Sphere parameters
     center = x[:3]
     radius = np.sqrt(x[0]**2 + x[1]**2 + x[2]**2 + x[3])
+    
+    return center, radius, res
+
+def fit_circle( points: list ) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """
+    Fit a circle through list of 3-dimensional points.
+
+    FIrst need to find a plane through the data; then, project
+    the points onto the plane to finally be able to fit a circle.
+
+    Parameters
+    ----------
+    points : array_like
+        list of N points (N,3).
+
+    Returns
+    ----------
+    C : np.ndarray
+        center of circle (3,)
+    up: np.narray
+        up vector of center (3,) 
+    radius : float
+        radius of circle
+    res : float
+        residual of linear least square fit
+
+    """
+    points = np.asarray(points).reshape((-1,3))
+    # first, fit plane to data
+    plane_point, plane_normal = fit_plane(points)
+
+    # project data onto plane (points_uv)
+    plane_vectors = points - plane_point
+    points_on_plane = points - np.dot(plane_vectors, plane_normal) * plane_normal
+    plane_u = get_orthonormal_vector(plane_normal)
+    plane_v = np.cross(plane_u, plane_normal)
+
+    points_u = np.dot(points_on_plane, plane_u)
+    points_v = np.dot(points_on_plane, plane_v)
+    points_uv = np.stack([points_u, points_v], axis=1) # (N,2)
+    
+    # fit circle using least squares
+    # Coefficient matrix and values
+    A = np.column_stack((2*points_uv, np.ones(len(points))))
+    b = (points_uv**2).sum(axis=1)
+    # Solve A x = b
+    x, res, _, _ = np.linalg.lstsq(A, b, rcond=None)
+    # circle parameters
+    center_on_uv = x[:2]
+    center = plane_point + plane_u * center_on_uv[0] + plane_v * center_on_uv[1]
+
+    radius = np.sqrt(x[0]**2 + x[1]**2 + x[2]**2)
     
     return center, radius, res
 
@@ -604,6 +699,8 @@ def get_origin(R: np.ndarray, T: np.ndarray) -> np.ndarray:
     origin
         origin vector (shape 1x3) of object
     """
+    if R.shape != (3,3):
+        R, _ = cv2.Rodrigues(R)
     R = np.array(R, dtype=np.float32).reshape((3,3))
     T = np.array(T, dtype=np.float32).reshape((3,1))
     return -np.matmul(R.T, T).reshape((1,3))
@@ -778,3 +875,46 @@ def load_point_cloud(filename: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     pc = o3d.io.read_point_cloud(filename, print_progress=True)
     return np.asarray(pc.points), np.asarray(pc.normals), np.asarray(pc.colors)
+
+from src.utils.three_d_utils import normalize
+def rodrigues_rotation(v, k, theta):
+    """
+    Function implementing Rodrigues' rotation (https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula).
+
+    For vector(s) v rotating by theta around axis of rotation k
+    v_rotated = v * cos(theta) + (k cross v) * sin(theta) + k (k dot v) (1 - cos(theta))
+    
+    Parameters
+    ----------
+    v : np.ndarray
+        original vector before any rotation. Shape is (3,) for a single vector or (N,3) for N vectors
+    k : np.ndarray
+        vector representing axis of rotation
+    theta : float | array_like
+        angle(s) (in radians) for rotation. Scalar or array_like of shape (M,)
+
+    Returns
+    -------
+    v_rot : np.ndarray
+        rotated vector(s).
+        - (3,)    for single v, scalar theta
+        - (N,3)   for N vectors, scalar theta
+        - (M,3)   for single v, M angles
+        - (M,N,3) for N vectors and M angles
+    """
+    k = normalize(k) # in case the axis of rotation vector is not normalized
+    v = v.reshape(-1,3) # (make it (N,3), even if N=1)
+    theta = np.atleast_1d(theta) # (mkae it (M,), even if M=1)
+
+    cos = np.cos(theta)
+    sin = np.sin(theta)
+    cross = np.cross(k, v)
+    dot = np.dot(v, k)
+
+    v     = v[np.newaxis,...]               # (1,N,3)
+    cross = cross[np.newaxis,...]           # (1,N,3)
+    dot   = dot[np.newaxis, :, np.newaxis]  # (1,N,1)
+    cos   = cos[:, np.newaxis, np.newaxis]  # (M,1,1)
+    sin   = sin[:, np.newaxis, np.newaxis]  # (M,1,1)
+    
+    return (v * cos + cross * sin + k * dot * (1 - cos)).squeeze() # this will be (M,N,3) or squeezing out M, N

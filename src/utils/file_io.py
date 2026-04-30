@@ -157,24 +157,26 @@ def get_all_paths(paths: str | list[str], extensions: list[str] = None) -> list[
         if isinstance(extensions, str):
             extensions = [extensions]
         extensions = [ext.lower() for ext in extensions]  # Normalize extensions to lowercase
+        extensions = [ext if ext[0] == '.' else '.' + ext for ext in extensions]  # add dot if not there
     if isinstance(paths, str):
         paths = [paths]  # Convert a single path to a list for uniform processing
 
     all_files = []
-
     for path in paths:
         # If it's a directory, walk inside it
         if os.path.isdir(path):
             for root, _, files in os.walk(path):
                 for file in files:
-                    all_files.append(os.path.join(root, file))
+                    p = os.path.join(root, file)
+                    if extensions is None or os.path.splitext(p)[1].lower() in extensions:
+                        all_files.append(p)
         # if it's a file
         elif os.path.isfile(path):
             # add file to the list (if extensions passed, see if extension matches)
-            if extensions is None or os.path.splitext(path)[1].lower() in extensions:  
+            if extensions is None or os.path.splitext(path)[1].lower() in extensions:
                 all_files.append(os.path.abspath(path))
         else:
-            print(f"The path '{path}' is neither a valid file nor a directory.")
+            print(f"The path '{path}' is neither a valid file nor a directory. Returning empty list")
 
     return natsorted(all_files)
 

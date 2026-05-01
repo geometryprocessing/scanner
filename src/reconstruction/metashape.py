@@ -55,6 +55,33 @@ def print_opencv_to_metashape_reference(rvec, tvec,
     abc = np.rad2deg(rotation_matrix_to_opk(rvec)).flatten() # (3,)
     return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
 
+def intrinsics_matrix_to_metashape_dictionary(resx,resy,K) -> dict:
+    """
+    Based on this forum question https://www.agisoft.com/forum/index.php?topic=7523.0
+    
+    Returns a dictionary with focal length f, affinity b1, non-orthogonality b2, and 
+    principal points cx cy from a camera matrix K.
+    
+    Parameters
+    ----------
+    resx : int
+        width of sensor in pixels
+    resy : int
+        height of sensor in pixels
+    K : array_like
+        3x3 camera matrix
+    """
+    K_dict = {}
+    K = np.asarray(K).reshape(3,3)
+    fx, fy = K[0,0], K[1,1]
+    skew   = K[0,1]
+    cx, cy = K[0,2], K[1,2]
+    K_dict['f'] = fy
+    K_dict['b1'] = fx - fy
+    K_dict['b2'] = skew
+    K_dict['cx'] = cx - resx/2
+    K_dict['cy'] = cy - resy/2
+    return K_dict
 
 DEFAULTS = {
     'MATCH_PHOTOS_DEFAULTS': {

@@ -30,9 +30,8 @@ def print_opencv_to_metashape_reference(rvec, tvec,
                                         delimiter: str = ';',
                                         precision: int = 6) -> str:
     """
-    Util function to convert OpenCV rvec and tvec to
-    location (xyz) and euler angles of rotation (abc)
-    for Metashape in order 'xyzabc'.
+    Util function to convert OpenCV rvec and tvec to location (xyz) 
+    and euler angles of rotation (abc) in degrees for Metashape in order 'xyzabc'.
 
     Parameters
     ----------
@@ -53,7 +52,7 @@ def print_opencv_to_metashape_reference(rvec, tvec,
     from src.utils.three_d_utils import get_origin, rotation_matrix_to_opk
     from src.utils.file_io import print_vector
     xyz = np.asarray(get_origin(rvec, tvec)).flatten() # (3,)
-    abc = np.asarray(rotation_matrix_to_opk(rvec)).flatten() # (3,)
+    abc = np.rad2deg(rotation_matrix_to_opk(rvec)).flatten() # (3,)
     return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
 
 

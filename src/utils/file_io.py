@@ -315,6 +315,7 @@ def print_vector(vector: set | list | np.ndarray, delimiter: str, precision: int
     """
     vector needs to be 1D, otherwise undefined behavior
     """
+    vector = vector.flatten()
     fmt = "{:." + str(precision) + "f}"
     reps = len(vector)
     fmt = fmt + (delimiter + fmt) * (reps - 1)

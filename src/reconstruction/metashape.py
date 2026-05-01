@@ -52,8 +52,8 @@ def print_opencv_to_metashape_reference(rvec, tvec,
     """
     from src.utils.three_d_utils import get_origin, rotation_matrix_to_opk
     from src.utils.file_io import print_vector
-    xyz = get_origin(rvec, tvec)
-    abc = rotation_matrix_to_opk(rvec)
+    xyz = np.asarray(get_origin(rvec, tvec)).flatten() # (3,)
+    abc = np.asarray(rotation_matrix_to_opk(rvec)).flatten() # (3,)
     return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
 
 
@@ -240,19 +240,20 @@ def load_sensor_calibration(sensor: Metashape.Sensor,
     sensor.user_calib = calib
 
 def load_image_extrinsics(chunk: Metashape.Chunk,
-                          extrinsics_path: str):
+                          extrinsics_path: str,
+                          delimiter=';'):
     """
     Load camera extrinsics.
 
     Needs to be in CSV format (.txt file is fine) with semicolon (;) delimiter
     with the following header:
-    #Label;X;Y;Z;Yaw;Pitch;Roll
+    #n;x;y;z;a;b;c
 
     """
     chunk.importReference(path=extrinsics_path,
                           format=Metashape.ReferenceFormatCSV,
                           items=Metashape.ReferenceItemsCameras,
-                          delimiter=';')
+                          delimiter=delimiter)
 
 def match_photos(chunk: Metashape.Chunk, **kwargs):
     """

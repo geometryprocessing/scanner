@@ -918,3 +918,31 @@ def rodrigues_rotation(v, k, theta):
     sin   = sin[:, np.newaxis, np.newaxis]  # (M,1,1)
     
     return (v * cos + cross * sin + k * dot * (1 - cos)).squeeze() # this will be (M,N,3) or squeezing out M, N
+
+def rotation_matrix_to_opk(R):
+    """
+    Converts rotation matrix R of shape (3,3) to omega, phi, and kappa Euler angles.
+
+    If rvec of shape (3,) is passed instead of R, it converts
+    to R using OpenCV Rodrigues.
+
+    Parameters
+    ----------
+    R : array_like
+
+    Returns
+    -------
+    tuple containing omega, phi, kappa (all in radians)
+
+    Notes
+    -----
+    We assume omega is rotation around X, phi is rotation arouynd Y, kappa is rotation around Z.
+    """
+    if R.shape != (3,3):
+        R, _ = cv2.Rodrigues(R)
+    
+    omega = np.arctan2(R[2, 1], R[2, 2]) # rotation around X
+    phi   = np.arcsin(-R[2, 0])          # rotation around Y
+    kappa = np.arctan2(R[1, 0], R[0, 0]) # rotation around Z
+
+    return omega, phi, kappa

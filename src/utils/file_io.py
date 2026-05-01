@@ -310,3 +310,12 @@ def write_opencv_calibration_to_xml(filename,
     ET.SubElement(dist_coeffs, "data").text = ' '.join(map(str, dist_coeffs.flatten()))
     tree = ET.ElementTree(opencv_storage)
     tree.write(filename)
+
+def print_vector(vector: set | list | np.ndarray, delimiter: str, precision: int):
+    """
+    vector needs to be 1D, otherwise undefined behavior
+    """
+    fmt = "{:." + str(precision) + "f}"
+    reps = len(vector)
+    fmt = fmt + (delimiter + fmt) * (reps - 1)
+    return fmt.format(*vector)

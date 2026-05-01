@@ -10,159 +10,203 @@ try:
     print("Metashape successfully found and imported.")
 except ImportError:
     raise ImportError("Metashape module not found. Please ensure Agisoft Metashape is installed, " \
-                        "its license key is active, and Python wheels are properly built. " \
+                        "its license key is active, and Python wheels are properly built.\n" \
                         "Otherwise, COLMAP is an open-source structure-from-motion and " \
                         "multi-view stereo software and we provide some wrapper functions for it.") 
 
-MATCH_PHOTOS_DEFAULTS = {
-    'downscale': 0, 
-    'generic_preselection': True, 
-    'reference_preselection': False,
-    'keypoint_limit': 40000,
-    'tiepoint_limit': 4000,
-    'filter_mask': False,
-    'mask_tiepoints': False,
-    'reset_matches': False,
+import numpy as np
+def save_opencv_extrinsics_for_metashape(filename: str, labels: list[str], rvecs: list[np.ndarray], tvecs: list[np.ndarray],
+         delimiter : str = ';', precision: int = 6):
+    """
+    Util function to convert list of camera labels, OpenCV rvecs and tvecs 
+    to CVS format for Metashape in order 'nxyzabc'.
+    """
+    with open(filename, "w") as f:
+        f.write(f"#n{delimiter}x{delimiter}y{delimiter}z{delimiter}a{delimiter}b{delimiter}c\n")
+        for label, rvec, tvec in zip(labels, rvecs, tvecs):
+            f.write(label + delimiter + print_opencv_to_metashape_reference(rvec,tvec,delimiter,precision)+ "\n")
 
-    # only play with these if you know what you're doing
-    'subdivide_task': True,
-    'workitem_size_cameras': 20,
-    'max_workgroup_size': 100
-}
+def print_opencv_to_metashape_reference(rvec, tvec,
+                                        delimiter: str = ';',
+                                        precision: int = 6) -> str:
+    """
+    Util function to convert OpenCV rvec and tvec to
+    location (xyz) and euler angles of rotation (abc)
+    for Metashape in order 'xyzabc'.
 
-ALIGN_CAMERAS_DEFAULTS = {
-    'reset_alignment': False,
-    'min_image': 2,
-    'adaptive_fitting': False,
-    'reset_alignment': False,
-    'subdivide_task': True
-}
+    Parameters
+    ----------
+        rvec : array_like
+            rvec from OpenCV
+        tvec : array_like
+            tvec from OpenCV
+        delimiter : char, optional
+            default value is ';' (semicolon)
+        precision : int, optional
+            default value is 6
 
-BUILD_DEPTH_MAPS_DEFAULTS = {
-    'downscale': 1,
-    'filter_mode': Metashape.DepthFilterMode.Moderate,
-    'max_neighbors': 16,
-    'reuse_depth': False,
-    'subdivide_task': True,
-    'workitem_size_cameras': 20,
-    'max_workgroup_size': 100
-}
+    Returns
+    -------
+        fmt : str
+            string formated as 'xyzabc'
+    """
+    from src.utils.three_d_utils import get_origin, rotation_matrix_to_opk
+    from src.utils.file_io import print_vector
+    xyz = get_origin(rvec, tvec)
+    abc = rotation_matrix_to_opk(rvec)
+    return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
 
-BUILD_DENSE_CLOUD_DEFAULTS = {
-    'replace_asset': False,
-    'source_data': Metashape.DepthMapsData,
-    'point_confidence': True,
-    'point_colors': True,
-    'keep_depth': True,
-    'max_neighbors': 100,
-    'uniform_sampling': True,
-    'points_spacing': 0.1,
 
-    # only play with these if you know what you're doing
-    'subdivide_task': True,
-    'workitem_size_cameras': 20,
-    'max_workgroup_size': 100
-}
+DEFAULTS = {
+    'MATCH_PHOTOS_DEFAULTS': {
+        'downscale': 0, 
+        'generic_preselection': True, 
+        'reference_preselection': False,
+        'keypoint_limit': 40000,
+        'tiepoint_limit': 4000,
+        'filter_mask': False,
+        'mask_tiepoints': False,
+        'reset_matches': False,
 
-BUILD_MODEL_DEFAULTS = {
-    'replace_asset': False,
-    'source_data': Metashape.DepthMapsData,
-    'surface_type': Metashape.SurfaceType.Arbitrary,
-    'interpolation': Metashape.ModelInterpolation.Enabled,
-    'vertex_confidence': True,
-    'face_count': Metashape.FaceCount.HighFaceCount,
-    'face_count_custom': 5_000_000,
-    'vertex_colors': True,
-    'build_texture': False,
-    'keep_depth': True,
+        # only play with these if you know what you're doing
+        'subdivide_task': True,
+        'workitem_size_cameras': 20,
+        'max_workgroup_size': 100
+    },
 
-    # only play with these if you know what you're doing
-    'volumetric_masks': False,
-    'split_in_blocks': False,
-    'blocks_size': 250,
-    'clip_to_boundary': False,
-    'export_blocks': False,
-    'trimming_radius': 10,
-    'subdivide_task': True,
-    'workitem_size_cameras': 20,
-    'max_workgroup_size': 100
-}
+    'ALIGN_CAMERAS_DEFAULTS': {
+        'reset_alignment': False,
+        'min_image': 2,
+        'adaptive_fitting': False,
+        'reset_alignment': False,
+        'subdivide_task': True
+    },
 
-CLEAN_POINT_CLOUD_DEFAULTS = {
-    'criterion': Metashape.PointCloud.Criterion.Confidence,
-    'threshold': 5
-}
+    'BUILD_DEPTH_MAPS_DEFAULTS': {
+        'downscale': 1,
+        'filter_mode': Metashape.ModerateFiltering,
+        'max_neighbors': 16,
+        'reuse_depth': False,
+        'subdivide_task': True,
+        'workitem_size_cameras': 20,
+        'max_workgroup_size': 100
+    },
 
-CLEAN_MESH_DEFAULTS = {
-    'criterion': Metashape.Model.Criterion.VertexConfidence,
-    'threshold': 5
-}
+    'BUILD_DENSE_CLOUD_DEFAULTS': {
+        'replace_asset': False,
+        'source_data': Metashape.DepthMapsData,
+        'point_confidence': True,
+        'point_colors': True,
+        'keep_depth': True,
+        'max_neighbors': 100,
+        'uniform_sampling': True,
+        'points_spacing': 0.1,
 
-EXPORT_POINT_CLOUD_DEFAULTS = {
-    'source_data': Metashape.DataSource.PointCloudData,
-    'binary': True,
-    'save_point_color': True,
-    'save_point_normal': True,
-    'save_point_intensity': True,
-    'save_point_classification': True,
-    'save_point_confidence': True,
-    'save_point_return_number': True,
-    'save_point_scan_angle': True,
-    'save_point_source_id': True,
-    'save_point_timestamp': True,
-    'save_point_index': True,
+        # only play with these if you know what you're doing
+        'subdivide_task': True,
+        'workitem_size_cameras': 20,
+        'max_workgroup_size': 100
+    },
 
-    # only play with these if you know what you're doing
-    'comment': 'point cloud generated and saved by Agisoft Metashape in Skelevision pipeline',
-    'save_comment': True,
-    'raster_transform': Metashape.RasterTransformNone,
-    'colors_rgb_8bit': True,
-    'image_format': Metashape.ImageFormatPNG,
-    'clip_to_boundary': True,
-    'clip_to_region': False,
-    'block_width': 1000,
-    'block_height': 1000,
-    'split_in_blocks': False,
-    'save_images': False,   
-    'subdivide_task': True,
-    'no_double_precision': True
-}
+    'BUILD_MODEL_DEFAULTS': {
+        'replace_asset': False,
+        'source_data': Metashape.DepthMapsData,
+        'surface_type': Metashape.SurfaceType.Arbitrary,
+        'interpolation': Metashape.EnabledInterpolation,
+        'vertex_confidence': True,
+        'face_count': Metashape.FaceCount.HighFaceCount,
+        'face_count_custom': 5_000_000,
+        'vertex_colors': True,
+        'build_texture': False,
+        'keep_depth': True,
 
-EXPORT_MESH_DEFAULTS = {
-    'binary': True,
-    'precision': 6,
-    'save_normals': True,
-    'save_colors': True,
-    'save_confidence': False,
-    'save_texture': True,
-    'texture_format': Metashape.ImageFormatPNG,
-    'save_uv': True,
-    'save_cameras': True,
-    'save_markers': True,
+        # only play with these if you know what you're doing
+        'volumetric_masks': False,
+        'split_in_blocks': False,
+        'blocks_size': 250,
+        'clip_to_boundary': False,
+        'export_blocks': False,
+        'trimming_radius': 10,
+        'subdivide_task': True,
+        'workitem_size_cameras': 20,
+        'max_workgroup_size': 100
+    },
 
-    # only play with these if you know what you're doing
-    'save_udim': False,
-    'save_alpha': False,
-    'embed_texture': False,
-    'strip_extensions': False,
-    'raster_transform': Metashape.RasterTransformNone,
-    'colors_rgb_8bit': True,
-    'gltf_y_up': True,
-    'comment': 'mesh generated and saved by Agisoft Metashape in Skelevision pipeline',
-    'save_comment': True,
-    'clip_to_boundary': True,
-    'clip_to_region': False,
-    'clip_to_block': False,
-    'block_margin': 0.5,
-    'save_metadata_xml': False
-}
+    'CLEAN_POINT_CLOUD_DEFAULTS': {
+        'criterion': Metashape.PointCloud.Criterion.Confidence,
+        'threshold': 5
+    },
+
+    'CLEAN_MESH_DEFAULTS': {
+        'criterion': Metashape.Model.Criterion.VertexConfidence,
+        'threshold': 5
+    },
+
+    'EXPORT_POINT_CLOUD_DEFAULTS': {
+        'source_data': Metashape.DataSource.PointCloudData,
+        'binary': True,
+        'save_point_color': True,
+        'save_point_normal': True,
+        'save_point_intensity': True,
+        'save_point_classification': True,
+        'save_point_confidence': True,
+        'save_point_return_number': True,
+        'save_point_scan_angle': True,
+        'save_point_source_id': True,
+        'save_point_timestamp': True,
+        'save_point_index': True,
+
+        # only play with these if you know what you're doing
+        'comment': 'point cloud generated and saved by Agisoft Metashape in Skelevision pipeline',
+        'save_comment': True,
+        'raster_transform': Metashape.RasterTransformNone,
+        'colors_rgb_8bit': True,
+        'image_format': Metashape.ImageFormatPNG,
+        'clip_to_boundary': True,
+        'clip_to_region': False,
+        'block_width': 1000,
+        'block_height': 1000,
+        'split_in_blocks': False,
+        'save_images': False,   
+        'subdivide_task': True,
+        'no_double_precision': True
+    },
+
+    'EXPORT_MESH_DEFAULTS': {
+        'binary': True,
+        'precision': 6,
+        'save_normals': True,
+        'save_colors': True,
+        'save_confidence': False,
+        'save_texture': True,
+        'texture_format': Metashape.ImageFormatPNG,
+        'save_uv': True,
+        'save_cameras': True,
+        'save_markers': True,
+
+        # only play with these if you know what you're doing
+        'save_udim': False,
+        'save_alpha': False,
+        'embed_texture': False,
+        'strip_extensions': False,
+        'raster_transform': Metashape.RasterTransformNone,
+        'colors_rgb_8bit': True,
+        'gltf_y_up': True,
+        'comment': 'mesh generated and saved by Agisoft Metashape in Skelevision pipeline',
+        'save_comment': True,
+        'clip_to_boundary': True,
+        'clip_to_region': False,
+        'clip_to_block': False,
+        'block_margin': 0.5,
+        'save_metadata_xml': False
+}}
 
 def load_images(chunk: Metashape.Chunk,
                 image_paths: list[str],
                 filegroups: list[int] = None):
-    '''
+    """
     Load list of images onto Agisoft Metashape.
-    '''
+    """
     if filegroups is not None:
         assert len(image_paths) == len(filegroups), "Length of image paths and filegroups do not match."
         chunk.addPhotos(filenames=image_paths, filegroups=filegroups)
@@ -170,32 +214,48 @@ def load_images(chunk: Metashape.Chunk,
         chunk.addPhotos(image_paths)
 
 def load_sensor_calibration(sensor: Metashape.Sensor,
-                            calibration_path: str,
+                            calibration_path: str = None,
                             fixed: bool = False,
-                            format = Metashape.CalibrationFormatOpenCV):
-    '''
+                            format = Metashape.CalibrationFormatOpenCV,
+                            **kwargs):
+    """
     Load camera intrinsics.
-    '''
+
+    Can pass a path to JSON calibration in OpenCV format or pass the
+    key-value pairs as kwargs.
+    """
     calib = Metashape.Calibration()
     calib.width = sensor.width
     calib.height = sensor.height
-    calib.load(calibration_path, format = format)
+    if calibration_path is not None:
+        calib.load(calibration_path, format = format)
+    
+    for k, v in kwargs.items():
+        if hasattr(calib, k):
+            setattr(calib, k, v)
+
     # allow user calibration to either be INITIAL GUESS or FIXED
     if fixed:
         sensor.fixed = True
     sensor.user_calib = calib
 
 def load_image_extrinsics(chunk: Metashape.Chunk,
-                          extrinsics_path: str,
-                          format = Metashape.ExtrinsicsFormatOpenCV):
-    '''
+                          extrinsics_path: str):
+    """
     Load camera extrinsics.
-    '''
-    chunk.load(extrinsics_path, format = format)
 
+    Needs to be in CSV format (.txt file is fine) with semicolon (;) delimiter
+    with the following header:
+    #Label;X;Y;Z;Yaw;Pitch;Roll
+
+    """
+    chunk.importReference(path=extrinsics_path,
+                          format=Metashape.ReferenceFormatCSV,
+                          items=Metashape.ReferenceItemsCameras,
+                          delimiter=';')
 
 def match_photos(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Match photos in the chunk.
 
     Parameters
@@ -213,11 +273,11 @@ def match_photos(chunk: Metashape.Chunk, **kwargs):
         - filter_mask: Whether to use a mask to filter keypoints (default: False).
         - mask_tiepoints: Whether to mask tie points (default: False).
         - reset_matches: Whether to reset existing matches before matching (default: False).
-    '''
+    """
     chunk.matchPhotos(**kwargs)
     
 def align_cameras(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Align cameras/images in the chunk.
 
     Parameters
@@ -229,7 +289,7 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
         - reset_alignment: Whether to reset existing camera alignment before aligning (default: False).
         - min_image: Minimum number of images that must observe a point for it to be used in alignment (default: 2).
         - adaptive_fitting: Whether to use adaptive fitting for distortion coefficients (default: False). This is useful if you
-    '''
+    """
     chunk.alignCameras(**kwargs)
 
 # def metashape_undistort(chunk: Metashape.Chunk):
@@ -247,9 +307,9 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
 #             )
 
 # def add_markers():
-#     '''
+#     """
 #     Detect ChAruCo markers on undistorted images with OpenCV.
-#     '''
+#     """
 #     scanID = scanID
 #     charuco_board = charuco_board
 
@@ -311,9 +371,9 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
 
 
 # def add_scale_bars():
-#     '''
+#     """
 #     From added ChAruCo markers, add scale bars on Metashape to accurately resize project.
-#     '''
+#     """
 #     scanID = scanID
 #     charuco_board = charuco_board
 
@@ -348,7 +408,7 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
 #     doc.save()
 
 def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Build depth maps.
 
     Parameters
@@ -361,12 +421,12 @@ def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
         - downscale: options are 1,2,4,8,16 where 1 is no downscaling and 16 is the most downscaling (default: 1)
         - filter_mode (default: Metashape.DepthFilterMode.Moderate)
         - max_neighbors (int): 16
-    '''
+    """
     chunk.buildDepthMaps(**kwargs)   
 
 
 def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Build dense point cloud.
 
     Parameters
@@ -384,12 +444,12 @@ def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         - point_confidence: (default: True)
         - point_colors: (default: True)
         - replace_asset: (default: False)
-    '''
+    """
     chunk.buildPointCloud(**kwargs)   
 
 
 def build_mesh(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Build triangular mesh.
 
     Parameters
@@ -405,24 +465,24 @@ def build_mesh(chunk: Metashape.Chunk, **kwargs):
         - vertex_confidence: (default: True)
         - vertex_colors: (default: True)
         - replace_asset: (default: False)
-    '''
+    """
     chunk.buildModel(**kwargs)   
 
 def build_texture(chunk: Metashape.Chunk):
-    '''
+    """
     Build texture of mesh.
 
     Parameters
     ----------
     chunk : Metashape.Chunk
         The chunk containing the point cloud to filter.
-    '''
+    """
     chunk.buildUV()
     chunk.buildTexture()
 
 
 def clean_dense_cloud(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Filter points of point cloud in chunk.
     Parameters
     ----------
@@ -433,11 +493,11 @@ def clean_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         Additional keyword arguments to customize the export process. Possible keys include:
         - criterion: which criterion to use for filtering (default: Metashape.PointCloud.Criterion.Confidence; other option is Metashape.PointCloud.Criterion.ScanAngle).
         - threshold: The threshold value for the chosen criterion (default: 5 for Confidence).
-        '''
+        """
     chunk.cleanPointCloud(**kwargs)
 
 def clean_mesh(chunk: Metashape.Chunk, **kwargs):
-    '''
+    """
     Filter faces of mesh in chunk.
     Parameters
     ----------
@@ -448,11 +508,11 @@ def clean_mesh(chunk: Metashape.Chunk, **kwargs):
         Additional keyword arguments to customize the export process. Possible keys include:
         - criterion: which criterion to use for filtering (default: Metashape.Model.Criterion.VertexConfidence; other options are Metashape.Model.Criterion.ComponentSize and Metashape.Model.Criterion.PolygonSize).
         - level: The threshold value for the chosen criterion (default: 5 for VertexConfidence).
-        '''
+        """
     chunk.cleanModel()
 
 def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
-    '''
+    """
     Save point cloud of reconstruction locally.
     Parameters
     ----------
@@ -467,7 +527,7 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
         - save_point_color: Whether to save point colors (default: True).
         - save_point_normal: Whether to save point normals (default: True).
         - save_point_confidence: Whether to save point confidence (default: True).
-    '''
+    """
     import os
     _, ext = os.path.splitext(output_path)
     ext = ext.lower()
@@ -486,9 +546,9 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
 
 def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
-    '''
+    """
     Save mesh of reconstruction locally.
-    '''
+    """
 
     chunk.exportModel(
         path=output_path,
@@ -496,9 +556,9 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
         )
 
 # def export_camera_locations(chunk: Metashape.Chunk):
-#     '''
+#     """
 #     Save JSON file with camera locations (in meters).
-#     ''' 
+#     """ 
 #     cameras = chunk.cameras
 #     camera_positions = {}
     
@@ -519,9 +579,9 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
 
 # def export_camera_rotations(chunk: Metashape.Chunk):
-#     '''
+#     """
 #     Save JSON file with camera rotations.
-#     '''
+#     """
 #     cameras = chunk.cameras
 #     camera_rotations = {}
     
@@ -547,9 +607,9 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
 
 
 # def export_depth_maps(chunk: Metashape.Chunk):
-#     '''
+#     """
 #     Save depth maps (in ?) of project locally.
-#     '''
+#     """
 #     # Data management
 #     os.makedirs(OUTPUT_PATH.format(scanID, "depthmaps"), exist_ok=True)
             
@@ -562,9 +622,9 @@ def export_mesh(chunk: Metashape.Chunk, output_path: str, **kwargs):
 #         depth.save(OUTPUT_PATH.format(scanID, f'depthmaps/{camera.label}.TIFF'))
 
 # def export_texture():
-#     '''
+#     """
 #     Save texture of reconstruction locally.
-#     '''
+#     """
 #     scanID = scanID
 
 #     doc = Metashape.Document()

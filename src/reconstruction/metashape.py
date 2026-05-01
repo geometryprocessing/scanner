@@ -245,13 +245,18 @@ def load_image_extrinsics(chunk: Metashape.Chunk,
     Load camera extrinsics.
 
     Needs to be in CSV format (.txt file is fine) with semicolon (;) delimiter
-    with the following header:
+    with the following columns:
     #n;x;y;z;a;b;c
+    where n is camera label
+    x;y;z are camera location
+    a;b;c are the Euler angles (in degrees) in OPK format, i.e.
+    omega is rotation around x axis, phi around y, kappa around z. 
 
     """
     chunk.importReference(path=extrinsics_path,
                           format=Metashape.ReferenceFormatCSV,
                           items=Metashape.ReferenceItemsCameras,
+                          rotation_angles=Metashape.EulerAnglesOPK,
                           delimiter=delimiter)
 
 def match_photos(chunk: Metashape.Chunk, **kwargs):

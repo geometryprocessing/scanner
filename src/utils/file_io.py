@@ -293,22 +293,22 @@ def write_opencv_calibration_to_xml(filename,
     # origin is DIFFERENT from T
     # origin is calculated as -R^T @ T 
     import xml.etree.ElementTree as ET
-    opencv_storage = ET.Element("opencv_storage")
-    ET.SubElement(opencv_storage, "image_Width").text = str(resx)
-    ET.SubElement(opencv_storage, "image_Height").text = str(resy)
-    camera_matrix = ET.SubElement(opencv_storage, "Camera_Matrix", type_id="opencv-matrix")
-    ET.SubElement(camera_matrix, "rows").text = "3"
-    ET.SubElement(camera_matrix, "cols").text = "3"
-    ET.SubElement(camera_matrix, "dt").text = "d"
-    ET.SubElement(camera_matrix, "data").text = ' '.join(map(str, K.flatten()))
-    dist_coeffs = ET.SubElement(opencv_storage, "Distortion_Coefficients", type_id="opencv-matrix")
+    opencv_storage_elem = ET.Element("opencv_storage")
+    ET.SubElement(opencv_storage_elem, "image_Width").text = str(resx)
+    ET.SubElement(opencv_storage_elem, "image_Height").text = str(resy)
+    K_elem = ET.SubElement(opencv_storage_elem, "Camera_Matrix", type_id="opencv-matrix")
+    ET.SubElement(K_elem, "rows").text = "3"
+    ET.SubElement(K_elem, "cols").text = "3"
+    ET.SubElement(K_elem, "dt").text = "d"
+    ET.SubElement(K_elem, "data").text = ' '.join(map(str, K.flatten()))
+    dist_coeffs_elem = ET.SubElement(opencv_storage_elem, "Distortion_Coefficients", type_id="opencv-matrix")
     if dist_coeffs is None:
         dist_coeffs = np.zeros(5)
-    ET.SubElement(dist_coeffs, "rows").text = str(len(dist_coeffs))
-    ET.SubElement(dist_coeffs, "cols").text = "1"
-    ET.SubElement(dist_coeffs, "dt").text = "d"
-    ET.SubElement(dist_coeffs, "data").text = ' '.join(map(str, dist_coeffs.flatten()))
-    tree = ET.ElementTree(opencv_storage)
+    ET.SubElement(dist_coeffs_elem, "rows").text = str(len(dist_coeffs))
+    ET.SubElement(dist_coeffs_elem, "cols").text = "1"
+    ET.SubElement(dist_coeffs_elem, "dt").text = "d"
+    ET.SubElement(dist_coeffs_elem, "data").text = ' '.join(map(str, dist_coeffs.flatten()))
+    tree = ET.ElementTree(opencv_storage_elem)
     tree.write(filename)
 
 def print_vector(vector: set | list | np.ndarray, delimiter: str, precision: int):

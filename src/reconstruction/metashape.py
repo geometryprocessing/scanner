@@ -2,7 +2,7 @@
 # 
 # A convenient, reduced wrapper library of functions from Agisoft Metashape.
 # Author: Giancarlo Pereira (NYU)
-# Last Updated: 2026-04-15
+# Last Updated: 2026-05-01
 # 
 ###################################
 try:
@@ -13,75 +13,6 @@ except ImportError:
                         "its license key is active, and Python wheels are properly built.\n" \
                         "Otherwise, COLMAP is an open-source structure-from-motion and " \
                         "multi-view stereo software and we provide some wrapper functions for it.") 
-
-import numpy as np
-def save_opencv_extrinsics_for_metashape(filename: str, labels: list[str], rvecs: list[np.ndarray], tvecs: list[np.ndarray],
-         delimiter : str = ';', precision: int = 6):
-    """
-    Util function to convert list of camera labels, OpenCV rvecs and tvecs 
-    to CVS format for Metashape in order 'nxyzabc'.
-    """
-    with open(filename, "w") as f:
-        f.write(f"#n{delimiter}x{delimiter}y{delimiter}z{delimiter}a{delimiter}b{delimiter}c\n")
-        for label, rvec, tvec in zip(labels, rvecs, tvecs):
-            f.write(label + delimiter + print_opencv_to_metashape_reference(rvec,tvec,delimiter,precision)+ "\n")
-
-def print_opencv_to_metashape_reference(rvec, tvec,
-                                        delimiter: str = ';',
-                                        precision: int = 6) -> str:
-    """
-    Util function to convert OpenCV rvec and tvec to location (xyz) 
-    and euler angles of rotation (abc) in degrees for Metashape in order 'xyzabc'.
-
-    Parameters
-    ----------
-        rvec : array_like
-            rvec from OpenCV
-        tvec : array_like
-            tvec from OpenCV
-        delimiter : char, optional
-            default value is ';' (semicolon)
-        precision : int, optional
-            default value is 6
-
-    Returns
-    -------
-        fmt : str
-            string formated as 'xyzabc'
-    """
-    from src.utils.three_d_utils import get_origin, rotation_matrix_to_opk
-    from src.utils.file_io import print_vector
-    xyz = np.asarray(get_origin(rvec, tvec)).flatten() # (3,)
-    abc = np.rad2deg(rotation_matrix_to_opk(rvec)).flatten() # (3,)
-    return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
-
-def intrinsics_matrix_to_metashape_dictionary(resx,resy,K) -> dict:
-    """
-    Based on this forum question https://www.agisoft.com/forum/index.php?topic=7523.0
-    
-    Returns a dictionary with focal length f, affinity b1, non-orthogonality b2, and 
-    principal points cx cy from a camera matrix K.
-    
-    Parameters
-    ----------
-    resx : int
-        width of sensor in pixels
-    resy : int
-        height of sensor in pixels
-    K : array_like
-        3x3 camera matrix
-    """
-    K_dict = {}
-    K = np.asarray(K).reshape(3,3)
-    fx, fy = K[0,0], K[1,1]
-    skew   = K[0,1]
-    cx, cy = K[0,2], K[1,2]
-    K_dict['f'] = fy
-    K_dict['b1'] = fx - fy
-    K_dict['b2'] = skew
-    K_dict['cx'] = cx - resx/2
-    K_dict['cy'] = cy - resy/2
-    return K_dict
 
 DEFAULTS = {
     'MATCH_PHOTOS_DEFAULTS': {
@@ -226,6 +157,110 @@ DEFAULTS = {
         'block_margin': 0.5,
         'save_metadata_xml': False
 }}
+
+import numpy as np
+def save_opencv_extrinsics_for_metashape(filename: str, labels: list[str], rvecs: list[np.ndarray], tvecs: list[np.ndarray],
+         delimiter : str = ';', precision: int = 6):
+    """
+    Util function to convert list of camera labels, OpenCV rvecs and tvecs 
+    to CVS format for Metashape in order 'nxyzabc'.
+    """
+    with open(filename, "w") as f:
+        f.write(f"#n{delimiter}x{delimiter}y{delimiter}z{delimiter}a{delimiter}b{delimiter}c\n")
+        for label, rvec, tvec in zip(labels, rvecs, tvecs):
+            f.write(label + delimiter + print_opencv_to_metashape_reference(rvec,tvec,delimiter,precision)+ "\n")
+
+def print_opencv_to_metashape_reference(rvec, tvec,
+                                        delimiter: str = ';',
+                                        precision: int = 6) -> str:
+    """
+    Util function to convert OpenCV rvec and tvec to location (xyz) 
+    and euler angles of rotation (abc) in degrees for Metashape in order 'xyzabc'.
+
+    Parameters
+    ----------
+        rvec : array_like
+            rvec from OpenCV
+        tvec : array_like
+            tvec from OpenCV
+        delimiter : char, optional
+            default value is ';' (semicolon)
+        precision : int, optional
+            default value is 6
+
+    Returns
+    -------
+        fmt : str
+            string formated as 'xyzabc'
+    """
+    from src.utils.three_d_utils import get_origin
+    from src.utils.file_io import print_vector
+    xyz = np.asarray(get_origin(rvec, tvec)).flatten() # (3,)
+    abc = np.rad2deg(rotation_matrix_to_metashape_opk(rvec)).flatten() # (3,)
+    return print_vector(xyz,delimiter,precision) + delimiter + print_vector(abc,delimiter,precision)
+
+def intrinsics_matrix_to_metashape_dictionary(resx,resy,K) -> dict:
+    """
+    Based on this forum question https://www.agisoft.com/forum/index.php?topic=7523.0
+    
+    Returns a dictionary with focal length f, affinity b1, non-orthogonality b2, and 
+    principal points cx cy from a camera matrix K.
+    
+    Parameters
+    ----------
+    resx : int
+        width of sensor in pixels
+    resy : int
+        height of sensor in pixels
+    K : array_like
+        3x3 camera matrix
+    """
+    K_dict = {}
+    K = np.asarray(K).reshape(3,3)
+    fx, fy = K[0,0], K[1,1]
+    skew   = K[0,1]
+    cx, cy = K[0,2], K[1,2]
+    K_dict['f'] = fy
+    K_dict['b1'] = fx - fy
+    K_dict['b2'] = skew
+    K_dict['cx'] = cx - resx/2
+    K_dict['cy'] = cy - resy/2
+    return K_dict
+
+def rotation_matrix_to_metashape_opk(R):
+    """
+    Converts rotation matrix R of shape (3,3) to omega, phi, and kappa Euler angles.
+
+    If rvec of shape (3,) is passed instead of R, it converts
+    to R using OpenCV Rodrigues.
+
+    Parameters
+    ----------
+    R : array_like
+
+    Returns
+    -------
+    tuple containing omega, phi, kappa (all in radians)
+
+    Notes
+    -----
+    We assume omega is rotation around X, phi is rotation arouynd Y, kappa is rotation around Z.
+    In that order, they form the rotation matrix R = Z_kappa Y_phi X_omega
+
+    Check this page https://en.wikipedia.org/wiki/Euler_angles to see how to get these angles from a rotation matrix R.
+    """
+    if R.shape != (3,3):
+        import cv2
+        R, _ = cv2.Rodrigues(R)
+    
+    omega = np.arctan2(R[2, 1], R[2, 2]) # rotation around X
+    phi   = np.arcsin(-R[2, 0])          # rotation around Y
+    kappa = np.arctan2(R[1, 0], R[0, 0]) # rotation around Z
+
+    # metashape strangely always makes omega be mirrored (i.e. if omega=40, metashape says 140; if omega=-10, metashape says -170)
+    omega = np.sign(omega) * np.abs(np.pi - np.abs(omega)) 
+
+    return omega, phi, kappa
 
 def load_images(chunk: Metashape.Chunk,
                 image_paths: list[str],

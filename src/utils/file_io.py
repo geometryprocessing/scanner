@@ -311,6 +311,28 @@ def write_opencv_calibration_to_xml(filename,
     tree = ET.ElementTree(opencv_storage_elem)
     tree.write(filename)
 
+def opencv_distortion_coefficients_to_dictionary(dist_coeffs = None) -> dict:
+    dist_dict = {}
+    dist_coeffs = np.asarray(dist_coeffs).flatten()
+    PARAMETERS = ['k1', 'k2', 'p1', 'p2', 'k3', 'k4', 'k5', 'k6', 's1', 's2', 's3', 's4', 'taux', 'tauy']
+    if dist_coeffs is None:
+        dist_coeffs = np.zeros(5)
+    for idx, value in enumerate(dist_coeffs):
+        dist_dict[PARAMETERS[idx]] = float(value)
+    return dist_dict
+
+def intrinsics_matrix_to_dictionary(K) -> dict:
+    K_dict = {}
+    K = np.asarray(K).reshape(3,3)
+    K_dict['fx'] = float(K[0,0])
+    K_dict['fy'] = float(K[1,1])
+    K_dict['cx'] = float(K[0,2])
+    K_dict['cy'] = float(K[1,2])
+    return K_dict
+
+def intrinsics_to_dictionary(K, dist_coeffs) -> dict:
+    return intrinsics_matrix_to_dictionary(K) | opencv_distortion_coefficients_to_dictionary(dist_coeffs)
+
 def print_vector(vector: set | list | np.ndarray, delimiter: str, precision: int):
     """
     vector needs to be 1D, otherwise undefined behavior

@@ -265,6 +265,21 @@ def load_yaml(filename: str,
                 data[k] = parse_value(dest_type, v) 
     return data
 
+def override_params(base_params: dict, new_params: dict) -> dict:
+    """
+    Function to override parameters from a base (or default) set of parameters.
+
+    Parameters
+    ----------
+    base_params : dict
+        usually a dictionary containing default parameters
+    new_params : dict
+        dictionary containing new parameters to override in base_params
+    """
+    new_params = new_params or {}
+    merged = {**new_params, **base_params}
+    return merged
+
 def write_opencv_calibration_to_xml(filename,
                                     resx,
                                     resy,
@@ -304,10 +319,11 @@ def write_opencv_calibration_to_xml(filename,
     dist_coeffs_elem = ET.SubElement(opencv_storage_elem, "Distortion_Coefficients", type_id="opencv-matrix")
     if dist_coeffs is None:
         dist_coeffs = np.zeros(5)
+    dist_coeffs = dist_coeffs.flatten()
     ET.SubElement(dist_coeffs_elem, "rows").text = str(len(dist_coeffs))
     ET.SubElement(dist_coeffs_elem, "cols").text = "1"
     ET.SubElement(dist_coeffs_elem, "dt").text = "d"
-    ET.SubElement(dist_coeffs_elem, "data").text = ' '.join(map(str, dist_coeffs.flatten()))
+    ET.SubElement(dist_coeffs_elem, "data").text = ' '.join(map(str, dist_coeffs))
     tree = ET.ElementTree(opencv_storage_elem)
     tree.write(filename)
 

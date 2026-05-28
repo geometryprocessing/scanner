@@ -3,8 +3,11 @@
 # A convenient, reduced wrapper library of functions from Agisoft Metashape.
 # Author: Giancarlo Pereira (NYU)
 # Last Updated: 2026-05-01
+# Compatible Metashape Version: 2.3
 # 
 ###################################
+
+compatible_major_version = "2.3"
 try:
     import Metashape
     print("Metashape successfully found and imported.")
@@ -14,6 +17,10 @@ except ImportError:
                         "Otherwise, COLMAP is an open-source structure-from-motion and " \
                         "multi-view stereo software and we provide some wrapper functions for it.") 
 
+found_major_version = ".".join(Metashape.app.version.split('.')[:2])
+if found_major_version != compatible_major_version:
+    raise Exception("Incompatible Metashape version: {} != {}".format(found_major_version, compatible_major_version))
+
 DEFAULTS = {
     'MATCH_PHOTOS_DEFAULTS': {
         'downscale': 0, 
@@ -21,6 +28,7 @@ DEFAULTS = {
         'reference_preselection': False,
         'keypoint_limit': 40000,
         'tiepoint_limit': 4000,
+        'filter_stationary_points': False,
         'filter_mask': False,
         'mask_tiepoints': False,
         'reset_matches': False,
@@ -35,7 +43,6 @@ DEFAULTS = {
         'reset_alignment': False,
         'min_image': 2,
         'adaptive_fitting': False,
-        'reset_alignment': False,
         'subdivide_task': True
     },
 
@@ -319,6 +326,8 @@ def load_image_extrinsics(chunk: Metashape.Chunk,
                           format=Metashape.ReferenceFormatCSV,
                           items=Metashape.ReferenceItemsCameras,
                           rotation_angles=Metashape.EulerAnglesOPK,
+                          load_location=True,
+                          load_rotation=True,
                           delimiter=delimiter)
 
 def match_photos(chunk: Metashape.Chunk, **kwargs):
@@ -331,15 +340,16 @@ def match_photos(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the point cloud to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
-        - downscale: options are 0,1,2,4,8 where 0 is no downscaling and 8 is the most downscaling (default: 0)
-        - generic_preselection: Whether to use generic preselection (default: True).
-        - reference_preselection: Whether to use reference preselection (default: False).
-        - keypoint_limit: Maximum number of keypoints to detect per image (default: 40000).
-        - tiepoint_limit: Maximum number of tie points to keep per image (default: 4000).
-        - filter_mask: Whether to use a mask to filter keypoints (default: False).
-        - mask_tiepoints: Whether to mask tie points (default: False).
-        - reset_matches: Whether to reset existing matches before matching (default: False).
+        Additional keyword arguments to customize the matchPhotos process. Possible keys include:
+        - downscale: options are 0,1,2,4,8 where 0 is no downscaling and 8 is the most downscaling (default: 1)
+        - generic_preselection: whether to use generic preselection (default: True).
+        - reference_preselection: whether to use reference preselection (default: False).
+        - reference_preselection_mode: which reference to use, with options Source, Estimated, and ) (default: Metashape.ReferencePreselectionSource)
+        - keypoint_limit: maximum number of keypoints to detect per image (default: 40000).
+        - tiepoint_limit: maximum number of tie points to keep per image (default: 4000).
+        - filter_mask: whether to use a mask to filter keypoints (default: False).
+        - mask_tiepoints: whether to mask tie points (default: False).
+        - reset_matches: whether to reset existing matches before matching (default: False).
     """
     chunk.matchPhotos(**kwargs)
     
@@ -352,7 +362,7 @@ def align_cameras(chunk: Metashape.Chunk, **kwargs):
     chunk : Metashape.Chunk
         The chunk containing images to align / generate sparse point cloud.
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the alignCameras process. Possible keys include:
         - reset_alignment: Whether to reset existing camera alignment before aligning (default: False).
         - min_image: Minimum number of images that must observe a point for it to be used in alignment (default: 2).
         - adaptive_fitting: Whether to use adaptive fitting for distortion coefficients (default: False). This is useful if you
@@ -484,7 +494,7 @@ def build_depth_maps(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the point cloud to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the buildDepthMaps process. Possible keys include:
         - downscale: options are 1,2,4,8,16 where 1 is no downscaling and 16 is the most downscaling (default: 1)
         - filter_mode (default: Metashape.DepthFilterMode.Moderate)
         - max_neighbors (int): 16
@@ -502,9 +512,8 @@ def build_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the point cloud to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the buildPointCloud process. Possible keys include:
         - source_data: (default: Metashape.DepthMapsData)
-        - face_count: (default: Metashape.FaceCount.HighFaceCount)
         - uniform_sampling: (default: True)
         - points_spacing: (default: 0.1)
         - max_neighbors: (default: 100)
@@ -525,7 +534,7 @@ def build_mesh(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the point cloud to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the buildModel process. Possible keys include:
         - source_data: (default: Metashape.DepthMapsData)
         - face_count: (default: Metashape.FaceCount.HighFaceCount)
         - interpolation: (default: Metashape.ModelInterpolation.Enabled)
@@ -557,7 +566,7 @@ def clean_dense_cloud(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the point cloud to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the cleanPointCloud process. Possible keys include:
         - criterion: which criterion to use for filtering (default: Metashape.PointCloud.Criterion.Confidence; other option is Metashape.PointCloud.Criterion.ScanAngle).
         - threshold: The threshold value for the chosen criterion (default: 5 for Confidence).
         """
@@ -572,7 +581,7 @@ def clean_mesh(chunk: Metashape.Chunk, **kwargs):
         The chunk containing the mesh to filter.
 
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the cleanModel process. Possible keys include:
         - criterion: which criterion to use for filtering (default: Metashape.Model.Criterion.VertexConfidence; other options are Metashape.Model.Criterion.ComponentSize and Metashape.Model.Criterion.PolygonSize).
         - level: The threshold value for the chosen criterion (default: 5 for VertexConfidence).
         """
@@ -588,7 +597,7 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
     output_path : str
         The path to save the exported point cloud file.
     **kwargs : dict
-        Additional keyword arguments to customize the export process. Possible keys include:
+        Additional keyword arguments to customize the exportPointCloud process. Possible keys include:
         - source_data: The source data to export (default: Metashape.DataSource.PointCloudData; other option is Metashape.DataSource.TiePointsData).
         - binary: Whether to save the point cloud in binary format (default: True).
         - save_point_color: Whether to save point colors (default: True).
@@ -598,7 +607,8 @@ def export_dense_cloud(chunk: Metashape.Chunk, output_path: str, **kwargs):
     import os
     _, ext = os.path.splitext(output_path)
     ext = ext.lower()
-    assert ext in ['.ply', 'obj'], "If you would like to export point cloud, please save it as either .ply or .obj"
+    if ext not in ['.ply', 'obj']:
+        raise ValueError("Can only export point cloud as either .ply or .obj, but received unsupported {}".format(ext))
     
     format = Metashape.PointCloudFormatNone
     if ext == '.ply':

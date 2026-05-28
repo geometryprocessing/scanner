@@ -1,15 +1,15 @@
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
 
-from src.utils.file_io import load_yaml, get_all_paths
+from src.utils.file_io import load_yaml, get_all_paths, opencv_distortion_coefficients_to_dictionary
 
-def run_colmap_pipeline(config,
+def run_colmap_pipeline(config: dict,
                         intrinsics: dict = None,
                         extrinsics: dict = None):
     pass
 
-def run_metashape_pipeline(config,
+def run_metashape_pipeline(config: dict,
                            intrinsics: dict = None,
                            extrinsics: dict = None):
     """
@@ -33,7 +33,7 @@ def run_metashape_pipeline(config,
         print("Metashape successfully found and imported.")
     except ImportError:
         raise ImportError("Metashape module not found. Please ensure Agisoft Metashape is installed, " \
-                            "its license key is active, and Python wheels are properly built. " \
+                            "its license key is active, and Python wheels are properly built.\n" \
                             "Otherwise, COLMAP is an open-source structure-from-motion and " \
                             "multi-view stereo software and we provide some wrapper functions for it.") 
     import src.reconstruction.metashape as metashape 
@@ -41,27 +41,34 @@ def run_metashape_pipeline(config,
     # create metashape document
     doc = Metashape.Document()
 
-    resume = config.metashape.get('resume', None)
+    resume = config['metashape'].get('resume', None)
     if resume is None:
-        doc.save(os.path.join(config.dataset.path, 'project.psx'))
+        doc.save(os.path.join(config['dataset']['path'], 'project.psx'))
+    elif not os.path.isfile(resume):
+        raise ValueError(f"Resume file {resume} does not exist.")
     else:
         print(f"Resuming from existing Metashape document at {resume}")
-        doc.open(resume)
+        doc.open(resume, ignore_lock=True)
 
-    chunks = {}
+    chunks = []
+    chunk_labels = []
+    # should it be a dictionary instead?
     # 
-    for sensor_name in enumerate(config.dataset.sensor_names): # NUM CAMERAS from config
+    for sensor_name in enumerate(config['dataset']['sensor_names']): # NUM CAMERAS from config
         chunk = doc.addChunk(); chunk.label = f"{sensor_name}"
+        chunks.append(chunk)
         # collect all images from that sensor
-        sensor_path = os.path.join(config.dataset.path, sensor_name)
-        image_paths = get_all_paths(sensor_path, extensions=config.dataset.image_format)
+        sensor_path = os.path.join(config['dataset']['path'], sensor_name)
+        image_paths = get_all_paths(sensor_path, extensions=config['dataset']['image_format'])
         metashape.load_images(chunk, image_paths=image_paths)
         doc.save()
         ## there is a possibility of using RIG configuration for Metashape, but it hasn't worked well for me
         
         if intrinsics:
             print("Passing precomputed intrinsics to Metashape")
-            # load into
+            metashape.load_sensor_calibration(chunk.sensors[0], fixed=True,
+                        **opencv_distortion_coefficients_to_dictionary(dist_coeffs), 
+                        **metashape.intrinsics_matrix_to_metashape_dictionary(resx=3000,resy=2000,K=K))
             doc.save()
 
         if extrinsics:
@@ -69,10 +76,10 @@ def run_metashape_pipeline(config,
             # load into
             doc.save()
 
-        metashape.match_photos(chunk, **config.metashape.match_photos)
+        metashape.match_photos(chunk, **config['metashape']['match_photos'])
         doc.save()
         
-        metashape.align_cameras(chunk, **config.metashape.align_cameras)
+        metashape.align_cameras(chunk, **config['metashape']['align_cameras'])
         doc.save()
 
         metashape.build_dense_cloud(chunk, )
@@ -118,22 +125,22 @@ def main():
 
     # should we create a logger? pass it to the functions?
 
-    assert config.dataset.num_cameras == len(config.dataset.sensor_names), "Number of cameras must match the number of sensor names provided in the config."
+    assert config['dataset']['num_cameras'] == len(config['dataset']['sensor_names']), "Number of cameras must match the number of sensor names provided in the config."
     
-    if config.camera_calibration:
+    if config['camera_calibration']:
         print("Running camera calibration pipeline")
         # run_camera_calibration_pipeline(config) 
 
-    if config.pose_registration:
+    if config['pose_registration']:
         print("Running pose registration pipeline")
         # run_pose_registration_pipeline(config)
 
 
-    if config.run_metashape:
+    if config['run_metashape']:
         print("Running Metashape pipeline")
         run_metashape_pipeline(config)
 
-    if config.run_colmap:
+    if config['run_colmap']:
         print("Running COLMAP pipeline")
         run_colmap_pipeline(config)
 

@@ -1,5 +1,17 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import seaborn as sns
+mpl.rcParams.update({
+    "text.usetex": False,
+    "font.family": "serif",
+    "mathtext.fontset": "cm",
+})
+
+sns.set_theme(context='paper', font='serif', palette="pastel", style="whitegrid", rc={
+    "text.usetex": False,
+    "font.family": "serif",
+    "mathtext.fontset": "cm",
+})
 import numpy as np
 import open3d as o3d
 
@@ -76,8 +88,7 @@ class Plotter:
     def plot_distortion(image_shape: tuple,
                         K: np.ndarray,
                         dist_coeffs: np.ndarray,
-                        figsize: tuple = (16,12),
-                        filename: str = None):
+                        figsize: tuple = (16,12)):
         """
         Plot (with matplotlib) an image displaying lens distortion.
         
@@ -103,54 +114,49 @@ class Plotter:
         points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
 
         # undistort points
-        undistorted_points = undistort_camera_points(points,
-                                                     K, 
-                                                     dist_coeffs,
-                                                     P=K)
+        undistorted_points = undistort_camera_points(points, K, dist_coeffs, P=K)
+
         # find displacement vectors from distortion
         vectors = undistorted_points - points
 
-        plt.figure(figsize=figsize)
-        plt.title('Lens Distortion')
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_title('Lens Distortion')
 
         # center of image resolution
-        plt.scatter(x=width/2, y=height/2,
-                    s=min(width,height)/20, c='royalblue', marker='+')
+        ax.scatter(x=width / 2, y=height / 2,
+                s=min(width, height) / 20, c='royalblue', marker='+')
 
         # central point found after calibration
-        plt.scatter(x=K[0,2], y=K[1,2],
-                    s=min(width,height)/20, c='royalblue', marker='o')
-        
+        ax.scatter(x=K[0, 2], y=K[1, 2],
+                s=min(width, height) / 20, c='royalblue', marker='o')
+
         # arrows displaying distortion magnitude in pixels
-        plt.quiver(points[:,0], points[:,1], vectors[:,0], vectors[:,1],
-                   angles='xy', scale_units='xy', scale=1, color='blue')
+        ax.quiver(points[:, 0], points[:, 1], vectors[:, 0], vectors[:, 1],
+                angles='xy', scale_units='xy', scale=1, color='blue')
 
         # isolines of distortion magnitude in pixels
-        contour = plt.tricontour(points[:,0], points[:,1], np.linalg.norm(vectors, axis=1),
-                                 levels=[1.,2.,3.,4.,5.,6.,8.,10.,12.,16.,20.],
-                                 colors='k')
-        plt.clabel(contour, contour.levels, inline=True, fontsize=max(width,height)/100)
+        contour = ax.tricontour(points[:, 0], points[:, 1], np.linalg.norm(vectors, axis=1),
+                                levels=[1., 2., 3., 4., 5., 6., 8., 10., 12., 16., 20.],
+                                colors='k')
+        ax.clabel(contour, contour.levels, inline=True, fontsize=max(width, height) / 100)
 
         # labels
-        plt.xlabel('x (pixels)')
-        plt.xlim([0, width])
-        plt.ylabel('y (pixels)')
-        plt.ylim([height, 0])
-        plt.grid(visible=True)
-        if filename:
-            plt.savefig(filename, transparent=True, bbox_inches='tight')
-        plt.show()
+        ax.set_xlabel('x (pixels)')
+        ax.set_xlim([0, width])
+        ax.set_ylabel('y (pixels)')
+        ax.set_ylim([height, 0])
+        ax.grid(visible=True)
+
+        return fig
 
     @staticmethod
     def plot_markers(markers: np.ndarray,
                     image_shape: tuple,
                     K: np.ndarray = None,
-                    figsize: tuple = (16,12),
-                    filename: str = None):
+                    figsize: tuple = (16, 12)) -> plt.Figure:
         """
         Plot (with matplotlib) an image scattering the position
         of detected intrinsic markers used for calibration.
-
         Parameters
         ----------
         markers : array_like
@@ -162,41 +168,51 @@ class Plotter:
         figsize : tuple, optional
             tuple containing (width, height) of figure to plot.
             The default is (16,12).
-        filename : str, optional
-            if passed, path to file where figure will be saved.  
+
+        Returns
+        -------
+        fig : plt.Figure
+            Matplotlib figure object scattering the position of detected markers.
         """
         width, height = image_shape
 
-        plt.figure(figsize=figsize)
-        plt.title('Intrinsic Markers')
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_title('Intrinsic Markers')
 
         # scatter intrinsic image points on the image
         points = np.concatenate(markers)
-        plt.scatter(x=points[:,0], y=points[:,1],
-                    s=min(width,height)/10, c='tab:green', alpha=0.5, edgecolors='k')
+        ax.scatter(x=points[:, 0], y=points[:, 1],
+                s=min(width, height) / 10, c='tab:green', alpha=0.5, edgecolors='k')
 
         # center of image resolution
-        plt.scatter(x=width/2, y=height/2,
-                    s=min(width,height)/20, c='royalblue', marker='+')
+        ax.scatter(x=width / 2, y=height / 2,
+                s=min(width, height) / 20, c='royalblue', marker='+')
 
         # central point found after calibration
         if K is not None:
-            plt.scatter(x=K[0,2], y=K[1,2],
-                        s=min(width,height)/20, c='royalblue', marker='o')
-        
+            ax.scatter(x=K[0, 2], y=K[1, 2],
+                    s=min(width, height) / 20, c='royalblue', marker='o')
+
         # labels
-        plt.xlabel('x (pixels)')
-        plt.xlim([0, width])
-        plt.ylabel('y (pixels)')
-        plt.ylim([height, 0])
-        plt.grid(visible=True)
-        if filename:
-            plt.savefig(filename, transparent=True, bbox_inches='tight')
-        plt.show()
+        ax.set_xlabel('x (pixels)')
+        ax.set_xlim([0, width])
+        ax.set_ylabel('y (pixels)')
+        ax.set_ylim([height, 0])
+        ax.grid(visible=True)
+
+        return fig
     
     @staticmethod
-    def plot_errors():
-        pass
+    def plot_reprojection_errors(errors, figsize: tuple = (16,12)) -> plt.Figure:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.hist(errors, bins=50, range=(0,10))
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(True)
+        ax.set(xlabel='error (px)', ylabel='count', title='Reprojection')
+
+        return fig
 
     @staticmethod
     def plot_extrinsics(objects: list):
@@ -235,9 +251,8 @@ class Plotter:
 
         axis_equal_3d(ax)
 
-        return ax
+        return fig
 
-        plt.show()
     def plot_decoding(camera_shape: tuple,
                       index_x: np.ndarray=None,
                       index_y: np.ndarray=None,
@@ -293,8 +308,7 @@ class Plotter:
     @staticmethod
     def plot_normal_map(normals: np.ndarray,
                         mask: np.ndarray,
-                        figsize: tuple = (16,12),
-                        filename: str = None):
+                        figsize: tuple = (16,12)) -> plt.Figure:
         """
         Plot (with matplotlib) normals map as a 2D image.
 
@@ -321,21 +335,19 @@ class Plotter:
 
         image = .5 * (image + 1.)  # Convert from [-1, 1] to [0, 1]
 
-        plt.figure(figsize=figsize)
-        plt.title("Normals")
-        plt.imshow(image)
-        plt.axis('off')
-        if filename:
-            plt.savefig(filename, transparent=True, bbox_inches='tight')
-        plt.show()
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_title('Normals')
+        ax.imshow(image)
+        ax.set_axis_off()
+        
+        return fig
 
     @staticmethod
     def plot_depth_map(depth_map: np.ndarray,
                        cmap: str='turbo',
                        max_percentile: int=95,
                        min_percentile: int=5,
-                       figsize: tuple = (12,16),
-                       filename: str = None):
+                       figsize: tuple = (12,16)) -> plt.Figure:
         """
         Plot (with matplotlib) depth map.
         It uses jet colormap by default.
@@ -368,11 +380,211 @@ class Plotter:
         mapper = mpl.cm.ScalarMappable(norm=normalizer, cmap=cmap)
         mask = np.repeat(np.expand_dims(mask,-1), 3, -1)
         image = (mapper.to_rgba(disp_map)[:, :, :3] * 255).astype(np.uint8)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set_title('Depth Map')
+        ax.imshow(image)
+        ax.set_axis_off()
+
+        return fig
+    
+    @staticmethod
+    def plot_cameras_colmap_style(rvecs: list,
+                                  tvecs: list,
+                                  K: np.ndarray,
+                                  image_shape: tuple,
+                                  linewidth=1,
+                                  scale=1,
+                                  color="blue",
+                                  show_axes=False,
+                                  figsize: tuple = (16,12)) -> plt.Figure:
+        """
         
-        plt.figure(figsize=figsize)
-        plt.title("Depth Map")
-        plt.imshow(image)
-        plt.axis('off')
-        if filename:
-            plt.savefig(filename, transparent=True, bbox_inches='tight')
-        plt.show()
+        This function was written by ChatGPT.
+        Plot COLMAP-style camera wireframes using matplotlib.
+        
+        Parameters
+        ----------
+        rvecs : (N,3)
+            Rodrigues rotation vectors.
+
+        tvecs : (N,3)
+            Translation vectors.
+
+        K : (3,3) or None
+            Camera intrinsic matrix.
+
+        image_shape : tuple
+            (width, height)
+
+        scale : float
+            Camera frustum depth in world units.
+
+        color : str
+            Wireframe color.
+
+        linewidth : float
+            Wireframe line width.
+
+        show_axes : bool
+            Draw local camera XYZ axes.
+
+        """
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+        axis_equal_3d(ax)
+
+
+        rvecs = np.asarray(rvecs).reshape(-1, 3)
+        tvecs = np.asarray(tvecs).reshape(-1, 3)
+        W, H = image_shape
+
+        # -------------------------------------------------------------------------
+        # Build canonical frustum in CAMERA coordinates
+        # -------------------------------------------------------------------------
+        if K is not None:
+            fx = K[0, 0]
+            fy = K[1, 1]
+            cx = K[0, 2]
+            cy = K[1, 2]
+
+            z = scale
+
+            corners_px = np.array([
+                [0, 0],
+                [W, 0],
+                [W, H],
+                [0, H],
+            ])
+
+            corners_cam = []
+
+            for u, v in corners_px:
+                x = (u - cx) / fx * z
+                y = (v - cy) / fy * z
+                corners_cam.append([x, y, z])
+
+            corners_cam = np.array(corners_cam)
+
+        else:
+            s = scale * 0.5
+            z = scale
+
+            corners_cam = np.array([
+                [-s, -s, z],
+                [ s, -s, z],
+                [ s,  s, z],
+                [-s,  s, z],
+            ])
+
+        # Pyramid edges
+        edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 1),
+        ]
+
+        all_segments = []
+
+        # -------------------------------------------------------------------------
+        # Draw cameras
+        # -------------------------------------------------------------------------
+        import cv2
+        for rvec, tvec in zip(rvecs, tvecs):
+
+            R, _ = cv2.Rodrigues(rvec)
+
+            C = get_origin(R, tvec.reshape(3))
+            # Camera-to-world rotation
+            Rcw = R.T
+
+            # Transform frustum corners to world
+            corners_world = (
+                (Rcw @ corners_cam.T).T + C
+            )
+
+            origin_world = C.reshape(1, 3)
+
+            pts = np.vstack([origin_world, corners_world])
+
+            # Build line segments
+            for i0, i1 in edges:
+                all_segments.append([
+                    pts[i0],
+                    pts[i1],
+                ])
+
+            # ---------------------------------------------------------------------
+            # Optional coordinate axes
+            # ---------------------------------------------------------------------
+            if show_axes:
+
+                axis_len = scale * 0.5
+
+                axes_cam = np.array([
+                    [axis_len, 0, 0],
+                    [0, axis_len, 0],
+                    [0, 0, axis_len],
+                ])
+
+                axes_world = (
+                    (Rcw @ axes_cam.T).T + C
+                )
+
+                axis_colors = ["r", "g", "b"]
+
+                for p, c in zip(axes_world, axis_colors):
+                    ax.plot(
+                        [C[0], p[0]],
+                        [C[1], p[1]],
+                        [C[2], p[2]],
+                        color=c,
+                        linewidth=linewidth + 1,
+                    )
+
+        # -------------------------------------------------------------------------
+        # Add all camera wireframes
+        # -------------------------------------------------------------------------
+        lc = Line3DCollection(
+            all_segments,
+            colors=color,
+            linewidths=linewidth,
+        )
+
+        ax.add_collection3d(lc)
+
+        # -------------------------------------------------------------------------
+        # Equal aspect ratio
+        # -------------------------------------------------------------------------
+        all_pts = np.array(all_segments).reshape(-1, 3)
+
+        xmin, ymin, zmin = all_pts.min(axis=0)
+        xmax, ymax, zmax = all_pts.max(axis=0)
+
+        center = np.array([
+            (xmin + xmax) / 2,
+            (ymin + ymax) / 2,
+            (zmin + zmax) / 2,
+        ])
+
+        radius = max(
+            xmax - xmin,
+            ymax - ymin,
+            zmax - zmin,
+        ) * 0.5
+
+        ax.set_xlim(center[0] - radius, center[0] + radius)
+        ax.set_ylim(center[1] - radius, center[1] + radius)
+        ax.set_zlim(center[2] - radius, center[2] + radius)
+
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        return fig

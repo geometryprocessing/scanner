@@ -2,6 +2,7 @@ import json
 from natsort import natsorted
 import numpy as np
 import os
+import io
 
 def parse_value(dest_type, value):
     if value == 'None':
@@ -330,6 +331,7 @@ def write_opencv_calibration_to_xml(filename,
 def opencv_distortion_coefficients_to_dictionary(dist_coeffs = None) -> dict:
     dist_dict = {}
     dist_coeffs = np.asarray(dist_coeffs).flatten()
+    # TODO: I think the dictionary for Metashape needs to flip p1 and p2 
     PARAMETERS = ['k1', 'k2', 'p1', 'p2', 'k3', 'k4', 'k5', 'k6', 's1', 's2', 's3', 's4', 'taux', 'tauy']
     if dist_coeffs is None:
         dist_coeffs = np.zeros(5)
@@ -358,3 +360,36 @@ def print_vector(vector: set | list | np.ndarray, delimiter: str, precision: int
     reps = len(vector)
     fmt = fmt + (delimiter + fmt) * (reps - 1)
     return fmt.format(*vector)
+
+def plt_figure_to_bytes(fig, format: str = "png", dpi: int = 300, **savefig_kwargs) -> bytes:
+    """
+    Convert a matplotlib Figure into raw image bytes.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to serialize.
+    format : str
+        Output format ("png", "svg", "jpg", etc.)
+    dpi : int
+        Save DPI.
+    **savefig_kwargs
+        Extra kwargs forwarded to fig.savefig().
+
+    Returns
+    -------
+    bytes
+        Raw encoded image bytes.
+    """
+    buf = io.BytesIO()
+
+    fig.savefig(
+        buf,
+        format=format,
+        dpi=dpi,
+        bbox_inches="tight",
+        **savefig_kwargs,
+    )
+
+    buf.seek(0)
+    return buf.read()

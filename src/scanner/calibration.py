@@ -132,12 +132,13 @@ class CheckerBoard:
             obj_points = self.object_points
             ids = self.ids
         else:
-            img_points, obj_points, ids = [], [], []
+            img_points, obj_points, ids = np.array([]), np.array([]), np.array([])
 
-        return img_points, obj_points, ids
+        return img_points.reshape((-1,2)), obj_points.reshape((-1,3)), ids.flatten()
 
 
 class Charuco:
+    # TODO: write a cute __repr__?
     def __init__(self,
                 rows=None,
                 columns=None,
@@ -287,7 +288,7 @@ class Charuco:
             obj_points  = self.chessboard_corners[c_ids].reshape((-1, 3))
             ids = c_ids.ravel()
         else:
-            img_points, obj_points, ids = [], [], []
+            img_points, obj_points, ids = np.array([]), np.array([]), np.array([])
 
         if len(self.valid_ids) > 0:
             valids = np.isin(ids, self.valid_ids)
@@ -295,7 +296,7 @@ class Charuco:
             obj_points = obj_points[valids]
             ids = ids[valids]
 
-        return img_points, obj_points, ids
+        return img_points.reshape((-1,2)), obj_points.reshape((-1,3)), ids.flatten()
 
 class Calibration:
     # TODO: implement function calls for OpenCV fisheye

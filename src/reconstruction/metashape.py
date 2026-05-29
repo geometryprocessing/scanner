@@ -281,8 +281,8 @@ def load_images(chunk: Metashape.Chunk,
     else:
         chunk.addPhotos(image_paths)
 
-def load_sensor_calibration(sensor: Metashape.Sensor,
-                            calibration_path: str = None,
+def load_sensor_intrinsics(sensor: Metashape.Sensor,
+                            intrinsics_path: str = None,
                             fixed: bool = False,
                             format = Metashape.CalibrationFormatOpenCV,
                             **kwargs):
@@ -295,8 +295,8 @@ def load_sensor_calibration(sensor: Metashape.Sensor,
     calib = Metashape.Calibration()
     calib.width = sensor.width
     calib.height = sensor.height
-    if calibration_path is not None:
-        calib.load(calibration_path, format = format)
+    if intrinsics_path is not None:
+        calib.load(intrinsics_path, format = format)
     
     for k, v in kwargs.items():
         if hasattr(calib, k):
@@ -326,7 +326,6 @@ def load_image_extrinsics(chunk: Metashape.Chunk,
                           format=Metashape.ReferenceFormatCSV,
                           items=Metashape.ReferenceItemsCameras,
                           rotation_angles=Metashape.EulerAnglesOPK,
-                          load_location=True,
                           load_rotation=True,
                           delimiter=delimiter)
 

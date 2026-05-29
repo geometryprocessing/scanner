@@ -7,7 +7,7 @@ from src.utils.file_io import (
     get_all_folder_names, load_json, get_all_paths, 
     opencv_distortion_coefficients_to_dictionary,
     write_opencv_calibration_to_xml,
-    plt_figure_to_bytes
+    plt_figure_to_bytes, save_json
     )
 from src.utils.image_utils import load_ldr
 from src.scanner.calibration import Charuco, Calibration
@@ -822,8 +822,16 @@ def main():
             print("[DEBUG] Camera ID {} fx {:2f}, fy {:2f}, cx {:2f}, cy {:2f}".format(camera_id,K[0,0], K[1,1], K[0,2], K[1,2]))
             print("[DEBUG] Camera ID {} distortion coefficients: {}".format(camera_id,dist_coeffs))
 
-        intrinsic_path = os.path.join(args.path,camera_id,f'{camera_id}_camera_intrinsics.xml')
+        intrinsic_path = os.path.join(args.path,camera_id,f'{camera_id}_camera_intrinsics.json')
         print("[INFO] Camera ID {} saving intrinsics in {}".format(camera_id, intrinsic_path))
+        save_json(filename=intrinsic_path, data={
+            'K': K,
+            'dist_coeffs': dist_coeffs,
+            'resx': resx,
+            'resy': resy
+        })
+        intrinsic_path = os.path.join(args.path,camera_id,f'{camera_id}_camera_intrinsics.xml')
+        # something went wrong with writing the calibration to XML this time... I am reverting to JSON
         write_opencv_calibration_to_xml(intrinsic_path, resx, resy, K, dist_coeffs)
 
         extrinsic_path = os.path.join(args.path,camera_id,f'{camera_id}_camera_extrinsics_metashape.txt')

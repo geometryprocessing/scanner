@@ -66,7 +66,7 @@ def run_metashape_pipeline(data_path: str, calibration_path: str = None, extensi
             print("[INFO] Passing precomputed intrinsics to Metashape")
             data = load_json(os.path.join(calibration_path, sensor_name,f'{sensor_name}_camera_intrinsics.json'))
             metashape.load_sensor_intrinsics(chunk.sensors[0], fixed=True,
-                        **opencv_distortion_coefficients_to_dictionary(data['dist_coeffs']), 
+                        **opencv_distortion_coefficients_to_dictionary(data['dist_coeffs'], swap_p1_p2=True), 
                         **metashape.intrinsics_matrix_to_metashape_dictionary(resx=data['resx'],resy=data['resy'],K=data['K']))
             doc.save()
 

@@ -212,7 +212,8 @@ def load_json(filename: str) -> dict:
     if not is_json(filename):
         raise ValueError(f'{filename} is not JSON')
     with open(filename, 'r') as f:
-        return numpinize(json.load(f))
+        # return numpinize(json.load(f))
+        return json.load(f)
 
 def save_json(data: dict,
               filename: str):
@@ -328,11 +329,14 @@ def write_opencv_calibration_to_xml(filename,
     tree = ET.ElementTree(opencv_storage_elem)
     tree.write(filename)
 
-def opencv_distortion_coefficients_to_dictionary(dist_coeffs = None) -> dict:
+def opencv_distortion_coefficients_to_dictionary(dist_coeffs = None, swap_p1_p2: bool = False) -> dict:
     dist_dict = {}
     dist_coeffs = np.asarray(dist_coeffs).flatten()
     # TODO: I think the dictionary for Metashape needs to flip p1 and p2 
     PARAMETERS = ['k1', 'k2', 'p1', 'p2', 'k3', 'k4', 'k5', 'k6', 's1', 's2', 's3', 's4', 'taux', 'tauy']
+    if swap_p1_p2:
+        PARAMETERS[2] = 'p2'
+        PARAMETERS[3] = 'p1'
     if dist_coeffs is None:
         dist_coeffs = np.zeros(5)
     for idx, value in enumerate(dist_coeffs):

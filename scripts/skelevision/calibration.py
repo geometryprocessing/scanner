@@ -739,7 +739,7 @@ def detect_markers(imgs: list, charuco: Charuco):
         img_points += [_img_points.squeeze()]
         obj_points += [_obj_points.squeeze()]
         ids += [_ids.squeeze()]
-    return img_points, obj_points, ids, valid_idx, invalid_idx
+    return img_points, obj_points, ids, list(valid_idx), list(invalid_idx)
 
 def main():
     import time
@@ -762,7 +762,7 @@ def main():
 
 
     charuco_config = load_json(args.config)
-    charuco = Charuco(board_config=charuco_config)
+    charuco = Charuco(**charuco_config)
 
     if args.debug:
         print("[DEBUG] Received the following charuco configuration file")
@@ -898,6 +898,7 @@ def main():
 
     print("[INFO] Generating report...")
     generate_report(os.path.join(args.path, 'calibration_report.html'), calibrations)
+    save_json(calibrations, os.path.join(args.path, 'calibration_data.json'))
     toc2 = time.time()
     if args.debug:
         print(f"[DEBUG] Generating report took {(toc2-toc):02f} seconds")

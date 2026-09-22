@@ -25,7 +25,7 @@ This library has been built with python 3.12 and tested on MacOS and Linux Ubunt
 
 We recommmend using a virtual environment to manage libraries and avoid dependency conflicts. For example, with [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html):
 ```
-conda env create -n scanner python=3.12
+conda create -n scanner python=3.12
 conda activate scanner
 pip install -r requirements.txt
 ```

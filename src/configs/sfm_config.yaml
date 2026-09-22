@@ -3,30 +3,48 @@ dataset:
   name: example_dataset
   path: ???
   num_cameras: 5
+  # cameras_names: ['24185672', '24185675', '24185678', '24185686', '24185697']
   cameras_names: ['24185672', '24185675', '24185678', '24185686', '24185697']
-  image_format: .tiff
+  image_format: .png
+  # image_format: .tiff
+
+calibration:
+  path: /Users/pereira/Workspace/data/skelevision_tandon/2026_05_28_calibration/
 
 preprocessing:
   run:
-    tone_map: False
-    instrincs: False
-    undistort: False
+    tone_map: True
+    intrinsics: True
     mask: False
-    pose_registration: False
+    pose_registration: True
 
   tone_map:
     max_value: 65535 # 16-bit image
     min_value: 0
     method: sqrt # need to think about implementing sigmoid and other methods
 
-  undistort: # undistort requires camera intrinsics 
+  intrinsics:
+    charuco_board:
+      rows: 17
+      columns: 28
+      marker_size: 15 # in mm
+      checker_size: 20 # in mm
+      dictionary: 5X5_1000
+      valid_ids: # this is peculiar to the set-up, since the board is cut and we need to specify which markers to consider
+
+    save_undistorted: False 
 
   mask: # what to do here? maybe a trained object detection/classification?
 
-  pose_registration:
-  
+  pose_registration: # we rely on charuco boards for pose registration
+    charuco_board:
+      rows: 17
+      columns: 28
+      marker_size: 15 # in mm
+      checker_size: 20 # in mm
+      dictionary: 5X5_1000
+      valid_ids: # this is peculiar to the set-up, since the board is cut and we need to specify which markers to consider
 
-  
 # which SfM pipeline to run - you can pick both
 run_metashape: True
 run_colmap: False
@@ -35,16 +53,17 @@ run_colmap: False
 # NOTE: the software needs to be installed, a license key is required, and 
 # the wheels need to be built for Python API (https://www.agisoft.com/downloads/installer/)
 metashape:
-  # what to import
-  import:
-    import_cameras: True
-    import_markers: False
-    import_depth_maps: False
-    import_point_cloud: False
-    import_mesh: False
+  # what to load
+  load:
+    camera_intrinsics: True
+    camera_extrinsics: True
+    markers: False
+    depth_maps: False
+    point_cloud: False
+    mesh: False
 
   # what to save/export
-  export:
+  save:
     # if set to False, None, or just missing, then it will not be saved
     report: metashape_report.pdf
     point_cloud: metashape_point_cloud.ply
@@ -61,8 +80,6 @@ metashape:
     build_mesh: True
 
   # parameters for the functions
-  load_images:
-
   match_photos:    
     downscale: 1 # [1,2,4,8,16] 1 means no downscaling, 16 means the most downscaling (less accurate but faster)
 

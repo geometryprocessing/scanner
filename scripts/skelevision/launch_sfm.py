@@ -2,16 +2,15 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
 
-from src.utils.file_io import load_yaml, get_all_paths, opencv_distortion_coefficients_to_dictionary
+from src.utils.file_io import (
+    load_json, load_yaml, get_all_paths, 
+    opencv_distortion_coefficients_to_dictionary
+    )
 
-def run_colmap_pipeline(config: dict,
-                        intrinsics: dict = None,
-                        extrinsics: dict = None):
+def run_colmap_pipeline(config: dict):
     pass
 
-def run_metashape_pipeline(config: dict,
-                           intrinsics: dict = None,
-                           extrinsics: dict = None):
+def run_metashape_pipeline(config: dict):
     """
     Parameters
     ----------
@@ -30,7 +29,7 @@ def run_metashape_pipeline(config: dict,
     """
     try:
         import Metashape
-        print("Metashape successfully found and imported.")
+        print("[INFO] Metashape successfully found and imported.")
     except ImportError:
         raise ImportError("Metashape module not found. Please ensure Agisoft Metashape is installed, " \
                             "its license key is active, and Python wheels are properly built.\n" \
@@ -53,27 +52,31 @@ def run_metashape_pipeline(config: dict,
     chunks = []
     chunk_labels = []
     # should it be a dictionary instead?
-    # 
     for sensor_name in enumerate(config['dataset']['sensor_names']): # NUM CAMERAS from config
         chunk = doc.addChunk(); chunk.label = f"{sensor_name}"
         chunks.append(chunk)
+        chunk_labels.append(chunk.label)
         # collect all images from that sensor
         sensor_path = os.path.join(config['dataset']['path'], sensor_name)
         image_paths = get_all_paths(sensor_path, extensions=config['dataset']['image_format'])
+        print("[INFO] Found {} images from camera ID {}, loading all into Metashape".format(len(image_paths), sensor_name))
         metashape.load_images(chunk, image_paths=image_paths)
         doc.save()
         ## there is a possibility of using RIG configuration for Metashape, but it hasn't worked well for me
         
-        if intrinsics:
-            print("Passing precomputed intrinsics to Metashape")
-            metashape.load_sensor_calibration(chunk.sensors[0], fixed=True,
-                        **opencv_distortion_coefficients_to_dictionary(dist_coeffs), 
-                        **metashape.intrinsics_matrix_to_metashape_dictionary(resx=3000,resy=2000,K=K))
+        if config['load']['camera_intrinsics']:
+            print("[INFO] Passing precomputed intrinsics to Metashape")
+            data = load_json(os.path.join(config['calibration_path'], sensor_name,f'{sensor_name}_camera_intrinsics.json'))
+            metashape.load_sensor_intrinsics(chunk.sensors[0], fixed=True,
+                        **opencv_distortion_coefficients_to_dictionary(data['dist_coeffs']), 
+                        **metashape.intrinsics_matrix_to_metashape_dictionary(resx=data['resx'],resy=data['resy'],K=data['K']))
             doc.save()
 
-        if extrinsics:
-            print("Passing precomputed extrinsics to Metashape")
-            # load into
+        if config['load']['camera_extrinsics']:
+            print("[INFO] Passing precomputed extrinsics to Metashape")
+            metashape.load_image_extrinsics(chunk, 
+                                            extrinsics_path=os.path.join(config['calibration_path'], sensor_name,
+                                                                         f'{sensor_name}_camera_extrinsics_metashape.txt'))
             doc.save()
 
         metashape.match_photos(chunk, **config['metashape']['match_photos'])
@@ -82,8 +85,8 @@ def run_metashape_pipeline(config: dict,
         metashape.align_cameras(chunk, **config['metashape']['align_cameras'])
         doc.save()
 
-        metashape.build_dense_cloud(chunk, )
-        doc.save()
+        # metashape.build_dense_cloud(chunk, )
+        # doc.save()
 
 
     # if multiple cameras, align chunks and merge chunks
@@ -94,17 +97,21 @@ def run_metashape_pipeline(config: dict,
     
         doc.mergeChunks(copy_laser_scans=True, copy_masks=True, copy_depth_maps=True,
                         copy_point_clouds=True, copy_models=True, copy_tiled_models=True,
-                        copy_elevations=True,copy_orthomosaics=True, merge_markers=True,
+                        copy_elevations=True, copy_orthomosaics=True, merge_markers=True,
                         merge_tiepoints=True, merge_assets=True)
         doc.save()
+
+    metashape.build_dense_cloud()
+    doc.save()
+
+    metashape.build_mesh()
+
     
     # save results
     # if config.export.
     chunk.exportReport(os.path.join(config.dataset.path, 'metashape_report.pdf'))
     metashape.export_dense_cloud(chunk, os.path.join(config.dataset.path, 'metashape_dense_cloud.ply'))
     metashape.export_mesh(chunk, os.path.join(config.dataset.path, 'metashape_mesh.obj'))
-
-
 
 def main():
     import argparse
@@ -128,20 +135,20 @@ def main():
     assert config['dataset']['num_cameras'] == len(config['dataset']['sensor_names']), "Number of cameras must match the number of sensor names provided in the config."
     
     if config['camera_calibration']:
-        print("Running camera calibration pipeline")
+        print("[INFO] Running camera calibration pipeline")
         # run_camera_calibration_pipeline(config) 
 
     if config['pose_registration']:
-        print("Running pose registration pipeline")
+        print("[INFO] Running pose registration pipeline")
         # run_pose_registration_pipeline(config)
 
 
     if config['run_metashape']:
-        print("Running Metashape pipeline")
+        print("[INFO] Running Metashape pipeline")
         run_metashape_pipeline(config)
 
     if config['run_colmap']:
-        print("Running COLMAP pipeline")
+        print("[INFO] Running COLMAP pipeline")
         run_colmap_pipeline(config)
 
 

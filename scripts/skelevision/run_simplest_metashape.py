@@ -63,18 +63,21 @@ def run_metashape_pipeline(data_path: str, calibration_path: str = None, extensi
         ## there is a possibility of using RIG configuration for Metashape, but it hasn't worked well for me
         
         if calibration_path is not None:
-            print("[INFO] Passing precomputed intrinsics to Metashape")
-            data = load_json(os.path.join(calibration_path, sensor_name,f'{sensor_name}_camera_intrinsics.json'))
-            metashape.load_sensor_intrinsics(chunk.sensors[0], fixed=True,
-                        **opencv_distortion_coefficients_to_dictionary(data['dist_coeffs'], swap_p1_p2=True), 
-                        **metashape.intrinsics_matrix_to_metashape_dictionary(resx=data['resx'],resy=data['resy'],K=data['K']))
-            doc.save()
+            if os.path.exists(os.path.join(calibration_path, sensor_name,f'{sensor_name}_camera_intrinsics.json')):
+                print("[INFO] Passing precomputed intrinsics to Metashape")
+                data = load_json(os.path.join(calibration_path, sensor_name,f'{sensor_name}_camera_intrinsics.json'))
+                metashape.load_sensor_intrinsics(chunk.sensors[0], fixed=True,
+                            **opencv_distortion_coefficients_to_dictionary(data['dist_coeffs'], swap_p1_p2=True), 
+                            **metashape.intrinsics_matrix_to_metashape_dictionary(resx=data['resx'],resy=data['resy'],K=data['K']))
+                doc.save()
 
-            print("[INFO] Passing precomputed extrinsics to Metashape")
-            metashape.load_image_extrinsics(chunk, 
-                                            extrinsics_path=os.path.join(calibration_path, sensor_name,
-                                                                            f'{sensor_name}_camera_extrinsics_metashape.txt'))
-            doc.save()
+            if os.path.exists(os.path.join(calibration_path, sensor_name,
+                                                                            f'{sensor_name}_camera_extrinsics_metashape.txt')):
+                print("[INFO] Passing precomputed extrinsics to Metashape")
+                metashape.load_image_extrinsics(chunk, 
+                                                extrinsics_path=os.path.join(calibration_path, sensor_name,
+                                                                                f'{sensor_name}_camera_extrinsics_metashape.txt'))
+                doc.save()
 
         # print("[INFO] Maching photos...")
         # d = metashape.DEFAULTS['MATCH_PHOTOS_DEFAULTS']

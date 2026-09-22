@@ -173,7 +173,10 @@ class Charuco:
             checker_size = board_config["checker_size"]
             marker_size = board_config["marker_size"]
             dictionary = board_config["dictionary"]
-            valid_ids += board_config.get("valid_ids", [])
+            loaded_valid_ids = board_config.get("valid_ids", [])
+            if isinstance(loaded_valid_ids, np.ndarray):
+                loaded_valid_ids = loaded_valid_ids.tolist()
+            valid_ids += loaded_valid_ids
 
         self.rows=rows
         self.columns=columns

@@ -8,13 +8,13 @@ import math
 ########                  CPU FUNCTIONS BELOW               ######## 
 ####################################################################
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, cache=True, inline='always')
 def ray_search(L, Q):
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
     Z, C = L.shape
     for j in range(Z):
-        dist = 0.0
+        dist = nb.float32(0.0)
         for k in range(C):
             diff = L[j, k] - Q[k]
             dist += diff * diff
@@ -25,7 +25,7 @@ def ray_search(L, Q):
 
     return best_idx, best_val
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=True, cache=True)
 def lookup_3dim_no_mask(L, D, Q):
     """
     This function relies on numba to parallelize lookup on L given Q.
@@ -63,7 +63,7 @@ def lookup_3dim_no_mask(L, D, Q):
 
     return depth, minD, loss
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=True, cache=True)
 def lookup_3dim_with_mask(L, D, Q, mask):
     """
     This function relies on numba to parallelize lookup on L given Q.
@@ -107,7 +107,7 @@ def lookup_3dim_with_mask(L, D, Q, mask):
     return depth, minD, loss
 
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=True, cache=True)
 def lookup_4dim_no_mask(L, D, Q):
     """
     This function relies on numba to parallelize lookup on L given Q.
@@ -136,17 +136,18 @@ def lookup_4dim_no_mask(L, D, Q):
     loss = np.full((H,W), fill_value=float('inf'), dtype=np.float32)
     depth = np.full((H,W), fill_value=-1., dtype=np.float32)
 
-    for i in prange(H):
-        for j in range(W):
-            best_idx, best_val = ray_search(L[i,j], Q[i,j])
+    for idx in prange(H * W):
+        i = idx // W
+        j = idx % W
+        best_idx, best_val = ray_search(L[i,j], Q[i,j])
 
-            minD[i,j] = best_idx
-            depth[i,j] = D[i,j,best_idx]
-            loss[i,j] = best_val
+        minD[i,j] = best_idx
+        depth[i,j] = D[i,j,best_idx]
+        loss[i,j] = best_val
 
     return depth, minD, loss
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=True, cache=True)
 def lookup_4dim_with_mask(L, D, Q, mask):
     """
     This function relies on numba to parallelize lookup on L given Q.
@@ -179,14 +180,15 @@ def lookup_4dim_with_mask(L, D, Q, mask):
     loss = np.full((H,W), fill_value=float('inf'), dtype=np.float32)
     depth = np.full((H,W), fill_value=-1., dtype=np.float32)
 
-    for i in prange(H):
-        for j in range(W):
-            if mask[i,j]:
-                best_idx, best_val = ray_search(L[i,j], Q[i,j])
+    for idx in prange(H * W):
+        i = idx // W
+        j = idx % W
+        if mask[i,j]:
+            best_idx, best_val = ray_search(L[i,j], Q[i,j])
 
-                minD[i,j] = best_idx
-                depth[i,j] = D[i,j,best_idx]
-                loss[i,j] = best_val
+            minD[i,j] = best_idx
+            depth[i,j] = D[i,j,best_idx]
+            loss[i,j] = best_val
 
     return depth, minD, loss
 
@@ -221,16 +223,18 @@ def lookup_cpu(L, D, Q, mask=None):
 
     if len(Lshape) == 3:
         if mask is None:
-            return lookup_3dim_no_mask(L, D, Q)
+            depth, minD, loss = lookup_3dim_no_mask(L, D, Q)
         else:
-            return lookup_3dim_with_mask(L, D, Q, mask)
+            depth, minD, loss = lookup_3dim_with_mask(L, D, Q, mask)
     elif len(Lshape) == 4:
         if mask is None:
-            return lookup_4dim_no_mask(L, D, Q)
+            depth, minD, loss = lookup_4dim_no_mask(L, D, Q)
         else:
-            return lookup_4dim_with_mask(L, D, Q, mask)
+            depth, minD, loss = lookup_4dim_with_mask(L, D, Q, mask)
     else:
         raise ValueError('Unrecognized shape of LookUp Table')
+
+    return depth, minD, math.sqrt(loss)
 
 ####################################################################
 ########  GPU FUNCTIONS BELOW -- THESE WORK ONLY IN CUDA    ######## 
@@ -243,7 +247,7 @@ def sequential_ray_search_gpu_3channel(L,Q):
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
     for k in range(Z):
-        dist = 0.0
+        dist = nb.float32(0.0)
         dist = (L[k, 0] - Q[0])**2\
              + (L[k, 1] - Q[1])**2\
              + (L[k, 2] - Q[2])**2
@@ -259,7 +263,7 @@ def sequential_ray_search_gpu(L,Q):
     best_idx = nb.int32(-1)
     best_val = nb.float32(float('inf'))
     for k in range(Z):
-        dist = 0.0
+        dist = nb.float32(0.0)
         for c in range(C):
             diff = L[k,c] - Q[c]
             dist = cuda.fma(diff,diff,dist)
@@ -384,7 +388,7 @@ def lookup_4dim_no_mask_gpu(L, D, Q, depth, minD, loss):
         min_idex = nb.int32(sdata[0])
         depth[i,j] = D[i, j, min_idex]
         minD[i,j]  = min_idex
-        loss[i,j]  = math.sqrt(sdata[0 + stride])
+        loss[i,j]  = sdata[0 + stride]
 
 @cuda.jit
 def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
@@ -444,7 +448,7 @@ def lookup_4dim_with_mask_gpu(L, D, Q, mask, depth, minD, loss):
         min_idex = nb.int32(sdata[0])
         depth[i,j] = D[i, j, min_idex]
         minD[i,j]  = min_idex
-        loss[i,j]  = math.sqrt(sdata[0 + stride])
+        loss[i,j]  = sdata[0 + stride]
 
 
 def lookup_gpu(L, D, Q, threads:int | tuple[int], mask=None):
@@ -497,4 +501,4 @@ def lookup_gpu(L, D, Q, threads:int | tuple[int], mask=None):
     else:
         raise ValueError('Unrecognized shape of LookUp Table')
     
-    return depth, minD, loss
+    return depth, minD, math.sqrt(loss)

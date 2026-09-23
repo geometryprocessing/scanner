@@ -130,8 +130,7 @@ def normalize_color(color_image: str | np.ndarray,
                     mask: str | np.ndarray = None,
                     black_image: str | np.ndarray = None) -> np.ndarray:
     """
-    Take a color image and a white image, apply a Gaussian blur
-    on both and get color divided by white.
+    Take a color image and a white image and get color divided by white.
     This function is relevant to LookUp Calibration and Reconstruction.
 
     Parameters

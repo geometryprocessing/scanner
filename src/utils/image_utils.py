@@ -156,7 +156,7 @@ def normalize_color(color_image: str | np.ndarray,
     white_image = np.atleast_3d(np.squeeze(white_image))
 
     if mask is None:
-        mask = np.full(shape=(normalized.shape[0], normalized.shape[1]), fill_value=True, dtype=np.bool)
+        mask = np.full(shape=(normalized.shape[0], normalized.shape[1]), fill_value=True, dtype=bool)
     else:
         if isinstance(mask, str):
             mask = np.load(mask)
